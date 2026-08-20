@@ -1,0 +1,50 @@
+name: Daily Delivery
+
+on:
+  schedule:
+    # Renewal reminders first (02:45 UTC), then delivery (03:00 UTC) per sections 12, 31.
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  delivery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest httpx
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Configure git author
+        run: |
+          git config user.name "daily-darshan-bot"
+          git config user.email "bot@users.noreply.github.com"
+
+      - name: Expire lapsed subscriptions
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+        run: python scheduler.py expiry
+
+      - name: Send renewal reminders
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+          WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+        run: python scheduler.py renewal
+
+      - name: Deliver today's image
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+          WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+        run: python scheduler.py delivery
