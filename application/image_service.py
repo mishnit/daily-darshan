@@ -82,3 +82,53 @@ class ImageService:
 
     def canonical_path(self, on_date: date) -> str:
         return Image(image_date=on_date).canonical_path(self._images_dir)
+
+    def prune_images(
+        self,
+        keep: int = 7,
+        fallback_name: str = "fallback.jpg",
+        root: str = ".",
+    ) -> list[str]:
+        """Delete old dated images, keeping the newest ``keep`` plus a fallback.
+
+        Retention policy (section 10/11 hygiene):
+          - Keep the ``keep`` most recent dated images named ``YYYY-MM-DD.jpg``.
+          - Always keep ``fallback_name`` if present (the safety-net image).
+          - Delete every other .jpg in the images dir.
+
+        Only files matching the canonical dated name are considered for
+        deletion; anything else (e.g. the fallback, a .gitkeep) is left alone
+        unless it is an older dated image. Returns the repo-relative paths
+        removed so the caller can commit the deletions.
+
+        Idempotent: a second run with nothing to prune returns [].
+        """
+        import os
+        import re
+
+        dated_re = re.compile(r"^(\d{4}-\d{2}-\d{2})\.jpg$")
+        abs_dir = os.path.join(root, self._images_dir)
+        if not os.path.isdir(abs_dir):
+            return []
+
+        dated: list[tuple[str, str]] = []  # (date_str, filename)
+        for name in os.listdir(abs_dir):
+            m = dated_re.match(name)
+            if m:
+                dated.append((m.group(1), name))
+
+        # Newest first by ISO date string (lexicographic == chronological here).
+        dated.sort(key=lambda t: t[0], reverse=True)
+        to_delete = dated[keep:] if keep >= 0 else []
+
+        removed: list[str] = []
+        for _date_str, name in to_delete:
+            if name == fallback_name:
+                continue  # never delete the fallback, even if it looks dated
+            full = os.path.join(abs_dir, name)
+            try:
+                os.remove(full)
+            except FileNotFoundError:
+                continue
+            removed.append(os.path.join(self._images_dir, name))
+        return removed
