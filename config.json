@@ -1,0 +1,54 @@
+{
+  "plans": {
+    "monthly": { "amount": 49, "days": 30 },
+    "quarterly": { "amount": 129, "days": 90 },
+    "yearly": { "amount": 449, "days": 365 }
+  },
+  "upi": {
+    "payee_vpa": "dailydarshan@upi",
+    "payee_name": "Daily Darshan",
+    "currency": "INR"
+  },
+  "image_sources": ["temple", "rss", "website"],
+  "image_source_config": {
+    "temple": { "base_url": "https://example-temple.org/darshan" },
+    "rss": { "feed_url": "https://example.com/darshan/rss" },
+    "website": { "page_url": "https://example.com/daily-darshan" }
+  },
+  "image_validation": {
+    "min_width": 200,
+    "min_height": 200,
+    "allowed_formats": ["JPEG", "PNG", "JPG"]
+  },
+  "paths": {
+    "images_dir": "images",
+    "subscribers_csv": "csv/subscribers.csv",
+    "payments_csv": "csv/payments.csv",
+    "sentlog_csv": "csv/sentlog.csv",
+    "renewals_csv": "csv/renewals.csv",
+    "logs_csv": "csv/logs.csv",
+    "processed_csv": "csv/processed.csv"
+  },
+  "schedule": {
+    "image_cron_utc": "30 2 * * *",
+    "delivery_cron_utc": "0 3 * * *",
+    "renewal_cron_utc": "45 2 * * *"
+  },
+  "renewal": {
+    "reminder_days": [3, 1]
+  },
+  "persistence": {
+    "mode": "github_api",
+    "branch": "main"
+  },
+  "delivery": {
+    "mode": "utility_template",
+    "template_name": "daily_darshan_status",
+    "template_lang": "en",
+    "page_base_url": "https://darshan.example.com",
+    "pages_dir": "docs",
+    "image_public_base": "https://USER.github.io/daily-darshan",
+    "caption": "Daily Darshan - {date}",
+    "max_send_retries": 3
+  }
+}

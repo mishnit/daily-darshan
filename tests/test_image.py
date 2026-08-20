@@ -1,0 +1,110 @@
+"""Section 20: image validation and source fallback."""
+from __future__ import annotations
+
+import io
+from datetime import date
+
+import pytest
+
+from domain.image import Image
+from application.image_service import ImageCollector, ImageService, AllSourcesFailed
+from adapters.image_sources.validator import ImageValidator
+from tests.conftest import FakeSource
+
+try:
+    from PIL import Image as PILImage
+    _PIL = True
+except Exception:
+    _PIL = False
+
+
+def _png_bytes(w=300, h=300) -> bytes:
+    buf = io.BytesIO()
+    PILImage.new("RGB", (w, h), (10, 20, 30)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_validator_rejects_empty():
+    v = ImageValidator(min_width=0, min_height=0)
+    assert v.validate(Image(image_date=date.today(), data=b"")) is False
+
+
+@pytest.mark.skipif(not _PIL, reason="Pillow not installed")
+def test_validator_accepts_valid_png():
+    v = ImageValidator(allowed_formats=["PNG"], min_width=200, min_height=200)
+    img = Image(image_date=date.today(), data=_png_bytes())
+    assert v.validate(img) is True
+
+
+@pytest.mark.skipif(not _PIL, reason="Pillow not installed")
+def test_validator_rejects_small_dimensions():
+    v = ImageValidator(allowed_formats=["PNG"], min_width=500, min_height=500)
+    img = Image(image_date=date.today(), data=_png_bytes(100, 100))
+    assert v.validate(img) is False
+
+
+@pytest.mark.skipif(not _PIL, reason="Pillow not installed")
+def test_validator_rejects_garbage_bytes():
+    v = ImageValidator(allowed_formats=["PNG", "JPEG"])
+    img = Image(image_date=date.today(), data=b"not-an-image")
+    assert v.validate(img) is False
+
+
+def test_sha256_stable():
+    img = Image(image_date=date.today(), data=b"abc")
+    assert img.sha256() == img.sha256()
+
+
+# ------------------------- source fallback ------------------------- #
+
+class AllValidValidator:
+    def validate(self, image):
+        return image is not None and not image.is_empty
+
+
+def test_collector_uses_first_valid_source():
+    good = Image(image_date=date.today(), data=b"good", source="temple")
+    collector = ImageCollector([FakeSource("temple", good)], AllValidValidator())
+    result = collector.collect(date.today())
+    assert result.source == "temple"
+
+
+def test_collector_falls_back_to_next_source():
+    good = Image(image_date=date.today(), data=b"good", source="rss")
+    collector = ImageCollector(
+        [FakeSource("temple", None), FakeSource("rss", good)], AllValidValidator()
+    )
+    result = collector.collect(date.today())
+    assert result.source == "rss"
+
+
+def test_collector_skips_source_that_raises():
+    good = Image(image_date=date.today(), data=b"good", source="website")
+    collector = ImageCollector(
+        [FakeSource("temple", raises=True), FakeSource("website", good)], AllValidValidator()
+    )
+    assert collector.collect(date.today()).source == "website"
+
+
+def test_collector_all_fail_raises():
+    collector = ImageCollector(
+        [FakeSource("temple", None), FakeSource("rss", None)], AllValidValidator()
+    )
+    with pytest.raises(AllSourcesFailed):
+        collector.collect(date.today())
+
+
+def test_image_service_idempotent_when_existing_valid():
+    good = Image(image_date=date.today(), data=b"new", source="temple")
+    collector = ImageCollector([FakeSource("temple", good)], AllValidValidator())
+    svc = ImageService(collector, AllValidValidator())
+    # Existing valid bytes present -> returns None (no replacement, section 10).
+    assert svc.ensure_daily_image(date.today(), existing=b"already-here") is None
+
+
+def test_image_service_collects_when_no_existing():
+    good = Image(image_date=date.today(), data=b"new", source="temple")
+    collector = ImageCollector([FakeSource("temple", good)], AllValidValidator())
+    svc = ImageService(collector, AllValidValidator())
+    result = svc.ensure_daily_image(date.today(), existing=None)
+    assert result is not None and result.data == b"new"

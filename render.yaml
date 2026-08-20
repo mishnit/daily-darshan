@@ -1,0 +1,31 @@
+# Render Blueprint for the Daily Darshan WhatsApp webhook.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Run a SINGLE instance: persistence is CSV-in-Git and the webhook must avoid
+# concurrent writers (see README).
+services:
+  - type: web
+    name: daily-darshan-webhook
+    runtime: python
+    plan: free
+    numInstances: 1
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      # Secrets — set values in the Render dashboard (do NOT commit them).
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_REPO
+        sync: false

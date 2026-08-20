@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "daily-darshan"
+version = "2.0.0"
+description = "Minimal Daily Darshan platform (GitHub + CSV + GitHub Actions + serverless WhatsApp API)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "requests>=2.31",
+    "Pillow>=10.0",
+    "python-dateutil>=2.9",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0", "httpx>=0.27"]
+
+[tool.setuptools]
+packages = ["domain", "application", "repositories", "adapters", "adapters.image_sources"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

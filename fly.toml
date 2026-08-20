@@ -1,0 +1,38 @@
+# Fly.io configuration for the Daily Darshan WhatsApp webhook.
+# Docs: https://fly.io/docs/reference/configuration/
+#
+# Deploy:
+#   fly launch --no-deploy        # first time (creates the app; keep this file)
+#   fly secrets set WHATSAPP_ACCESS_TOKEN=... WHATSAPP_PHONE_NUMBER_ID=... \
+#                   WEBHOOK_VERIFY_TOKEN=... GITHUB_TOKEN=... GITHUB_REPO=owner/repo
+#   fly deploy
+#
+# Run a SINGLE instance (CSV-in-Git: avoid concurrent writers).
+
+app = "daily-darshan-webhook"
+primary_region = "sin"   # Singapore; closest common region to India
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8000"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+[[http_service.checks]]
+  method = "GET"
+  path = "/health"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"
