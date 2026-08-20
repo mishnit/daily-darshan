@@ -49,8 +49,11 @@
     "template_lang": "en",
     "page_base_url": "https://vipseva.com",
     "pages_dir": "docs",
-    "image_public_base": "https://USER.github.io/daily-darshan",
+    "image_public_base": "https://vipseva.com",
     "caption": "Daily Darshan - {date}",
-    "max_send_retries": 3
+    "max_send_retries": 3,
+    "image_retention_days": 7,
+    "fallback_image": "fallback.jpg",
+    "page_retention_grace_days": 7
   }
 }
