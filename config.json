@@ -1,8 +1,9 @@
 {
   "plans": {
-    "monthly": { "amount": 49, "days": 30 },
-    "quarterly": { "amount": 129, "days": 90 },
-    "yearly": { "amount": 449, "days": 365 }
+    "one-day": { "amount": 9, "days": 1 },
+    "weekly": { "amount": 49, "days": 7 },
+    "monthly": { "amount": 99, "days": 30 },
+    "yearly": { "amount": 999, "days": 365 }
   },
   "upi": {
     "payee_vpa": "dailydarshan@upi",
@@ -39,13 +40,14 @@
   },
   "persistence": {
     "mode": "github_api",
-    "branch": "main"
+    "branch": "main",
+    "quiet_window_utc": { "start": "02:25", "end": "03:10" }
   },
   "delivery": {
     "mode": "utility_template",
     "template_name": "daily_darshan_status",
     "template_lang": "en",
-    "page_base_url": "https://darshan.example.com",
+    "page_base_url": "https://vipseva.com",
     "pages_dir": "docs",
     "image_public_base": "https://USER.github.io/daily-darshan",
     "caption": "Daily Darshan - {date}",
