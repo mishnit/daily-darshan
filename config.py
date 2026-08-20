@@ -108,6 +108,7 @@ class Container:
         self.page_renderer = PageRenderer(
             pages_dir=delivery_cfg.get("pages_dir", "docs"),
             image_public_base=delivery_cfg.get("image_public_base", ""),
+            image_url_path=delivery_cfg.get("image_url_path", "images"),
         )
 
         # Durable webhook persistence (P0 fix #6): back local CSVs with the
