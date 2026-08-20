@@ -46,7 +46,8 @@ _TEMPLATE = """<!DOCTYPE html>
     <h1>🙏 Daily Darshan</h1>
     <div class="greeting">{greeting}</div>
     <div class="status">{status_text}</div>
-    <img class="darshan" src="{image_url}" alt="Daily Darshan for {date}">
+    <img class="darshan" src="{image_url}" alt="Daily Darshan for {date}"
+         onerror="this.onerror=null; this.src='{fallback_url}';">
     <div class="meta">
       <div>Date: {date}</div>
       <div>Plan: {plan}</div>
@@ -71,6 +72,11 @@ class PageRenderer:
     def image_url(self, on_date: date, images_dir: str = "images") -> str:
         return f"{self._image_public_base}/{images_dir}/{on_date.isoformat()}.jpg"
 
+    def fallback_url(self, images_dir: str = "images", fallback_name: str = "fallback.jpg") -> str:
+        """Public URL of the safety-net image used when a dated image is gone
+        (e.g. pruned by retention). Referenced by the page's <img onerror>."""
+        return f"{self._image_public_base}/{images_dir}/{fallback_name}"
+
     def render_html(self, subscriber: Subscriber, on_date: date, delivered: bool,
                     images_dir: str = "images") -> str:
         status_text = "Delivered" if delivered else "Ready"
@@ -81,6 +87,7 @@ class PageRenderer:
             date=html.escape(on_date.isoformat()),
             status_text=html.escape(f"{status_text} — {on_date.isoformat()}"),
             image_url=html.escape(self.image_url(on_date, images_dir)),
+            fallback_url=html.escape(self.fallback_url(images_dir)),
             plan=html.escape(subscriber.plan or "—"),
             end_date=html.escape(subscriber.end_date.isoformat() if subscriber.end_date else "—"),
             greeting=html.escape(greeting),
@@ -111,3 +118,62 @@ class PageRenderer:
             if path:
                 written.append(path)
         return written
+
+    def prune_pages(
+        self,
+        subscribers: list[Subscriber],
+        on_date: date,
+        grace_days: int = 7,
+        root: str = ".",
+    ) -> list[str]:
+        """Remove per-subscriber pages for subscribers inactive beyond a grace period.
+
+        Each page lives at ``<pages_dir>/<subscription_id>/index.html``. A page
+        is **kept** if any of the following holds for its subscription_id:
+          - the subscriber is currently ACTIVE, or
+          - the subscriber's ``end_date`` is within ``grace_days`` of
+            ``on_date`` (i.e. recently expired/cancelled — keep the link alive
+            for late openers), or
+          - the subscription_id is unknown to us (no matching subscriber row):
+            we do not delete pages we cannot reason about.
+
+        A page is **removed** only when its subscriber is non-active AND their
+        ``end_date`` is more than ``grace_days`` in the past. This never touches
+        a live subscriber's branded URL and gives recently-expired subscribers a
+        grace window before their page disappears.
+
+        Only immediate subdirectories of ``pages_dir`` are considered; loose
+        files (e.g. a landing page or .gitkeep) are left untouched. Returns
+        repo-relative directory paths removed. Idempotent.
+        """
+        import shutil
+        from datetime import timedelta
+
+        from domain.enums import SubscriberStatus
+
+        abs_dir = os.path.join(root, self._pages_dir)
+        if not os.path.isdir(abs_dir):
+            return []
+
+        # Index subscribers by their page id for O(1) lookup.
+        by_id = {s.subscription_id: s for s in subscribers if s.subscription_id}
+        cutoff = on_date - timedelta(days=grace_days)
+
+        removed: list[str] = []
+        for name in os.listdir(abs_dir):
+            full = os.path.join(abs_dir, name)
+            if not os.path.isdir(full):
+                continue  # skip loose files
+
+            sub = by_id.get(name)
+            if sub is None:
+                continue  # unknown id -> keep (don't delete what we can't reason about)
+            if sub.status == SubscriberStatus.ACTIVE:
+                continue  # live subscriber -> always keep
+            # Non-active: keep during the grace window after end_date.
+            if sub.end_date is None or sub.end_date >= cutoff:
+                continue
+
+            shutil.rmtree(full, ignore_errors=True)
+            removed.append(os.path.join(self._pages_dir, name))
+        return removed
