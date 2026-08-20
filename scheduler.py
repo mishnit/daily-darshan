@@ -64,6 +64,21 @@ def run_image(container: Container, git: LocalGitRepository, on_date: date) -> i
     # the last run get a page even when today's image already exists.
     pages = _render_pages(container, on_date)
     committed.extend(pages)
+
+    # Retention: keep only the newest N dated images plus the fallback, and
+    # delete the rest so the repo does not grow unbounded (section 10/11).
+    delivery_cfg = container.config.get("delivery", {})
+    keep = int(delivery_cfg.get("image_retention_days", 7))
+    fallback_name = delivery_cfg.get("fallback_image", "fallback.jpg")
+    removed = container.image_service.prune_images(
+        keep=keep, fallback_name=fallback_name, root=container.root
+    )
+    if removed:
+        # git add on a deleted path stages the deletion; commit() picks it up.
+        committed.extend(removed)
+        container.logs.log("IMAGES_PRUNED", details=f"removed={len(removed)} kept<= {keep}")
+        print(f"[image] pruned {len(removed)} old image(s), keeping newest {keep} + fallback")
+
     if committed:
         git.commit(committed, f"Daily darshan image + pages {on_date.isoformat()}")
     print(f"[image] pages={len(pages)}")
@@ -99,10 +114,30 @@ def run_renewal(container: Container, git: LocalGitRepository, on_date: date) ->
 
 
 def run_expiry_sweep(container: Container, git: LocalGitRepository, on_date: date) -> int:
-    """Flip ACTIVE subscribers past their end_date to EXPIRED in storage."""
+    """Flip ACTIVE subscribers past their end_date to EXPIRED in storage, then
+    prune per-subscriber pages for subscribers inactive beyond a grace period."""
     expired = container.subscriber_service.sweep_expired(on_date)
-    git.commit([container.config["paths"]["subscribers_csv"], container.config["paths"]["logs_csv"]],
-               f"Expiry sweep {on_date.isoformat()}")
+
+    commit_paths = [
+        container.config["paths"]["subscribers_csv"],
+        container.config["paths"]["logs_csv"],
+    ]
+
+    # Page retention with grace: keep pages for ACTIVE subscribers and for
+    # subscribers whose end_date is within `page_retention_grace_days` of today
+    # (recently expired/cancelled -> keep the link alive for late openers).
+    # Prune only pages for subscribers inactive beyond that window. Runs after
+    # the sweep so today's expirations are evaluated against the grace period.
+    grace = int(container.config.get("delivery", {}).get("page_retention_grace_days", 7))
+    removed = container.page_renderer.prune_pages(
+        container.subscribers.all(), on_date, grace_days=grace, root=container.root
+    )
+    if removed:
+        commit_paths.extend(removed)
+        container.logs.log("PAGES_PRUNED", details=f"removed={len(removed)} grace_days={grace}")
+        print(f"[expiry] pruned {len(removed)} inactive page(s) (grace {grace}d)")
+
+    git.commit(commit_paths, f"Expiry sweep {on_date.isoformat()}")
     print(f"[expiry] expired={len(expired)}")
     return 0
 
