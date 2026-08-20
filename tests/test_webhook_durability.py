@@ -88,6 +88,84 @@ def test_reposync_missing_repo_file_leaves_local(tmp_path):
     assert (tmp_path / "csv" / "subs.csv").read_text() == "local-header\n"
 
 
+# ----------------- Quiet-window defer-push (concurrency fix) ---------------- #
+
+def _clock_at(hh, mm):
+    """Return a callable yielding a fixed UTC datetime at HH:MM."""
+    from datetime import datetime, timezone
+
+    def _c():
+        return datetime(2026, 8, 20, hh, mm, tzinfo=timezone.utc)
+    return _c
+
+
+def test_push_deferred_inside_quiet_window(tmp_path):
+    (tmp_path / "csv").mkdir()
+    (tmp_path / "csv" / "subs.csv").write_text("row\n")
+    gh = FakeGitHub()
+    rs = RepoSync(gh, str(tmp_path), ["csv/subs.csv"], enabled=True,
+                  quiet_window=("02:25", "03:10"), clock=_clock_at(2, 45))
+    assert rs.in_quiet_window() is True
+    assert rs.push("m") == []          # deferred
+    assert gh.store == {}              # nothing written to the repo
+    # Local row is untouched and available to flush later.
+    assert (tmp_path / "csv" / "subs.csv").read_text() == "row\n"
+
+
+def test_push_allowed_outside_quiet_window(tmp_path):
+    (tmp_path / "csv").mkdir()
+    (tmp_path / "csv" / "subs.csv").write_text("row\n")
+    gh = FakeGitHub()
+    rs = RepoSync(gh, str(tmp_path), ["csv/subs.csv"], enabled=True,
+                  quiet_window=("02:25", "03:10"), clock=_clock_at(9, 0))
+    assert rs.in_quiet_window() is False
+    assert rs.push("m") == ["csv/subs.csv"]
+    assert gh.store["csv/subs.csv"] == b"row\n"
+
+
+def test_deferred_write_flushes_after_window(tmp_path):
+    """A row written during the window is pushed by the first post-window push."""
+    (tmp_path / "csv").mkdir()
+    subs = tmp_path / "csv" / "subs.csv"
+    gh = FakeGitHub()
+    now = {"t": _clock_at(2, 45)()}
+    rs = RepoSync(gh, str(tmp_path), ["csv/subs.csv"], enabled=True,
+                  quiet_window=("02:25", "03:10"), clock=lambda: now["t"])
+
+    # Inside window: webhook writes locally, push is deferred.
+    subs.write_text("new-subscriber\n")
+    assert rs.push("in-window") == []
+    assert "csv/subs.csv" not in gh.store
+
+    # Window closes: next push flushes the buffered local state.
+    now["t"] = _clock_at(3, 15)()
+    assert rs.push("post-window") == ["csv/subs.csv"]
+    assert gh.store["csv/subs.csv"] == b"new-subscriber\n"
+
+
+def test_no_quiet_window_configured_never_defers(tmp_path):
+    (tmp_path / "csv").mkdir()
+    (tmp_path / "csv" / "subs.csv").write_text("row\n")
+    gh = FakeGitHub()
+    rs = RepoSync(gh, str(tmp_path), ["csv/subs.csv"], enabled=True,
+                  quiet_window=("", ""), clock=_clock_at(2, 45))
+    assert rs.in_quiet_window() is False
+    assert rs.push("m") == ["csv/subs.csv"]
+
+
+def test_quiet_window_across_midnight(tmp_path):
+    (tmp_path / "csv").mkdir()
+    (tmp_path / "csv" / "subs.csv").write_text("row\n")
+    gh = FakeGitHub()
+    # Window 23:50 -> 00:10 wraps midnight.
+    inside = RepoSync(gh, str(tmp_path), ["csv/subs.csv"], enabled=True,
+                      quiet_window=("23:50", "00:10"), clock=_clock_at(0, 5))
+    assert inside.in_quiet_window() is True
+    outside = RepoSync(gh, str(tmp_path), ["csv/subs.csv"], enabled=True,
+                       quiet_window=("23:50", "00:10"), clock=_clock_at(12, 0))
+    assert outside.in_quiet_window() is False
+
+
 # --------------- Container wiring: enabled only when configured -------------- #
 
 def test_container_reposync_disabled_without_env(tmp_path, monkeypatch):
