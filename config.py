@@ -136,7 +136,12 @@ class Container:
             paths.get("processed_csv", "csv/processed.csv"),
             paths["logs_csv"],
         ]
-        return RepoSync(github, self.root, tracked, enabled)
+        # Quiet window (UTC) during which the webhook defers pushes so it does
+        # not write on top of an in-flight scheduler job. Brackets the image
+        # (02:30) through delivery (03:00) jobs; a small margin is added.
+        window = persistence.get("quiet_window_utc", {})
+        quiet_window = (window.get("start", ""), window.get("end", ""))
+        return RepoSync(github, self.root, tracked, enabled, quiet_window=quiet_window)
 
     def _build_validator(self) -> ImageValidator:
         v = self.config.get("image_validation", {})
