@@ -12,8 +12,8 @@
   },
   "image_sources": ["temple", "rss", "website"],
   "image_source_config": {
-    "temple": { "base_url": "https://example-temple.org/darshan" },
-    "rss": { "feed_url": "https://example.com/darshan/rss" },
+    "temple": { "base_url": "" },
+    "rss": { "feed_url": "" },
     "website": { "page_url": "https://example.com/daily-darshan" }
   },
   "image_validation": {
