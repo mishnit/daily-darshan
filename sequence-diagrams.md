@@ -345,21 +345,3 @@ one person" case; the **daily image job** is the catch-all that (re)builds **eve
   collide with the nightly jobs.
 - **Admin verification is manual** (run whenever a real payment is confirmed) and only writes
   to the repo when `--commit` is passed.
-
-## Notes on the "start from next day" requirement
-
-Current code (`domain/subscriber.py::activate`):
-
-```python
-self.start_date = on_date                       # today
-self.end_date = on_date + timedelta(days=plan_days)
-```
-
-If you want activation today to mean "darshan starts tomorrow", the change is small and
-localized to `activate()`. It would also interact with:
-- `is_expired` / `is_deliverable` (date-gated on `end_date`) — a start in the future would
-  need `is_deliverable` to also check `start_date <= on_date`, otherwise a same-day delivery
-  could still go out.
-- Renewal math in `renew()` (extends from `end_date`), which is unaffected by the start rule.
-
-Let me know if you want this implemented and I'll make the change with tests.
