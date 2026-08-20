@@ -48,9 +48,13 @@ _VERIFY_TOKEN = os.environ.get("WEBHOOK_VERIFY_TOKEN", "")
 _UTR_RE = re.compile(r"^\d{12}$")
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health() -> Response:
     """Readiness probe (P1a). Reports degraded state instead of 500-ing.
+
+    Supports GET and HEAD. HEAD returns the same status code (200/503) with no
+    body — useful for lightweight liveness pings (e.g. the keepalive self-ping
+    and uptime monitors) that only need the status line.
 
     Returns 200 only when the container built and core repositories are
     readable; 503 with a reason otherwise, so orchestrators can react.
