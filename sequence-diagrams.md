@@ -68,7 +68,7 @@ sequenceDiagram
     Cron->>Runner: checkout main (local == latest repo)
     Runner->>Sched: python scheduler.py image
     Sched->>Sched: fetch + validate image (sources in priority order)
-    Sched->>Runner: write images/<date>.jpg  📝 LOCAL
+    Sched->>Runner: write images/[date].jpg  📝 LOCAL
     Sched->>Runner: render ALL per-subscriber pages (write_all)  📝 LOCAL
     Sched->>Repo: git commit + push (image + pages)  ✅ REMOTE (after job)
 
@@ -161,7 +161,7 @@ sequenceDiagram
 
     alt CTA_SUBSCRIBE
         Web->>User: send plan list (PLAN_*)
-    else PLAN_<plan> selected
+    else PLAN_[plan] selected
         Web->>Svc: upsert_pending(mobile, plan, name)
         Svc->>Local: write subscribers.csv (PENDING)  📝 LOCAL
         alt name missing
@@ -203,13 +203,13 @@ sequenceDiagram
     participant Repo as GitHub repo (main)
 
     User->>Meta: pays via UPI, replies with 12-digit UTR
-    Meta->>Web: POST /webhook (text = UTR)
-    Web-->>Meta: 200 "accepted"
-    Web->>Repo: RepoSync.pull()  ⬇️ REPO READ
+    Meta->>Web: POST /webhook - text = UTR
+    Web-->>Meta: 200 accepted
+    Web->>Repo: RepoSync.pull  ⬇️ REPO READ
     Web->>Pay: record_utr(reference_id, utr)
     Pay->>Local: write payments.csv (UTR attached, still PENDING)  📝 LOCAL
-    Web->>User: "Received your UTR. Activates once an admin verifies."
-    Web->>Repo: RepoSync.push()  ✅ REMOTE (after request; ⏸️ deferred if in quiet window)
+    Web->>User: Received your UTR. Activates once an admin verifies.
+    Web->>Repo: RepoSync.push - REMOTE after request, deferred if in quiet window
     Note over Web,Repo: Payment is NOT yet SUCCESS. A UTR is not proof of payment.
 ```
 
@@ -227,7 +227,7 @@ sequenceDiagram
     participant Local as Local CSVs
     participant Repo as GitHub repo (main)
 
-    Admin->>CLI: python admin.py verify <ref> --activate --commit
+    Admin->>CLI: python admin.py verify [ref] --activate --commit
     CLI->>Pay: verify_payment(ref)  (status -> SUCCESS)
     Pay->>Local: write payments.csv  📝 LOCAL
     alt new subscriber
@@ -277,19 +277,19 @@ sequenceDiagram
     Note over Sched,Repo: Renewal reminder (timed, part of delivery.yml step 2)
     Sched->>Sub: find subs expiring in reminder_days [3,1]
     Sched->>WA: send renewal reminder
-    WA->>User: "Your plan expires soon — renew?"
+    WA->>User: Your plan expires soon - renew?
     Sched->>Local: append renewals.csv  📝 LOCAL
     Sched->>Repo: git commit + push  ✅ REMOTE (after job)
 
     Note over User,Repo: Opt-out (event-driven, any time)
     User->>WA: replies STOP / UNSUBSCRIBE / CANCEL
     WA->>Web: POST /webhook
-    Web-->>WA: 200 "accepted"
-    Web->>Repo: RepoSync.pull()  ⬇️ REPO READ
-    Web->>Sub: revoke_opt_in(mobile)  (opt_in=false, ts, source=opt_out)
+    Web-->>WA: 200 accepted
+    Web->>Repo: RepoSync.pull  ⬇️ REPO READ
+    Web->>Sub: revoke_opt_in(mobile) - opt_in=false, ts, source=opt_out
     Sub->>Local: write subscribers.csv  📝 LOCAL
-    Web->>User: "You've been opted out. Reply SUBSCRIBE to resume."
-    Web->>Repo: RepoSync.push()  ✅ REMOTE (after request; ⏸️ deferred if in quiet window)
+    Web->>User: You have been opted out. Reply SUBSCRIBE to resume.
+    Web->>Repo: RepoSync.push - REMOTE after request, deferred if in quiet window
     Note over Sub: opt_in=false makes the subscriber non-deliverable immediately.
 ```
 
