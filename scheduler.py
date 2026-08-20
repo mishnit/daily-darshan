@@ -5,12 +5,14 @@ Jobs (invoked by GitHub Actions):
   - expiry    : flip ACTIVE subscribers past end_date to EXPIRED, commit
   - renewal   : send renewal reminders, then commit renewals log
   - delivery  : send today's darshan to eligible subscribers, then commit sentlog
+  - keepalive : self-ping RENDER_HEALTHCHECK_URL every 5 min (free-plan warm-up)
 
 Usage:
     python scheduler.py image
     python scheduler.py expiry
     python scheduler.py delivery
     python scheduler.py renewal
+    python scheduler.py keepalive
     python scheduler.py all
 """
 from __future__ import annotations
@@ -105,15 +107,52 @@ def run_expiry_sweep(container: Container, git: LocalGitRepository, on_date: dat
     return 0
 
 
+def run_keepalive(container: Container, interval_seconds: int = 300) -> int:
+    """Self-ping the public health endpoint to prevent free-plan spin-down.
+
+    Render free web services sleep after ~15 min idle and can be swept. Pinging
+    /health every 5 min keeps the instance warm. Intended to run as a long-lived
+    process (an always-on worker or cron runner), NOT as part of ``all`` which
+    must exit.
+
+    Reads RENDER_HEALTHCHECK_URL, e.g.
+    https://daily-darshan-webhook.onrender.com/health
+    """
+    import os
+    import time
+    import urllib.request
+
+    url = os.environ.get("RENDER_HEALTHCHECK_URL", "").strip()
+    if not url:
+        print("[keepalive] RENDER_HEALTHCHECK_URL not set; nothing to ping", file=sys.stderr)
+        return 1
+
+    print(f"[keepalive] pinging {url} every {interval_seconds}s")
+    while True:
+        try:
+            with urllib.request.urlopen(url, timeout=10) as resp:  # noqa: S310 - fixed https URL from env
+                status = resp.getcode()
+            container.logs.log("KEEPALIVE_PING", details=f"{url} -> {status}")
+            print(f"[keepalive] {url} -> {status}")
+        except Exception as exc:  # noqa: BLE001 - keep looping through transient errors
+            container.logs.log("KEEPALIVE_FAILED", details=str(exc))
+            print(f"[keepalive] FAILED: {exc}", file=sys.stderr)
+        time.sleep(interval_seconds)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Daily Darshan scheduler")
-    parser.add_argument("job", choices=["image", "delivery", "renewal", "expiry", "all"])
+    parser.add_argument("job", choices=["image", "delivery", "renewal", "expiry", "keepalive", "all"])
     parser.add_argument("--date", help="ISO date override (YYYY-MM-DD)", default=None)
     args = parser.parse_args(argv)
 
     on_date = date.fromisoformat(args.date) if args.date else date.today()
     container = Container()
     git = LocalGitRepository(root=container.root)
+
+    # keepalive is a long-lived loop, not a one-shot batch step; handle and return.
+    if args.job == "keepalive":
+        return run_keepalive(container)
 
     rc = 0
     if args.job in ("image", "all"):
