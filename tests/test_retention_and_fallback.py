@@ -210,3 +210,23 @@ def test_fallback_url_uses_public_base(tmp_path):
     r = _renderer(tmp_path)
     assert r.fallback_url() == "https://x.example/base/images/fallback.jpg"
     assert r.fallback_url(fallback_name="safety.jpg") == "https://x.example/base/images/safety.jpg"
+
+
+# --------- public URL path decoupled from on-disk images dir --------- #
+
+def test_image_url_uses_public_path_not_disk_dir(tmp_path):
+    """Images stored on disk under docs/images must still resolve at
+    <base>/images/... because GitHub Pages serves docs/ as the web root."""
+    r = PageRenderer(pages_dir="docs", image_public_base="https://vipseva.com",
+                     image_url_path="images")
+    # Even if a caller passes the on-disk dir "docs/images", the public URL
+    # uses the configured public segment "images".
+    url = r.image_url(date(2026, 8, 20), images_dir="docs/images")
+    assert url == "https://vipseva.com/images/2026-08-20.jpg"
+    assert r.fallback_url(images_dir="docs/images") == "https://vipseva.com/images/fallback.jpg"
+
+
+def test_custom_image_url_path(tmp_path):
+    r = PageRenderer(pages_dir="docs", image_public_base="https://vipseva.com",
+                     image_url_path="darshan-images")
+    assert r.image_url(date(2026, 8, 20)) == "https://vipseva.com/darshan-images/2026-08-20.jpg"
