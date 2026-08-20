@@ -453,6 +453,37 @@ produced in two places so a subscriber's branded URL is never a 404 when they re
 through to the next. WhatsApp sends use bounded retries; a failure for one subscriber does
 not stop the batch. Git pushes retry once via `pull --rebase` and never force-push.
 
+### Coordination between the two machines
+
+The webhook (Render) and the scheduler/admin (GitHub Actions) never talk to each other
+directly. The **GitHub repo `main` branch is the shared source of truth**; both sides read
+and write the same CSVs there:
+
+- **Webhook** uses the GitHub **Contents API** (`GitHubApiRepository` via `RepoSync`): it
+  **pulls** the tracked CSVs before handling a message and **pushes** them after.
+- **Scheduler/admin** uses the **git CLI** on the checked-out repo (`LocalGitRepository`):
+  it commits + pushes (retry once via `pull --rebase`, never force-push).
+
+Because both write CSVs on `main`, two mechanisms keep them from clobbering each other:
+
+1. **Writer separation + safe expiry.** The webhook and scheduler mostly write different
+   files. The one true overlap is `subscribers.csv` (webhook opt-in vs. the nightly expiry
+   sweep). `sweep_expired` therefore **re-reads each subscriber row fresh right before
+   flipping status** and only changes the status field, so a subscriber the webhook added or
+   updated concurrently is preserved rather than overwritten by a stale snapshot. `logs.csv`
+   is **append-only**, so log rows from both sides merge without row-level conflicts.
+
+2. **Defer-push quiet window.** During the nightly job window the webhook **defers its
+   pushes** so it never writes on top of an in-flight scheduler commit. The window is
+   configured in `config.json` under `persistence.quiet_window_utc` (default `02:25`–`03:10`
+   UTC, bracketing the 02:30 image and 03:00 delivery jobs). While inside the window, webhook
+   writes stay on local disk and are **flushed by the first push after the window closes**;
+   pulls are always allowed so the webhook keeps reading fresh state.
+
+> This is coordination by convention (staggered timing + single-writer + rebase-retry), not a
+> transactional database. It suits the low write volume of a darshan service. At higher write
+> rates, move state to a real datastore (SQLite on a persistent volume, or a hosted DB).
+
 ---
 
 ## Admin Operations
