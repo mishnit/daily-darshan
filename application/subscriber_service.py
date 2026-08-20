@@ -151,14 +151,28 @@ class SubscriberService:
         Returns the list of mobiles transitioned this run.
         """
         on_date = on_date or date.today()
+        # Snapshot only the mobiles to consider; re-read each row fresh right
+        # before flipping so a concurrent webhook write to subscribers.csv
+        # (e.g. a new opt-in) is not clobbered by a stale in-memory copy. We
+        # mutate only the status field, leaving other columns as last written.
+        candidates = [
+            s.mobile for s in self._subscribers.all()
+            if s.status == SubscriberStatus.ACTIVE and s.is_expired(on_date)
+        ]
         expired: list[str] = []
-        for sub in self._subscribers.all():
-            if sub.status == SubscriberStatus.ACTIVE and sub.is_expired(on_date):
-                sub.expire()  # ACTIVE -> EXPIRED (allowed transition)
-                self._subscribers.update(sub)
-                self._log("SUBSCRIBER_EXPIRED", sub.mobile,
-                          sub.end_date.isoformat() if sub.end_date else "")
-                expired.append(sub.mobile)
+        for mobile in candidates:
+            sub = self._subscribers.find(mobile)  # re-read latest row
+            if sub is None:
+                continue
+            # Re-check under the fresh read: the row may have changed (renewed,
+            # cancelled, paused) since the snapshot; only expire if still due.
+            if sub.status != SubscriberStatus.ACTIVE or not sub.is_expired(on_date):
+                continue
+            sub.expire()  # ACTIVE -> EXPIRED (allowed transition)
+            self._subscribers.update(sub)
+            self._log("SUBSCRIBER_EXPIRED", sub.mobile,
+                      sub.end_date.isoformat() if sub.end_date else "")
+            expired.append(sub.mobile)
         return expired
 
     def _has_successful_payment(self, mobile: str) -> bool:
