@@ -1,0 +1,41 @@
+name: Daily Image
+
+on:
+  schedule:
+    # 02:30 UTC = 08:00 IST (Tech Doc section 11)
+    - cron: "30 2 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest httpx
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Configure git author
+        run: |
+          git config user.name "daily-darshan-bot"
+          git config user.email "bot@users.noreply.github.com"
+
+      - name: Configure git author
+        run: |
+          git config user.name "daily-darshan-bot"
+          git config user.email "bot@users.noreply.github.com"
+
+      - name: Fetch and store today's image
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+        run: python scheduler.py image
