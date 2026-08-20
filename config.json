@@ -22,7 +22,7 @@
     "allowed_formats": ["JPEG", "PNG", "JPG"]
   },
   "paths": {
-    "images_dir": "images",
+    "images_dir": "docs/images",
     "subscribers_csv": "csv/subscribers.csv",
     "payments_csv": "csv/payments.csv",
     "sentlog_csv": "csv/sentlog.csv",
@@ -50,6 +50,7 @@
     "page_base_url": "https://vipseva.com",
     "pages_dir": "docs",
     "image_public_base": "https://vipseva.com",
+    "image_url_path": "images",
     "caption": "Daily Darshan - {date}",
     "max_send_retries": 3,
     "image_retention_days": 7,
