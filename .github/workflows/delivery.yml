@@ -2,7 +2,6 @@ name: Daily Delivery
 
 on:
   schedule:
-    # Renewal reminders first (02:45 UTC), then delivery (03:00 UTC) per sections 12, 31.
     - cron: "0 3 * * *"
   workflow_dispatch: {}
 
