@@ -225,6 +225,13 @@ def app_client(tmp_path, monkeypatch):
     return main, TestClient(main.app)
 
 
+def test_health_head_returns_status_without_body(app_client):
+    _, client = app_client
+    r = client.head("/health")
+    assert r.status_code == 200
+    assert r.content == b""  # HEAD carries no body
+
+
 def test_health_ok_when_container_healthy(app_client):
     _, client = app_client
     r = client.get("/health")
