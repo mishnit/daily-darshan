@@ -60,25 +60,36 @@ _TEMPLATE = """<!DOCTYPE html>
 
 
 class PageRenderer:
-    def __init__(self, pages_dir: str = "docs", image_public_base: str = ""):
+    def __init__(self, pages_dir: str = "docs", image_public_base: str = "",
+                 image_url_path: str = "images"):
         """pages_dir: local dir committed to the repo (GitHub Pages source).
         image_public_base: absolute base URL where images are publicly served,
-        e.g. https://user.github.io/daily-darshan . Used for the <img> src and
-        og:image so the link preview and page both resolve the image.
+        e.g. https://vipseva.com . Used for the <img> src and og:image so the
+        link preview and page both resolve the image.
+        image_url_path: the PUBLIC path segment under image_public_base where
+        images are served (e.g. "images"). This is decoupled from the on-disk
+        images directory (paths.images_dir), because GitHub Pages serves from
+        `pages_dir` (docs/) as its web root — so an image stored on disk at
+        `docs/images/<date>.jpg` is served at `<base>/images/<date>.jpg`.
         """
         self._pages_dir = pages_dir
         self._image_public_base = image_public_base.rstrip("/")
+        self._image_url_path = image_url_path.strip("/")
 
-    def image_url(self, on_date: date, images_dir: str = "images") -> str:
-        return f"{self._image_public_base}/{images_dir}/{on_date.isoformat()}.jpg"
+    def image_url(self, on_date: date, images_dir: str | None = None) -> str:
+        # images_dir is accepted for backward-compat but the public URL uses the
+        # configured public path segment, not the on-disk directory.
+        seg = self._image_url_path
+        return f"{self._image_public_base}/{seg}/{on_date.isoformat()}.jpg"
 
-    def fallback_url(self, images_dir: str = "images", fallback_name: str = "fallback.jpg") -> str:
+    def fallback_url(self, images_dir: str | None = None, fallback_name: str = "fallback.jpg") -> str:
         """Public URL of the safety-net image used when a dated image is gone
         (e.g. pruned by retention). Referenced by the page's <img onerror>."""
-        return f"{self._image_public_base}/{images_dir}/{fallback_name}"
+        seg = self._image_url_path
+        return f"{self._image_public_base}/{seg}/{fallback_name}"
 
     def render_html(self, subscriber: Subscriber, on_date: date, delivered: bool,
-                    images_dir: str = "images") -> str:
+                    images_dir: str | None = None) -> str:
         status_text = "Delivered" if delivered else "Ready"
         from domain.subscriber import sanitize_display_name
         safe_name = sanitize_display_name(subscriber.name, "")
