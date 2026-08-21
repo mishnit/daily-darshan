@@ -38,4 +38,5 @@ jobs:
       - name: Fetch and store today's image
         env:
           GITHUB_REPO: ${{ github.repository }}
+        continue-on-error: true
         run: python scheduler.py image
