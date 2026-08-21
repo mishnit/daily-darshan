@@ -10,6 +10,7 @@ Auto deploy happens on render when commit pushed to main
 https://daily-darshan-webhook.onrender.com/health for uptimemonitor
 https://dashboard.render.com/web/srv-da3e36bbc2fs738sds6g
 
+https://api.vipseva.com/health and https://api.vipseva.com/webhook work as well
 
 Admin verification on local machine: git pull --rebase -> python admin.py list-pending -> python admin.py verify DD2608190001 --activate --commit -> rendering subscriber image and webpage on local -> push to remote main git -> git has "docs/<id>/index.html" and "images/<date>.jpg" -> webpage availabel on https://vipseva.com/<subscription_id>
 opt-out
