@@ -50,7 +50,7 @@ def run_image(container: Container, git: LocalGitRepository, on_date: date) -> i
     except AllSourcesFailed as exc:
         container.logs.log("IMAGE_FETCH_FAILED", details=str(exc))
         print(f"[image] FAILED: {exc}", file=sys.stderr)
-        return 1
+        image = None
 
     committed: list[str] = []
     if image is not None:
