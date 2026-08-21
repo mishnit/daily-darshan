@@ -32,38 +32,7 @@ jobs:
       - name: Expire lapsed subscriptions
         env:
           GITHUB_REPO: ${{ github.repository }}
-        run: |
-          # Run expiry script but capture its exit code so we can handle the "nothing to commit" case
-          python scheduler.py expiry || EXIT_CODE=$?
-          # The script already commits, no need for additional staging/committing
-          if [ -n "${EXIT_CODE:-}" ]; then
-            exit $EXIT_CODE
-          fi
-
-          # Ensure git author is configured (redundant with earlier step but harmless)
-          git config user.name "daily-darshan-bot"
-          git config user.email "bot@users.noreply.github.com"
-
-          # Stage any changes the expiry script made
-          git add -A
-
-          # If there are no staged changes, skip committing. If the expiry script failed but there
-          # are also no changes, treat the run as successful (this handles the common "nothing to commit" failure).
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            if [ -n "${EXIT_CODE:-}" ]; then
-              echo "expiry script exited with $EXIT_CODE but there are no changes; treating as success."
-              exit 0
-            fi
-          else
-            git commit -m "Expiry sweep $(date +%Y-%m-%d)"
-            git push
-            # If the expiry script previously failed, surface that failure after committing changes
-            if [ -n "${EXIT_CODE:-}" ]; then
-              echo "expiry script exited with $EXIT_CODE; exiting with same code after committing changes"
-              exit $EXIT_CODE
-            fi
-          fi
+        run: python scheduler.py expiry
 
       - name: Send renewal reminders
         env:
