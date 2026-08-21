@@ -53,6 +53,7 @@ class LocalGitRepository(GitHubRepositoryPort):
             # No changes in the working directory; nothing to commit
             return
         
+        # Stage the specified files (add will record deletions as staged)
         self._git("add", *files)
         # Re-check after staging to ensure changes were actually staged
         status = self._git("status", "--porcelain", capture=True)
@@ -60,9 +61,33 @@ class LocalGitRepository(GitHubRepositoryPort):
             # Nothing staged -> no-op (keeps job idempotent)
             return
         
-        self._git("-c", f"user.name={self._author_name}",
-                  "-c", f"user.email={self._author_email}",
-                  "commit", "-m", message)
+        # Perform commit and handle the common "nothing to commit" outcome
+        commit_cmd = [
+            "git",
+            "-c",
+            f"user.name={self._author_name}",
+            "-c",
+            f"user.email={self._author_email}",
+            "commit",
+            "-m",
+            message,
+        ]
+        result = subprocess.run(
+            commit_cmd,
+            cwd=self._root,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            stderr = (result.stderr or "").lower()
+            # Git returns exit code 1 with "nothing to commit" when no staged
+            # changes are present. Treat this as a no-op rather than failing
+            # the whole job.
+            if "nothing to commit" in stderr or "no changes added to commit" in stderr:
+                return
+            # Otherwise re-raise with context so callers can handle it.
+            raise subprocess.CalledProcessError(result.returncode, commit_cmd, output=result.stdout, stderr=result.stderr)
+
         # Retry once from latest state on push conflict; never force-push.
         try:
             self._git("push")
