@@ -1,0 +1,17 @@
+all github actions setup correctly and working fine including scheduler to ping every 5 min on https://daily-darshan-webhook.onrender.com/health
+
+update whatsapp secrets in render dashboard
+setup meta account,whatsapp temaplate approval and secret keys extract and setup on render config
+update github secret keys -> WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID
+add render secret keys -> WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WEBHOOK_VERIFY_TOKEN, GITHUB_TOKEN, GITHUB_REPO=owner/repo, WHATSAPP_APP_SECRET
+update image sources
+
+Auto deploy happens on render when commit pushed to main
+https://daily-darshan-webhook.onrender.com/health for uptimemonitor
+https://dashboard.render.com/web/srv-da3e36bbc2fs738sds6g
+
+
+Admin verification on local machine: git pull --rebase -> python admin.py list-pending -> python admin.py verify DD2608190001 --activate --commit -> rendering subscriber image and webpage on local -> push to remote main git -> git has "docs/<id>/index.html" and "images/<date>.jpg" -> webpage availabel on https://vipseva.com/<subscription_id>
+opt-out
+
+product UAT and tech issues tracking
