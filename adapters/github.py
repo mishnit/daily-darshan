@@ -68,6 +68,13 @@ class LocalGitRepository(GitHubRepositoryPort):
             f"user.name={self._author_name}",
             "-c",
             f"user.email={self._author_email}",
+            # Disable GPG signing for automated CI commits where a signing
+            # key isn't available in the runner environment. This prevents
+            # errors like "gpg failed to sign the data" which surface as a
+            # non-zero git commit exit code and previously caused the job to
+            # fail.
+            "-c",
+            "commit.gpgsign=false",
             "commit",
             "-m",
             message,
