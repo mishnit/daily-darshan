@@ -35,6 +35,10 @@ jobs:
         run: |
           # Run expiry script but capture its exit code so we can handle the "nothing to commit" case
           python scheduler.py expiry || EXIT_CODE=$?
+          # The script already commits, no need for additional staging/committing
+          if [ -n "${EXIT_CODE:-}" ]; then
+            exit $EXIT_CODE
+          fi
 
           # Ensure git author is configured (redundant with earlier step but harmless)
           git config user.name "daily-darshan-bot"
