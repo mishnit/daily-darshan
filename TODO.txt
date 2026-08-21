@@ -7,10 +7,15 @@ add render secret keys -> WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WEBHO
 update image sources
 
 Auto deploy happens on render when commit pushed to main
+
 https://daily-darshan-webhook.onrender.com/health for uptimemonitor
 https://dashboard.render.com/web/srv-da3e36bbc2fs738sds6g
 
+https://api.vipseva.com points to https://daily-darshan-webhook.onrender.com in spaceship
 https://api.vipseva.com/health and https://api.vipseva.com/webhook work as well
+
+https://www.vipseva.com points to https://mishnit.github.io/daily-darshan github pages considering /docs as root
+
 
 Admin verification on local machine: git pull --rebase -> python admin.py list-pending -> python admin.py verify DD2608190001 --activate --commit -> rendering subscriber image and webpage on local -> push to remote main git -> git has "docs/<id>/index.html" and "images/<date>.jpg" -> webpage availabel on https://vipseva.com/<subscription_id>
 opt-out
