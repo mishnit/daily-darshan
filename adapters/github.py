@@ -47,11 +47,19 @@ class LocalGitRepository(GitHubRepositoryPort):
             fh.write(content)
 
     def commit(self, files: list[str], message: str) -> None:
-        self._git("add", *files)
-        # Nothing staged -> no-op (keeps job idempotent).
+        # Check if there are any changes before attempting to stage files
         status = self._git("status", "--porcelain", capture=True)
         if not status.strip():
+            # No changes in the working directory; nothing to commit
             return
+        
+        self._git("add", *files)
+        # Re-check after staging to ensure changes were actually staged
+        status = self._git("status", "--porcelain", capture=True)
+        if not status.strip():
+            # Nothing staged -> no-op (keeps job idempotent)
+            return
+        
         self._git("-c", f"user.name={self._author_name}",
                   "-c", f"user.email={self._author_email}",
                   "commit", "-m", message)
@@ -97,48 +105,3 @@ class GitHubApiRepository(GitHubRepositoryPort):
             "Authorization": f"Bearer {self._token}",
             "Accept": "application/vnd.github+json",
         }
-
-    def _contents_url(self, path: str) -> str:
-        return f"https://api.github.com/repos/{self._repo}/contents/{path}"
-
-    def read_file(self, path: str) -> bytes | None:
-        resp = self._session.get(
-            self._contents_url(path),
-            headers=self._headers,
-            params={"ref": self._branch},
-            timeout=self._timeout,
-        )
-        if resp.status_code == 404:
-            return None
-        resp.raise_for_status()
-        return base64.b64decode(resp.json()["content"])
-
-    def _get_sha(self, path: str) -> str | None:
-        resp = self._session.get(
-            self._contents_url(path),
-            headers=self._headers,
-            params={"ref": self._branch},
-            timeout=self._timeout,
-        )
-        if resp.status_code == 404:
-            return None
-        resp.raise_for_status()
-        return resp.json().get("sha")
-
-    def write_file(self, path: str, content: bytes, message: str) -> None:
-        payload = {
-            "message": message,
-            "content": base64.b64encode(content).decode("ascii"),
-            "branch": self._branch,
-        }
-        sha = self._get_sha(path)
-        if sha:
-            payload["sha"] = sha  # required to update existing file
-        resp = self._session.put(
-            self._contents_url(path), json=payload, headers=self._headers, timeout=self._timeout
-        )
-        resp.raise_for_status()
-
-    def commit(self, files: list[str], message: str) -> None:
-        # write_file already commits per-file via the contents API.
-        return None
