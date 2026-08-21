@@ -11,7 +11,6 @@ import csv
 import os
 import tempfile
 from contextlib import contextmanager
-from typing import Callable
 
 try:  # POSIX file locking (macOS/Linux)
     import fcntl
@@ -46,19 +45,16 @@ class CSVRepository:
         # created; if we lose that race, the file now exists — that's fine.
         try:
             with open(self.path, "x", newline="", encoding="utf-8") as fh:
-                csv.DictWriter(fh, fieldnames=self.fieldnames).writeheader()
+                csv.DictWriter(fh, fieldnames=self.fieldnames, escapechar="\\").writeheader()
         except FileExistsError:
             pass
-
-    def read(self) -> list[dict]:
-        return self.all()
 
     def all(self) -> list[dict]:
         # Tolerate a transient empty/headerless read that can occur if another
         # process is mid os.replace(); DictReader yields fieldnames=None then.
         try:
             with open(self.path, newline="", encoding="utf-8") as fh:
-                reader = csv.DictReader(fh)
+                reader = csv.DictReader(fh, escapechar="\\")
                 if reader.fieldnames is None:
                     return []
                 return [row for row in reader if row]
@@ -78,9 +74,22 @@ class CSVRepository:
         return None
 
     def append(self, record: dict) -> None:
-        row = {name: record.get(name, "") for name in self.fieldnames}
+        row = self._row(record)
         with open(self.path, "a", newline="", encoding="utf-8") as fh:
-            csv.DictWriter(fh, fieldnames=self.fieldnames).writerow(row)
+            csv.DictWriter(fh, fieldnames=self.fieldnames, escapechar="\\").writerow(row)
+
+    def _row(self, record: dict) -> dict:
+        """Return a CSV-safe row.
+
+        Python's CSV reader rejects NUL bytes outright.  User-supplied names
+        can contain them, so normalize only that invalid byte to whitespace;
+        higher layers perform their own display sanitization.
+        """
+        return {
+            name: (str(record.get(name, "")).replace("\x00", " ")
+                   if record.get(name, "") is not None else "")
+            for name in self.fieldnames
+        }
 
     @contextmanager
     def _exclusive_lock(self):
@@ -127,7 +136,7 @@ class CSVRepository:
         updated = False
         for i, row in enumerate(rows):
             if row.get(self.key_field) == key:
-                rows[i] = {name: record.get(name, "") for name in self.fieldnames}
+                rows[i] = self._row(record)
                 updated = True
                 break
         if updated:
@@ -138,18 +147,26 @@ class CSVRepository:
         if not self.update(key, record):
             self.append(record)
 
-    def filter(self, predicate: Callable[[dict], bool]) -> list[dict]:
-        return [row for row in self.all() if predicate(row)]
+    def delete(self, key) -> bool:
+        """Remove the row for key. Returns whether a row was removed."""
+        key = str(key)
+        with self._exclusive_lock():
+            rows = self.all()
+            kept = [row for row in rows if row.get(self.key_field) != key]
+            if len(kept) == len(rows):
+                return False
+            self._write_all(kept)
+            return True
 
     def _write_all(self, rows: list[dict]) -> None:
         directory = os.path.dirname(self.path) or "."
         fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
         try:
             with os.fdopen(fd, "w", newline="", encoding="utf-8") as fh:
-                writer = csv.DictWriter(fh, fieldnames=self.fieldnames)
+                writer = csv.DictWriter(fh, fieldnames=self.fieldnames, escapechar="\\")
                 writer.writeheader()
                 for row in rows:
-                    writer.writerow({name: row.get(name, "") for name in self.fieldnames})
+                    writer.writerow(self._row(row))
             os.replace(tmp, self.path)  # atomic on same filesystem
         except Exception:
             if os.path.exists(tmp):

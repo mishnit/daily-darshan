@@ -12,6 +12,8 @@ permissions:
 jobs:
   image:
     runs-on: ubuntu-latest
+    env:
+      GIT_COMMIT_GPG_SIGN: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -30,10 +32,16 @@ jobs:
           git config user.name "daily-darshan-bot"
           git config user.email "bot@users.noreply.github.com"
 
-      - name: Configure git author
+      - name: Import GPG signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
-          git config user.name "daily-darshan-bot"
-          git config user.email "bot@users.noreply.github.com"
+          test -n "$GPG_PRIVATE_KEY" || { echo "GPG_PRIVATE_KEY secret is required" >&2; exit 1; }
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          fingerprint="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+          test -n "$fingerprint" || { echo "No imported GPG secret key found" >&2; exit 1; }
+          git config --global user.signingkey "$fingerprint"
+          git config --global commit.gpgsign true
 
       - name: Fetch and store today's image
         env:

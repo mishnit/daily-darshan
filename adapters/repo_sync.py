@@ -70,6 +70,8 @@ class RepoSync:
         self._root = root
         self._tracked = tracked_files
         self.enabled = enabled and github is not None
+        # Deferred/failed writes must survive the next request's pull.
+        self._dirty: set[str] = set()
         # Quiet window (UTC 'HH:MM' strings). When both bounds parse, pushes are
         # deferred while now is inside [start, end].
         start, end = quiet_window or ("", "")
@@ -98,6 +100,8 @@ class RepoSync:
         if not self.enabled:
             return
         for rel in self._tracked:
+            if rel in self._dirty:
+                continue
             try:
                 content = self._github.read_file(rel)
             except Exception:
@@ -123,6 +127,7 @@ class RepoSync:
         if self.in_quiet_window():
             # Defer: local disk already has the latest rows; a later push (or the
             # next request outside the window) will flush them to the repo.
+            self._dirty.update(self._tracked)
             return []
         pushed: list[str] = []
         for rel in self._tracked:
@@ -139,4 +144,12 @@ class RepoSync:
                 # The local write already succeeded, so we don't lose the row
                 # within this process's lifetime; a later push retries it.
                 continue
+        if not pushed:
+            return []
+        try:
+            self._github.commit(pushed, message)
+        except Exception:
+            self._dirty.update(pushed)
+            return []
+        self._dirty.difference_update(pushed)
         return pushed

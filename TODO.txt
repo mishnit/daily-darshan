@@ -1,6 +1,4 @@
 verify github actions setup correctly and working fine including scheduler to ping every 5 min on https://daily-darshan-webhook.onrender.com/health
-enable gpg signing for commits
-remove dead code
 
 update whatsapp secrets in render dashboard
 setup meta account,whatsapp temaplate approval and secret keys extract and setup on render config

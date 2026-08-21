@@ -165,11 +165,15 @@ def _process_payload(c, payload: dict) -> None:
             if not c.processed.mark_if_new(message_id, mobile):
                 continue
             kind, value = _extract_input(message)
+            processed_any = True  # Persist the idempotency record too.
             if mobile and value:
                 name = _profile_name(ctx, mobile)
                 _handle_message(c, mobile, kind, value, name)
                 processed_any = True
         except Exception:  # noqa: BLE001 - log + continue
+            # The id is claimed first to prevent concurrent duplicate sends.
+            # Release it after a failure so Meta can retry the user action.
+            c.processed.unmark(message_id)
             log.exception("Failed handling message id=%s from=%s", message_id, mobile)
 
     # Push any local CSV changes back to the shared repo (P0 fix #6).

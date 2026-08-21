@@ -36,3 +36,8 @@ class CSVProcessedMessageRepository:
 
     def was_processed(self, message_id: str) -> bool:
         return self._csv.find(message_id) is not None
+
+    def unmark(self, message_id: str) -> None:
+        """Release a message that failed before its side effects completed."""
+        if message_id:
+            self._csv.delete(message_id)

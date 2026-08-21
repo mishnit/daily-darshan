@@ -219,6 +219,7 @@ environment variables (Tech Doc §19).
 | `WHATSAPP_APP_SECRET` | `main.py` POST `/webhook` | Meta app secret; verifies `X-Hub-Signature-256` on inbound webhooks. If unset, signature checks are skipped (dev only) — **set it in production**. |
 | `GITHUB_TOKEN` | webhook durable persistence + `GitHubApiRepository` | Contents-API reads/writes so the webhook shares state with the scheduler (**required in production** with `persistence.mode=github_api`). In Actions, the built-in token + `contents: write` suffices. |
 | `GITHUB_REPO` | webhook persistence + scheduler | `owner/repo`. Used for the webhook's Contents-API sync and to build the public raw image URL. Auto-set in Actions via `${{ github.repository }}`; **set explicitly on the webhook host**. |
+| `GPG_PRIVATE_KEY` | GitHub Actions scheduler | **GitHub Actions secret** containing the ASCII-armored private key used to sign scheduler commits. Add the matching public key to the GitHub account or bot profile so commits are marked Verified. |
 | `DAILY_DARSHAN_CONFIG` | `config.py` | Optional path override for `config.json`. |
 
 - **GitHub Actions:** add secrets under *Settings → Secrets and variables → Actions*.

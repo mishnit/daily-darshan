@@ -61,6 +61,13 @@ class LocalGitRepository(GitHubRepositoryPort):
             # Nothing staged -> no-op (keeps job idempotent)
             return
         
+        # CI enables GPG signing explicitly after importing its signing key.
+        # Keep local/default commits unsigned unless opted in so development
+        # machines without that key remain usable.
+        sign_commits = os.environ.get("GIT_COMMIT_GPG_SIGN", "").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+
         # Perform commit and handle the common "nothing to commit" outcome
         commit_cmd = [
             "git",
@@ -68,13 +75,8 @@ class LocalGitRepository(GitHubRepositoryPort):
             f"user.name={self._author_name}",
             "-c",
             f"user.email={self._author_email}",
-            # Disable GPG signing for automated CI commits where a signing
-            # key isn't available in the runner environment. This prevents
-            # errors like "gpg failed to sign the data" which surface as a
-            # non-zero git commit exit code and previously caused the job to
-            # fail.
             "-c",
-            "commit.gpgsign=false",
+            f"commit.gpgsign={'true' if sign_commits else 'false'}",
             "commit",
             "-m",
             message,
@@ -129,7 +131,9 @@ class GitHubApiRepository(GitHubRepositoryPort):
         self._token = token or os.environ.get("GITHUB_TOKEN", "")
         self._timeout = timeout
         self._session = session or requests.Session()
-        self._pending: list[str] = []
+        # The serverless process has no checkout at ``owner/repo/<path>`` to
+        # read from later, so retain the bytes passed by the caller.
+        self._pending: list[tuple[str, bytes, str]] = []
 
     @property
     def _headers(self) -> dict:
@@ -163,8 +167,7 @@ class GitHubApiRepository(GitHubRepositoryPort):
         
         The write is buffered internally and actually committed/pushed by commit().
         """
-        # Buffer this write: commit() will batch all pending writes into one commit.
-        self._pending.append(path)
+        self._pending.append((path, content, message))
 
     def commit(self, files: list[str], message: str) -> None:
         """Commit all buffered writes in a single batch via the Contents API.
@@ -175,14 +178,18 @@ class GitHubApiRepository(GitHubRepositoryPort):
         if not self._pending:
             return
         
-        for path in self._pending:
-            self._commit_one(path, message)
-        self._pending.clear()
+        pending = self._pending
+        self._pending = []
+        try:
+            for path, content, write_message in pending:
+                self._commit_one(path, content, write_message or message)
+        except Exception:
+            # Preserve writes so the next sync can retry.
+            self._pending = pending
+            raise
 
-    def _commit_one(self, path: str, message: str) -> None:
+    def _commit_one(self, path: str, content: bytes, message: str) -> None:
         """Commit a single file, fetching the current SHA and retrying on conflict."""
-        full_path = os.path.join(self._repo, path)
-        
         # Read the current file to get its SHA (needed for update).
         url = f"https://api.github.com/repos/{self._repo}/contents/{path}"
         params = {"ref": self._branch}
@@ -193,16 +200,8 @@ class GitHubApiRepository(GitHubRepositoryPort):
             if resp.status_code == 200:
                 sha = resp.json().get("sha")
             # If 404, it's a new file; sha remains None.
-        except Exception:
-            pass  # Proceed anyway; the commit might still succeed.
-        
-        # Read the local file content to push.
-        try:
-            with open(full_path, "rb") as fh:
-                content = fh.read()
-        except Exception:
-            # File doesn't exist locally; skip this commit.
-            return
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Could not read GitHub file {path}") from exc
         
         payload = {
             "message": message,
@@ -212,16 +211,9 @@ class GitHubApiRepository(GitHubRepositoryPort):
         if sha:
             payload["sha"] = sha
         
-        try:
-            resp = self._session.put(url, headers=self._headers, json=payload, timeout=self._timeout)
-            if resp.status_code == 422:
-                # Conflict: retry once by fetching the latest SHA.
-                resp = self._session.get(url, headers=self._headers, params=params, timeout=self._timeout)
-                if resp.status_code == 200:
-                    sha = resp.json().get("sha")
-                    payload["sha"] = sha
-                    resp = self._session.put(url, headers=self._headers, json=payload, timeout=self._timeout)
-            resp.raise_for_status()
-        except Exception:
-            # Log at caller; do not propagate so webhook remains resilient.
-            pass
+        resp = self._session.put(url, headers=self._headers, json=payload, timeout=self._timeout)
+        if resp.status_code == 422:
+            # Retrying a stale whole-CSV payload with a fresh SHA would erase
+            # concurrent rows. Leave it for RepoSync to retry safely.
+            raise RuntimeError(f"GitHub conflict while writing {path}")
+        resp.raise_for_status()
