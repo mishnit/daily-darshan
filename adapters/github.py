@@ -130,3 +130,91 @@ class GitHubApiRepository(GitHubRepositoryPort):
             "Authorization": f"Bearer {self._token}",
             "Accept": "application/vnd.github+json",
         }
+
+    def read_file(self, path: str) -> bytes | None:
+        """Fetch a file from the repository via the Contents API.
+        
+        Returns the file content as bytes, or None if the file does not exist.
+        """
+        url = f"https://api.github.com/repos/{self._repo}/contents/{path}"
+        params = {"ref": self._branch}
+        try:
+            resp = self._session.get(url, headers=self._headers, params=params, timeout=self._timeout)
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            data = resp.json()
+            # The API returns the content base64-encoded
+            return base64.b64decode(data["content"])
+        except Exception:
+            # Network or API errors are logged at the caller; return None to signal
+            # that local state should be preserved.
+            return None
+
+    def write_file(self, path: str, content: bytes, message: str) -> None:
+        """Write a file to the repository via the Contents API.
+        
+        The write is buffered internally and actually committed/pushed by commit().
+        """
+        # Buffer this write: commit() will batch all pending writes into one commit.
+        self._pending.append(path)
+
+    def commit(self, files: list[str], message: str) -> None:
+        """Commit all buffered writes in a single batch via the Contents API.
+        
+        Uses PUT to update existing files or create new ones. Retries once on
+        conflict (422) by re-fetching and retrying with the new SHA.
+        """
+        if not self._pending:
+            return
+        
+        for path in self._pending:
+            self._commit_one(path, message)
+        self._pending.clear()
+
+    def _commit_one(self, path: str, message: str) -> None:
+        """Commit a single file, fetching the current SHA and retrying on conflict."""
+        full_path = os.path.join(self._repo, path)
+        
+        # Read the current file to get its SHA (needed for update).
+        url = f"https://api.github.com/repos/{self._repo}/contents/{path}"
+        params = {"ref": self._branch}
+        
+        sha = None
+        try:
+            resp = self._session.get(url, headers=self._headers, params=params, timeout=self._timeout)
+            if resp.status_code == 200:
+                sha = resp.json().get("sha")
+            # If 404, it's a new file; sha remains None.
+        except Exception:
+            pass  # Proceed anyway; the commit might still succeed.
+        
+        # Read the local file content to push.
+        try:
+            with open(full_path, "rb") as fh:
+                content = fh.read()
+        except Exception:
+            # File doesn't exist locally; skip this commit.
+            return
+        
+        payload = {
+            "message": message,
+            "content": base64.b64encode(content).decode("utf-8"),
+            "branch": self._branch,
+        }
+        if sha:
+            payload["sha"] = sha
+        
+        try:
+            resp = self._session.put(url, headers=self._headers, json=payload, timeout=self._timeout)
+            if resp.status_code == 422:
+                # Conflict: retry once by fetching the latest SHA.
+                resp = self._session.get(url, headers=self._headers, params=params, timeout=self._timeout)
+                if resp.status_code == 200:
+                    sha = resp.json().get("sha")
+                    payload["sha"] = sha
+                    resp = self._session.put(url, headers=self._headers, json=payload, timeout=self._timeout)
+            resp.raise_for_status()
+        except Exception:
+            # Log at caller; do not propagate so webhook remains resilient.
+            pass
