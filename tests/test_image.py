@@ -86,6 +86,15 @@ def test_collector_falls_back_to_next_source():
     assert result.source == "rss"
 
 
+def test_collector_returns_all_valid_source_candidates():
+    first = Image(image_date=date.today(), data=b"one", source="first")
+    second = Image(image_date=date.today(), data=b"two", source="second")
+    collector = ImageCollector(
+        [FakeSource("first", first), FakeSource("second", second)], AllValidValidator()
+    )
+    assert collector.collect_candidates(date.today()) == [first, second]
+
+
 @pytest.mark.skipif(not _PIL, reason="Pillow not installed")
 def test_collector_selects_largest_valid_remote_image():
     small = Image(image_date=date.today(), data=_png_bytes(1080, 1080), source="primary")
@@ -135,3 +144,10 @@ def test_image_service_force_refreshes_existing_valid_image():
     svc = ImageService(collector, AllValidValidator())
     result = svc.ensure_daily_image(date.today(), existing=b"already-here", force_refresh=True)
     assert result is replacement
+
+
+def test_image_service_candidate_path_uses_source_name():
+    service = ImageService(None, None, "docs/images")
+    assert service.candidate_path(date(2026, 8, 26), "ISKCON Bangalore") == (
+        "docs/images/2026-08-26_iskcon_bangalore.jpg"
+    )

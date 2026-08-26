@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
+import re
 from typing import Protocol
 
 from domain.image import Image
@@ -42,9 +43,9 @@ class ImageCollector:
             return [self._sources[name] for name in self.source_names_for(on_date) if name in self._sources]
         return self._sources
 
-    def collect(self, on_date: date | None = None) -> Image:
+    def collect_candidates(self, on_date: date | None = None) -> list[Image]:
         on_date = on_date or date.today()
-        candidates: list[tuple[tuple[int, int, int], Image]] = []
+        candidates: list[Image] = []
         for source in self._sources_for(on_date):
             try:
                 candidate = source.fetch(on_date)
@@ -55,15 +56,23 @@ class ImageCollector:
                 self._log("IMAGE_FETCH_FAILED", details=f"{source.name}:no-candidate")
                 continue
             if self._validator.validate(candidate):
-                candidates.append((_resolution_rank(candidate), candidate))
+                candidates.append(candidate)
                 continue
             self._log("IMAGE_FETCH_FAILED", details=f"{source.name}:invalid")
-        if candidates:
-            # ``max`` preserves the configured order for an equal-resolution tie.
-            _, image = max(candidates, key=lambda item: item[0])
-            self._log("IMAGE_FETCH_SUCCESS", details=f"{image.source}:{image.sha256()}")
-            return image
-        raise AllSourcesFailed(f"All image sources failed for {on_date.isoformat()}")
+        if not candidates:
+            raise AllSourcesFailed(f"All image sources failed for {on_date.isoformat()}")
+        return candidates
+
+    def select_largest(self, candidates: list[Image]) -> Image:
+        """Return the largest candidate, preserving source order on a tie."""
+        if not candidates:
+            raise AllSourcesFailed("No valid image candidates")
+        image = max(candidates, key=_resolution_rank)
+        self._log("IMAGE_FETCH_SUCCESS", details=f"{image.source}:{image.sha256()}")
+        return image
+
+    def collect(self, on_date: date | None = None) -> Image:
+        return self.select_largest(self.collect_candidates(on_date))
 
     def _log(self, event: str, mobile: str = "", details: str = "") -> None:
         if self._logs:
@@ -117,8 +126,20 @@ class ImageService:
         image = self._collector.collect(on_date)
         return image
 
+    def collect_daily_images(self, on_date: date) -> list[Image]:
+        """Fetch every valid remote candidate for the day's source chain."""
+        return self._collector.collect_candidates(on_date)
+
+    def select_largest(self, candidates: list[Image]) -> Image:
+        return self._collector.select_largest(candidates)
+
     def canonical_path(self, on_date: date) -> str:
         return Image(image_date=on_date).canonical_path(self._images_dir)
+
+    def candidate_path(self, on_date: date, source: str) -> str:
+        """Stable, human-readable path for one source image on a given day."""
+        safe_source = re.sub(r"[^a-z0-9_-]+", "_", source.lower()).strip("_-") or "source"
+        return f"{self._images_dir}/{on_date.isoformat()}_{safe_source}.jpg"
 
     def prune_images(
         self,
@@ -126,46 +147,46 @@ class ImageService:
         fallback_name: str = "fallback.jpg",
         root: str = ".",
     ) -> list[str]:
-        """Delete old dated images, keeping the newest ``keep`` plus a fallback.
+        """Delete old dated image sets, keeping the newest ``keep`` plus fallback.
 
         Retention policy (section 10/11 hygiene):
-          - Keep the ``keep`` most recent dated images named ``YYYY-MM-DD.jpg``.
+          - Keep the ``keep`` most recent dates, including each date's canonical
+            ``YYYY-MM-DD.jpg`` and source candidates ``YYYY-MM-DD_<source>.jpg``.
           - Always keep ``fallback_name`` if present (the safety-net image).
           - Delete every other .jpg in the images dir.
 
-        Only files matching the canonical dated name are considered for
-        deletion; anything else (e.g. the fallback, a .gitkeep) is left alone
-        unless it is an older dated image. Returns the repo-relative paths
-        removed so the caller can commit the deletions.
+        Only dated canonical/candidate names are considered for deletion;
+        anything else (e.g. the fallback, a .gitkeep) is left alone.
 
         Idempotent: a second run with nothing to prune returns [].
         """
         import os
         import re
 
-        dated_re = re.compile(r"^(\d{4}-\d{2}-\d{2})\.jpg$")
+        dated_re = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:_[a-z0-9][a-z0-9_-]*)?\.jpg$", re.I)
         abs_dir = os.path.join(root, self._images_dir)
         if not os.path.isdir(abs_dir):
             return []
 
-        dated: list[tuple[str, str]] = []  # (date_str, filename)
+        dated: dict[str, list[str]] = {}
         for name in os.listdir(abs_dir):
             m = dated_re.match(name)
             if m:
-                dated.append((m.group(1), name))
+                dated.setdefault(m.group(1), []).append(name)
 
         # Newest first by ISO date string (lexicographic == chronological here).
-        dated.sort(key=lambda t: t[0], reverse=True)
-        to_delete = dated[keep:] if keep >= 0 else []
+        dates = sorted(dated, reverse=True)
+        dates_to_delete = dates[keep:] if keep >= 0 else []
 
         removed: list[str] = []
-        for _date_str, name in to_delete:
-            if name == fallback_name:
-                continue  # never delete the fallback, even if it looks dated
-            full = os.path.join(abs_dir, name)
-            try:
-                os.remove(full)
-            except FileNotFoundError:
-                continue
-            removed.append(os.path.join(self._images_dir, name))
+        for date_str in dates_to_delete:
+            for name in sorted(dated[date_str]):
+                if name == fallback_name:
+                    continue
+                full = os.path.join(abs_dir, name)
+                try:
+                    os.remove(full)
+                except FileNotFoundError:
+                    continue
+                removed.append(os.path.join(self._images_dir, name))
         return removed
