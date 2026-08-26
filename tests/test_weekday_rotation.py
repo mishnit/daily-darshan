@@ -7,9 +7,11 @@ import pytest
 
 from adapters.image_sources.temples import (
     IskconBangaloreSource,
+    IskconTirupatiSource,
     IskconVrindavanSource,
     MahakalSource,
     SalangpurSource,
+    SwaminarayanSource,
 )
 from application.image_service import ImageCollector, ImageService
 from application.image_service import AllSourcesFailed
@@ -101,6 +103,57 @@ def test_iskcon_vrindavan_uses_dated_gallery_hydration_image():
         "https://iskconvrindavan.com/daily-darshan-gallery/2026-08-26/2/sringar-darshan",
         "https://cdn.iskconvrindavan.com/static/static-_16a8e9502b530a.jpg",
     ]
+
+
+def test_salangpur_prefers_largest_declared_darshan_image():
+    on_date = date(2026, 8, 27)
+    session = Session([
+        Response(
+            '<img src="logo.webp" alt="Temple logo" width="600" height="600">'
+            '<img src="small.jpg" alt="Daily Darshan (27-08-2026 Thursday)" width="600" height="800">'
+            '<img src="best.jpg" alt="Daily Darshan (27-08-2026 Thursday)" width="1600" height="2200">'
+        ),
+        Response(content=b"best-image"),
+    ])
+    source = SalangpurSource("https://example.test/dev-darshan", session=session)
+
+    assert source.fetch(on_date)
+    assert session.calls[1] == "https://example.test/best.jpg"
+
+
+def test_tirupati_rejects_map_image_when_no_darshan_is_available():
+    session = Session([Response('<img src="/wp-content/uploads/map_img.jpg" alt="Map Image">')])
+    source = IskconTirupatiSource("https://example.test/daily-darshan", session=session)
+
+    assert source.fetch(date(2026, 8, 27)) is None
+    assert len(session.calls) == 1
+
+
+def test_swaminarayan_uses_only_current_kalupur_card_from_official_feed():
+    on_date = date(2026, 8, 27)
+    session = Session([
+        Response(
+            '<div class="header-container">Wed, 26 August 2026</div>'
+            '<img data-src="https://images.example.test/stale.jpg"><div class="temple-name">Ahmedabad (Kalupur)</div>'
+            '<div class="header-container">Thu, 27 August 2026</div>'
+            '<img data-src="https://images.example.test/today.jpg"><div class="temple-name">Ahmedabad (Kalupur)</div>'
+        ),
+        Response(content=b"today-image"),
+    ])
+    source = SwaminarayanSource("https://swaminarayan.info/daily-darshan", session=session)
+
+    assert source.fetch(on_date)
+    assert session.calls == [
+        "https://dailydarshanserver.nnd.media/api/iframe/content?mode=dark",
+        "https://images.example.test/today.jpg",
+    ]
+
+
+def test_mahakal_spa_shell_does_not_produce_a_non_darshan_candidate():
+    session = Session([Response('<div id="root"></div><script src="/assets/index.js"></script>')])
+    source = MahakalSource("https://example.test/live-darshan", session=session)
+
+    assert source.fetch(date(2026, 8, 27)) is None
 
 
 def test_primary_failure_uses_secondary_and_only_fetches_chain_once():

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
+from html import unescape
 from urllib.parse import urlunsplit, urlsplit
 
 from .darshan_page import DarshanPageSource
@@ -10,6 +12,14 @@ from .darshan_page import DarshanPageSource
 _WORDPRESS_SIZE_SUFFIX = re.compile(r"-\d{1,5}x\d{1,5}(?=\.[^.]+$)", re.IGNORECASE)
 _VRINDAVAN_GALLERY_IMAGE = re.compile(r"static/static-_[a-z0-9]+\.jpg", re.IGNORECASE)
 _VRINDAVAN_CDN = "https://cdn.iskconvrindavan.com/"
+_SWAMINARAYAN_FEED = "https://dailydarshanserver.nnd.media/api/iframe/content?mode=dark"
+_SWAMINARAYAN_CARD = re.compile(
+    r'<div[^>]*class="[^"]*header-container[^"]*"[^>]*>\s*(?P<date>[^<]+?)\s*</div>'
+    r'.*?<img(?P<image>[^>]+)>.*?<div[^>]*class="[^"]*temple-name[^"]*"[^>]*>'
+    r'\s*(?P<temple>[^<]+?)\s*</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+_HTML_ATTR = re.compile(r'(?P<name>[\w-]+)=["\'](?P<value>.*?)["\']', re.DOTALL)
 
 class _TemplePageSource(DarshanPageSource):
     keywords = []
@@ -73,5 +83,32 @@ class IskconTirupatiSource(_TemplePageSource):
     name, keywords = "iskcon_tirupati", ["tirupati", "krishna", "darshan"]
 class SwaminarayanSource(_TemplePageSource):
     name, keywords = "swaminarayan", ["swaminarayan", "darshan", "vishnu"]
+
+    def resolve_url(self, on_date):
+        """Read Ahmedabad (Kalupur)'s dated card from the official iframe feed."""
+        self.last_page_url = _SWAMINARAYAN_FEED
+        try:
+            response = self._session.get(
+                _SWAMINARAYAN_FEED,
+                timeout=self._timeout,
+                headers={"User-Agent": "DailyDarshan/2.0"},
+            )
+        except Exception:
+            return None
+        if response.status_code != 200 or not response.text:
+            return None
+        for card in _SWAMINARAYAN_CARD.finditer(response.text):
+            try:
+                card_date = datetime.strptime(unescape(card.group("date")).strip(), "%a, %d %B %Y").date()
+            except ValueError:
+                continue
+            if card_date != on_date or "kalupur" not in unescape(card.group("temple")).lower():
+                continue
+            attrs = {m.group("name").lower(): unescape(m.group("value")) for m in _HTML_ATTR.finditer(card.group("image"))}
+            url = attrs.get("data-src") or attrs.get("src")
+            if url and not url.startswith("data:"):
+                self.last_image_url = url
+                return url
+        return None
 class MayapurSource(_TemplePageSource):
     name, keywords = "mayapur", ["mayapur", "krishna", "radha", "darshan"]
