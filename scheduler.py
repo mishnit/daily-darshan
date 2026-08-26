@@ -36,6 +36,14 @@ def _image_public_url(config: dict, on_date: date) -> str:
     return f"https://raw.githubusercontent.com/{repo}/{branch}/{images_dir}/{on_date.isoformat()}.jpg"
 
 
+def _fallback_public_url(config: dict) -> str:
+    repo = config.get("github", {}).get("repo") or __import__("os").environ.get("GITHUB_REPO", "")
+    branch = config.get("github", {}).get("branch", "main")
+    images_dir = config["paths"]["images_dir"]
+    fallback = config.get("delivery", {}).get("fallback_image", "fallback.jpg")
+    return f"https://raw.githubusercontent.com/{repo}/{branch}/{images_dir}/{fallback}"
+
+
 def _render_pages(container: Container, on_date: date) -> list[str]:
     """Generate per-subscriber static pages for on_date. Returns paths written."""
     return container.page_renderer.write_all(
@@ -63,7 +71,11 @@ def run_image(container: Container, git: LocalGitRepository, on_date: date) -> i
     path = container.image_service.canonical_path(on_date)
     existing = git.read_file(path)
     try:
-        image = container.image_service.ensure_daily_image(on_date, existing)
+        # Each image workflow run asks its remote source chain for a fresh
+        # image. A dated asset is never fabricated from the fallback.
+        image = container.image_service.ensure_daily_image(
+            on_date, existing, force_refresh=True
+        )
     except AllSourcesFailed as exc:
         fallback = container.config.get("delivery", {}).get("fallback_image", "fallback.jpg")
         fallback_path = f"{container.config['paths']['images_dir']}/{fallback}"
@@ -73,9 +85,9 @@ def run_image(container: Container, git: LocalGitRepository, on_date: date) -> i
             container.logs.log("IMAGE_FETCH_FAILED", details=str(exc))
             print(f"[image] FAILED: {exc}; local fallback invalid or missing", file=sys.stderr)
             return 1
-        container.logs.log("IMAGE_FALLBACK_USED", details=f"{fallback_path}:{exc}")
-        print(f"[image] remote sources failed; using local fallback {fallback_path}")
-        image = candidate
+        container.logs.log("IMAGE_FALLBACK_AVAILABLE", details=f"{fallback_path}:{exc}")
+        print(f"[image] remote sources failed; no dated image written; fallback remains {fallback_path}")
+        image = None
 
     committed: list[str] = []
     if image is not None:
@@ -83,7 +95,7 @@ def run_image(container: Container, git: LocalGitRepository, on_date: date) -> i
         committed.append(path)
         print(f"[image] stored {path} from source={image.source}")
     else:
-        print(f"[image] valid image already exists at {path}; refreshing pages only.")
+        print(f"[image] no remote image stored at {path}; refreshing pages only.")
 
     # Always (re)generate per-subscriber pages so subscribers who signed up since
     # the last run get a page even when today's image already exists.
@@ -122,6 +134,17 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
         # works even for a private repo (fix #6); fall back to the public URL.
         image_path = container.image_service.canonical_path(on_date)
         image_bytes = git.read_file(image_path)
+        if not image_bytes:
+            fallback = container.config.get("delivery", {}).get("fallback_image", "fallback.jpg")
+            fallback_path = f"{container.config['paths']['images_dir']}/{fallback}"
+            fallback_bytes = git.read_file(fallback_path)
+            fallback_image = Image(on_date, fallback_bytes or b"", source="local_fallback")
+            if not fallback_bytes or not container.image_validator.validate_fallback(fallback_image):
+                print(f"[delivery] FAILED: local fallback invalid or missing at {fallback_path}", file=sys.stderr)
+                return 1
+            image_bytes = fallback_bytes
+            image_url = _fallback_public_url(container.config)
+            container.logs.log("DELIVERY_FALLBACK_USED", details=fallback_path)
         report = container.delivery_service.deliver(on_date, image_url, image_bytes)
     sentlog_path = container.config["paths"]["sentlog_csv"]
     git.commit([sentlog_path, container.config["paths"]["logs_csv"]],

@@ -102,14 +102,15 @@ class ImageService:
         self._images_dir = images_dir
 
     def ensure_daily_image(
-        self, on_date: date, existing: bytes | None = None
+        self, on_date: date, existing: bytes | None = None, force_refresh: bool = False
     ) -> Image | None:
         """Return the image to store, or None if a valid one already exists.
 
         Idempotency (section 10): if an existing valid image is present, do
-        not replace it.
+        not replace it unless ``force_refresh`` requests a new remote source
+        selection for today's scheduled image.
         """
-        if existing:
+        if existing and not force_refresh:
             current = Image(image_date=on_date, data=existing)
             if self._validator.validate(current):
                 return None
