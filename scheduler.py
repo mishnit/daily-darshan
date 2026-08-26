@@ -116,6 +116,11 @@ def run_image(container: Container, git: LocalGitRepository, on_date: date) -> i
         container.logs.log("IMAGES_PRUNED", details=f"removed={len(removed)} kept<= {keep}")
         print(f"[image] pruned {len(removed)} old image(s), keeping newest {keep} + fallback")
 
+    # Persist collection success/failure and fallback availability, even when
+    # the page and image bytes themselves were unchanged.
+    logs_path = container.config["paths"].get("logs_csv")
+    if logs_path:
+        committed.append(logs_path)
     if committed:
         git.commit(committed, f"Daily darshan image + pages {on_date.isoformat()}")
     print(f"[image] pages={len(pages)}")

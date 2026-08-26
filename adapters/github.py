@@ -51,9 +51,10 @@ class LocalGitRepository(GitHubRepositoryPort):
         # documentation because /docs/ is intentionally ignored for local
         # contributors. Outside Actions, normal ignore rules remain in force.
         self._stage_files(files)
-        # Re-check after staging to ensure changes were actually staged
-        status = self._git("status", "--porcelain", capture=True)
-        if not status.strip():
+        # Do not mistake unrelated, unstaged changes (for example an audit-log
+        # entry) for staged work. Git would reject a commit with no index diff.
+        staged = self._git("diff", "--cached", "--name-only", "--", *files, capture=True)
+        if not staged.strip():
             # Nothing staged -> no-op (keeps job idempotent)
             return
         
