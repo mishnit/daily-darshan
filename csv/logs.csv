@@ -13,3 +13,7 @@ timestamp,event,mobile,details
 2026-08-26T18:54:39.806653,IMAGE_FETCH_FAILED,,swaminarayan:no-candidate
 2026-08-26T18:54:42.081633,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
 2026-08-26T18:54:42.082240,IMAGE_FETCH_SUCCESS,,iskcon_tirupati:954bf074994ba2e0dd30033f498bfde67dde78e878319a95b4a52f239fa8abb0
+2026-08-26T19:17:50.158759,IMAGE_FETCH_FAILED,,iskcon_tirupati:no-candidate
+2026-08-26T19:17:51.430147,IMAGE_FETCH_FAILED,,swaminarayan:no-candidate
+2026-08-26T19:17:54.057687,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
+2026-08-26T19:17:54.064944,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-08-27
