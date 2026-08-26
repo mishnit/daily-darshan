@@ -1,5 +1,15 @@
 """Small official temple adapters used by the weekday rotation registry."""
+from __future__ import annotations
+
+import re
+from urllib.parse import urlunsplit, urlsplit
+
 from .darshan_page import DarshanPageSource
+
+
+_WORDPRESS_SIZE_SUFFIX = re.compile(r"-\d{1,5}x\d{1,5}(?=\.[^.]+$)", re.IGNORECASE)
+_VRINDAVAN_GALLERY_IMAGE = re.compile(r"static/static-_[a-z0-9]+\.jpg", re.IGNORECASE)
+_VRINDAVAN_CDN = "https://cdn.iskconvrindavan.com/"
 
 class _TemplePageSource(DarshanPageSource):
     keywords = []
@@ -15,8 +25,50 @@ class SalangpurSource(_TemplePageSource):
     name, keywords, date_parameter = "salangpur", ["salangpur", "kashtbhanjan", "hanuman", "darshan"], True
 class IskconBangaloreSource(_TemplePageSource):
     name, keywords, page_is_dated = "iskcon_bangalore", ["iskcon", "bangalore", "krishna", "radha", "darshan"], True
+
+    def resolve_url(self, on_date):
+        """Use the WordPress original instead of its generated thumbnail."""
+        url = super().resolve_url(on_date)
+        if not url:
+            return None
+        parts = urlsplit(url)
+        original = urlunsplit(parts._replace(path=_WORDPRESS_SIZE_SUFFIX.sub("", parts.path)))
+        self.last_image_url = original
+        return original
+
+
 class IskconVrindavanSource(_TemplePageSource):
     name, keywords = "iskcon_vrindavan", ["vrindavan", "krishna", "radha", "darshan"]
+
+    def page_url(self, on_date):
+        """The official gallery uses a dated route, not a query parameter."""
+        return f"{self._page_url.rstrip('/')}/{on_date.isoformat()}/2/sringar-darshan"
+
+    def resolve_url(self, on_date):
+        """Extract a dated Sringar image from the Remix hydration payload.
+
+        The page's Open Graph image is a site-wide share thumbnail, so relying on
+        its regular ``<img>``/metadata parser would not retrieve that day's darshan.
+        """
+        page_url = self.page_url(on_date)
+        self.last_page_url = page_url
+        try:
+            response = self._session.get(
+                page_url,
+                timeout=self._timeout,
+                headers={"User-Agent": "DailyDarshan/2.0"},
+            )
+        except Exception:
+            return None
+        if response.status_code != 200 or not response.text:
+            return None
+        match = _VRINDAVAN_GALLERY_IMAGE.search(response.text)
+        if not match:
+            return None
+        self.last_image_url = f"{_VRINDAVAN_CDN}{match.group(0)}"
+        return self.last_image_url
+
+
 class IskconTirupatiSource(_TemplePageSource):
     name, keywords = "iskcon_tirupati", ["tirupati", "krishna", "darshan"]
 class SwaminarayanSource(_TemplePageSource):
