@@ -22,17 +22,28 @@ class ImageCollector:
 
     def __init__(
         self,
-        sources: list[ImageSourcePort],
+        sources: list[ImageSourcePort] | dict[str, ImageSourcePort],
         validator: ImageValidatorProtocol,
         logs: LogRepositoryPort | None = None,
+        rotation: dict[str, list[str]] | None = None,
     ):
         self._sources = sources
         self._validator = validator
         self._logs = logs
+        self._rotation = rotation or {}
+
+    def source_names_for(self, on_date: date) -> list[str]:
+        """Configured Monday–Sunday chain, with old list behaviour preserved."""
+        return self._rotation.get(on_date.strftime("%A").lower(), [])
+
+    def _sources_for(self, on_date: date) -> list[ImageSourcePort]:
+        if isinstance(self._sources, dict):
+            return [self._sources[name] for name in self.source_names_for(on_date) if name in self._sources]
+        return self._sources
 
     def collect(self, on_date: date | None = None) -> Image:
         on_date = on_date or date.today()
-        for source in self._sources:
+        for source in self._sources_for(on_date):
             try:
                 candidate = source.fetch(on_date)
             except Exception as exc:  # transient source failure -> next source

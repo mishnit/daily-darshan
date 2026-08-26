@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from adapters.github import LocalGitRepository
 from application.image_service import AllSourcesFailed
 from config import Container
+from domain.image import Image
 
 
 def _image_public_url(config: dict, on_date: date) -> str:
@@ -42,19 +44,42 @@ def _render_pages(container: Container, on_date: date) -> list[str]:
     )
 
 
+def _canonical_jpeg(data: bytes) -> bytes:
+    """Normalize decoded remote images to the .jpg canonical storage format."""
+    try:
+        import io
+        from PIL import Image as PILImage
+        with PILImage.open(io.BytesIO(data)) as source:
+            out = io.BytesIO()
+            source.convert("RGB").save(out, format="JPEG", quality=90, optimize=True)
+            return out.getvalue()
+    except Exception:
+        # Validation already protects production inputs. Keep test doubles and
+        # environments without Pillow backward compatible.
+        return data
+
+
 def run_image(container: Container, git: LocalGitRepository, on_date: date) -> int:
     path = container.image_service.canonical_path(on_date)
     existing = git.read_file(path)
     try:
         image = container.image_service.ensure_daily_image(on_date, existing)
     except AllSourcesFailed as exc:
-        container.logs.log("IMAGE_FETCH_FAILED", details=str(exc))
-        print(f"[image] FAILED: {exc}", file=sys.stderr)
-        image = None
+        fallback = container.config.get("delivery", {}).get("fallback_image", "fallback.jpg")
+        fallback_path = f"{container.config['paths']['images_dir']}/{fallback}"
+        fallback_bytes = git.read_file(fallback_path)
+        candidate = Image(on_date, fallback_bytes or b"", source="local_fallback")
+        if not fallback_bytes or not container.image_validator.validate(candidate):
+            container.logs.log("IMAGE_FETCH_FAILED", details=str(exc))
+            print(f"[image] FAILED: {exc}; local fallback invalid or missing", file=sys.stderr)
+            return 1
+        container.logs.log("IMAGE_FALLBACK_USED", details=f"{fallback_path}:{exc}")
+        print(f"[image] remote sources failed; using local fallback {fallback_path}")
+        image = candidate
 
     committed: list[str] = []
     if image is not None:
-        git.write_file(path, image.data, f"Add daily darshan image {on_date.isoformat()}")
+        git.write_file(path, _canonical_jpeg(image.data), f"Add daily darshan image {on_date.isoformat()}")
         committed.append(path)
         print(f"[image] stored {path} from source={image.source}")
     else:
@@ -181,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--date", help="ISO date override (YYYY-MM-DD)", default=None)
     args = parser.parse_args(argv)
 
-    on_date = date.fromisoformat(args.date) if args.date else date.today()
+    on_date = date.fromisoformat(args.date) if args.date else datetime.now(ZoneInfo("Asia/Kolkata")).date()
     container = Container()
     git = LocalGitRepository(root=container.root)
 

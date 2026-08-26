@@ -9,7 +9,9 @@ import json
 import os
 from functools import lru_cache
 
-from adapters.image_sources import ImageValidator, RSSSource, TempleSource, WebsiteSource
+from adapters.image_sources import (ImageValidator, RSSSource, TempleSource, WebsiteSource,
+    MahakalSource, SalangpurSource, IskconBangaloreSource, IskconVrindavanSource,
+    IskconTirupatiSource, SwaminarayanSource, MayapurSource)
 from adapters.github import GitHubApiRepository
 from adapters.page_renderer import PageRenderer
 from adapters.repo_sync import RepoSync
@@ -97,7 +99,8 @@ class Container:
         # Image pipeline
         self.image_validator = self._build_validator()
         self.image_collector = ImageCollector(
-            self._build_sources(), self.image_validator, self.logs
+            self._build_sources(), self.image_validator, self.logs,
+            rotation=self.config.get("daily_image_rotation"),
         )
         self.image_service = ImageService(
             self.image_collector, self.image_validator, paths["images_dir"]
@@ -152,13 +155,30 @@ class Container:
             min_height=v.get("min_height", 0),
         )
 
-    def _build_sources(self) -> list:
+    def _build_sources(self) -> list | dict:
         cfg = self.config.get("image_source_config", {})
         factories = {
             "temple": lambda: TempleSource(cfg["temple"]["base_url"]),
             "rss": lambda: RSSSource(cfg["rss"]["feed_url"]),
             "website": lambda: WebsiteSource(cfg["website"]["page_url"]),
         }
+        temple_factories = {
+            "mahakal": MahakalSource, "salangpur": SalangpurSource,
+            "iskcon_bangalore": IskconBangaloreSource, "iskcon_vrindavan": IskconVrindavanSource,
+            "iskcon_tirupati": IskconTirupatiSource, "swaminarayan": SwaminarayanSource,
+            "mayapur": MayapurSource,
+        }
+        remote_cfg = self.config.get("temple_sources", {})
+        if self.config.get("daily_image_rotation"):
+            sources = {}
+            for name, cls in temple_factories.items():
+                item = remote_cfg.get(name, {})
+                if item.get("enabled", True) and item.get("page_url"):
+                    sources[name] = cls(item["page_url"])
+            # Friday's Devi slot remains deliberately pluggable/configured.
+            if remote_cfg.get("devi", {}).get("enabled") and remote_cfg["devi"].get("page_url"):
+                sources["devi"] = WebsiteSource(remote_cfg["devi"]["page_url"])
+            return sources
         sources = []
         for name in self.config.get("image_sources", []):
             if name in factories and name in cfg:
