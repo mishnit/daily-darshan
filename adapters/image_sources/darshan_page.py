@@ -8,7 +8,7 @@ from urllib.parse import urljoin
 
 from .http_source import HttpImageSource
 
-_BAD = ("logo", "icon", "avatar", "banner", "placeholder", "pixel", "tracking", "qr", "thumb")
+_BAD = ("logo", "icon", "avatar", "banner", "placeholder", "pixel", "tracking", "qr", "thumb", "map")
 _DATE_RE = re.compile(r"\b(\d{4})[-/](\d{2})[-/](\d{2})\b|\b(\d{2})[-/](\d{2})[-/](\d{4})\b")
 
 class _Images(HTMLParser):
@@ -16,9 +16,17 @@ class _Images(HTMLParser):
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         if tag == "meta" and attrs.get("property", "").lower() == "og:image":
-            self.items.append((attrs.get("content", ""), "og:image"))
+            self.items.append((attrs.get("content", ""), "og:image", 0))
         elif tag == "img":
-            self.items.append((attrs.get("src") or attrs.get("data-src") or attrs.get("data-lazy-src", ""), " ".join(attrs.get(k, "") for k in ("alt", "title", "class", "id"))))
+            try:
+                pixels = int(attrs.get("width", 0)) * int(attrs.get("height", 0))
+            except (TypeError, ValueError):
+                pixels = 0
+            self.items.append((
+                attrs.get("src") or attrs.get("data-src") or attrs.get("data-lazy-src", ""),
+                " ".join(attrs.get(k, "") for k in ("alt", "title", "class", "id")),
+                pixels,
+            ))
 
 def _conflicting_date(html: str, on_date: date) -> bool:
     found = set()
@@ -43,10 +51,11 @@ class DarshanPageSource(HttpImageSource):
         except Exception: return None
         if resp.status_code != 200 or not resp.text or (self._check_page_date and _conflicting_date(resp.text, on_date)): return None
         parser = _Images(); parser.feed(resp.text); best = None
-        for raw, attrs in parser.items:
+        for raw, attrs, pixels in parser.items:
             url = urljoin(page_url, raw); text = f"{url} {attrs}".lower()
             if not url or any(word in text for word in _BAD): continue
             score = sum(10 for word in self._keywords if word in text) + (8 if "darshan" in text else 0) + (2 if url.lower().split("?", 1)[0].endswith((".jpg", ".jpeg", ".png", ".webp")) else 0)
-            if score and (best is None or score > best[0]): best = (score, url)
-        if best: self.last_image_url = best[1]; return best[1]
+            candidate = (score, pixels, url)
+            if score and (best is None or candidate[:2] > best[:2]): best = candidate
+        if best: self.last_image_url = best[2]; return best[2]
         return None
