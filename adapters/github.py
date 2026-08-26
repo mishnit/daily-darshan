@@ -47,14 +47,10 @@ class LocalGitRepository(GitHubRepositoryPort):
             fh.write(content)
 
     def commit(self, files: list[str], message: str) -> None:
-        # Check if there are any changes before attempting to stage files
-        status = self._git("status", "--porcelain", capture=True)
-        if not status.strip():
-            # No changes in the working directory; nothing to commit
-            return
-        
-        # Stage the specified files (add will record deletions as staged)
-        self._git("add", *files)
+        # Stage the specified files. GitHub Actions must force-add generated
+        # documentation because /docs/ is intentionally ignored for local
+        # contributors. Outside Actions, normal ignore rules remain in force.
+        self._stage_files(files)
         # Re-check after staging to ensure changes were actually staged
         status = self._git("status", "--porcelain", capture=True)
         if not status.strip():
@@ -103,6 +99,15 @@ class LocalGitRepository(GitHubRepositoryPort):
         except subprocess.CalledProcessError:
             self._git("pull", "--rebase")
             self._git("push")
+
+    def _stage_files(self, files: list[str]) -> None:
+        is_actions = os.environ.get("GITHUB_ACTIONS", "").strip().lower() == "true"
+        for path in files:
+            if is_actions and (path == "docs" or path.startswith("docs/")):
+                self._git("add", "-f", path)
+            else:
+                # ``add`` also stages deletions for tracked files.
+                self._git("add", path)
 
     def _git(self, *args: str, capture: bool = False) -> str:
         result = subprocess.run(
