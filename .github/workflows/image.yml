@@ -3,7 +3,7 @@ name: Daily Image
 on:
   schedule:
     # 02:30 UTC = 08:00 IST (Tech Doc section 11)
-    - cron: "30 2 * * *"
+    - cron: "30 4 * * *"
   workflow_dispatch: {}
 
 permissions:
