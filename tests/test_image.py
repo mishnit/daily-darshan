@@ -127,3 +127,11 @@ def test_image_service_collects_when_no_existing():
     svc = ImageService(collector, AllValidValidator())
     result = svc.ensure_daily_image(date.today(), existing=None)
     assert result is not None and result.data == b"new"
+
+
+def test_image_service_force_refreshes_existing_valid_image():
+    replacement = Image(image_date=date.today(), data=b"new", source="temple")
+    collector = ImageCollector([FakeSource("temple", replacement)], AllValidValidator())
+    svc = ImageService(collector, AllValidValidator())
+    result = svc.ensure_daily_image(date.today(), existing=b"already-here", force_refresh=True)
+    assert result is replacement

@@ -93,12 +93,12 @@ def test_one_canonical_image_is_reused_for_many_subscribers():
     assert subscriber_references == ["docs/images/2026-08-24.jpg"] * 100
 
 
-def test_e2e_remote_failure_writes_one_local_fallback_canonical_image():
-    """Scheduler integration: failed chain -> fallback -> exactly one dated asset."""
+def test_e2e_remote_failure_keeps_fallback_separate_from_dated_image():
+    """Scheduler integration: failed chain keeps fallback out of dated assets."""
     on_date = date(2026, 8, 24)
     class Images:
         def canonical_path(self, day): return f"docs/images/{day}.jpg"
-        def ensure_daily_image(self, *_): raise AllSourcesFailed("all remote failed")
+        def ensure_daily_image(self, *_, **__): raise AllSourcesFailed("all remote failed")
         def prune_images(self, **_): return []
     class Validator:
         def validate(self, image): return image.data == b"fallback"
@@ -121,4 +121,4 @@ def test_e2e_remote_failure_writes_one_local_fallback_canonical_image():
         def commit(self, *_): pass
     git = Git()
     assert run_image(Container(), git, on_date) == 0
-    assert git.writes == [("docs/images/2026-08-24.jpg", b"fallback")]
+    assert git.writes == []
