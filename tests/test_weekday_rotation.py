@@ -98,7 +98,7 @@ def test_e2e_remote_failure_keeps_fallback_separate_from_dated_image():
     on_date = date(2026, 8, 24)
     class Images:
         def canonical_path(self, day): return f"docs/images/{day}.jpg"
-        def ensure_daily_image(self, *_, **__): raise AllSourcesFailed("all remote failed")
+        def collect_daily_images(self, *_): raise AllSourcesFailed("all remote failed")
         def prune_images(self, **_): return []
     class Validator:
         def validate(self, image): return image.data == b"fallback"
@@ -122,3 +122,39 @@ def test_e2e_remote_failure_keeps_fallback_separate_from_dated_image():
     git = Git()
     assert run_image(Container(), git, on_date) == 0
     assert git.writes == []
+
+
+def test_scheduler_stores_all_source_candidates_and_largest_canonical_image():
+    on_date = date(2026, 8, 26)
+    bangalore = Image(on_date, b"bangalore", "iskcon_bangalore")
+    mayapur = Image(on_date, b"mayapur", "mayapur")
+
+    class Images:
+        def canonical_path(self, day): return f"docs/images/{day}.jpg"
+        def candidate_path(self, day, source): return f"docs/images/{day}_{source}.jpg"
+        def collect_daily_images(self, _day): return [bangalore, mayapur]
+        def select_largest(self, _candidates): return mayapur
+        def prune_images(self, **_): return []
+    class Logs:
+        def log(self, *_args, **_kwargs): pass
+    class Pages:
+        def write_all(self, *_args, **_kwargs): return []
+    class Subs:
+        def all(self): return []
+    class Container:
+        config = {"paths": {"images_dir": "docs/images"}, "delivery": {"image_retention_days": 7}}
+        image_service, logs, page_renderer, subscribers = Images(), Logs(), Pages(), Subs()
+        root = "."
+    class Git:
+        def __init__(self): self.writes = []
+        def read_file(self, _path): return None
+        def write_file(self, path, data, *_): self.writes.append((path, data))
+        def commit(self, *_): pass
+
+    git = Git()
+    assert run_image(Container(), git, on_date) == 0
+    assert git.writes == [
+        ("docs/images/2026-08-26_iskcon_bangalore.jpg", b"bangalore"),
+        ("docs/images/2026-08-26_mayapur.jpg", b"mayapur"),
+        ("docs/images/2026-08-26.jpg", b"mayapur"),
+    ]

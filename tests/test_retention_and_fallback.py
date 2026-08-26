@@ -57,6 +57,23 @@ def test_prune_images_noop_when_within_limit(tmp_path):
     assert len(os.listdir(imgs)) == 2
 
 
+def test_prune_images_removes_all_candidates_for_old_dates(tmp_path):
+    imgs = tmp_path / "images"
+    for day in ["2026-08-18", "2026-08-19", "2026-08-20"]:
+        _touch(str(imgs / f"{day}.jpg"))
+        _touch(str(imgs / f"{day}_mayapur.jpg"))
+        _touch(str(imgs / f"{day}_iskcon_bangalore.jpg"))
+
+    removed = _image_service().prune_images(keep=2, root=str(tmp_path))
+
+    assert removed == [
+        os.path.join("images", "2026-08-18.jpg"),
+        os.path.join("images", "2026-08-18_iskcon_bangalore.jpg"),
+        os.path.join("images", "2026-08-18_mayapur.jpg"),
+    ]
+    assert not any(name.startswith("2026-08-18") for name in os.listdir(imgs))
+
+
 def test_prune_images_is_idempotent(tmp_path):
     imgs = tmp_path / "images"
     for d in ["2026-08-01", "2026-08-02", "2026-08-03"]:

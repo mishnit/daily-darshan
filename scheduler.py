@@ -69,13 +69,12 @@ def _canonical_jpeg(data: bytes) -> bytes:
 
 def run_image(container: Container, git: LocalGitRepository, on_date: date) -> int:
     path = container.image_service.canonical_path(on_date)
-    existing = git.read_file(path)
+    candidates: list[Image] = []
     try:
         # Each image workflow run asks its remote source chain for a fresh
-        # image. A dated asset is never fabricated from the fallback.
-        image = container.image_service.ensure_daily_image(
-            on_date, existing, force_refresh=True
-        )
+        # image set. A dated asset is never fabricated from the fallback.
+        candidates = container.image_service.collect_daily_images(on_date)
+        image = container.image_service.select_largest(candidates)
     except AllSourcesFailed as exc:
         fallback = container.config.get("delivery", {}).get("fallback_image", "fallback.jpg")
         fallback_path = f"{container.config['paths']['images_dir']}/{fallback}"
@@ -91,9 +90,14 @@ def run_image(container: Container, git: LocalGitRepository, on_date: date) -> i
 
     committed: list[str] = []
     if image is not None:
+        for candidate in candidates:
+            candidate_path = container.image_service.candidate_path(on_date, candidate.source)
+            git.write_file(candidate_path, _canonical_jpeg(candidate.data),
+                           f"Add {candidate.source} darshan image {on_date.isoformat()}")
+            committed.append(candidate_path)
         git.write_file(path, _canonical_jpeg(image.data), f"Add daily darshan image {on_date.isoformat()}")
         committed.append(path)
-        print(f"[image] stored {path} from source={image.source}")
+        print(f"[image] stored {len(candidates)} candidate(s); {path} uses source={image.source}")
     else:
         print(f"[image] no remote image stored at {path}; refreshing pages only.")
 
