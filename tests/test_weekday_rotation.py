@@ -9,7 +9,7 @@ from adapters.image_sources.temples import MahakalSource, SalangpurSource, Iskco
 from application.image_service import ImageCollector, ImageService
 from application.image_service import AllSourcesFailed
 from domain.image import Image
-from scheduler import run_image
+from scheduler import run_image, run_pages
 from tests.conftest import FakeSource
 
 
@@ -158,3 +158,52 @@ def test_scheduler_stores_all_source_candidates_and_largest_canonical_image():
         ("docs/images/2026-08-26_mayapur.jpg", b"mayapur"),
         ("docs/images/2026-08-26.jpg", b"mayapur"),
     ]
+
+
+def test_pages_job_uses_stored_image_without_fetching_sources():
+    on_date = date(2026, 8, 26)
+
+    class Images:
+        def canonical_path(self, day): return f"docs/images/{day}.jpg"
+    class Validator:
+        def validate(self, image): return image.data == b"stored-image"
+    class Logs:
+        def __init__(self): self.events = []
+        def log(self, *args, **_kwargs): self.events.append(args)
+    class Pages:
+        def __init__(self): self.calls = 0
+        def write_all(self, *_args, **_kwargs):
+            self.calls += 1
+            return ["docs/subscriber/index.html"]
+    class Subs:
+        def all(self): return []
+    class Container:
+        config = {"paths": {"images_dir": "docs/images", "logs_csv": "csv/logs.csv"}}
+        image_service, image_validator, logs, page_renderer, subscribers = Images(), Validator(), Logs(), Pages(), Subs()
+        root = "."
+    class Git:
+        def __init__(self): self.commits = []
+        def read_file(self, path): return b"stored-image" if path.endswith(".jpg") else None
+        def commit(self, paths, *_): self.commits.append(paths)
+
+    git = Git()
+    container = Container()
+    assert run_pages(container, git, on_date) == 0
+    assert container.page_renderer.calls == 1
+    assert git.commits == [["docs/subscriber/index.html", "csv/logs.csv"]]
+
+
+def test_pages_job_fails_when_todays_image_is_missing():
+    on_date = date(2026, 8, 26)
+
+    class Images:
+        def canonical_path(self, day): return f"docs/images/{day}.jpg"
+    class Validator:
+        def validate(self, _image): return False
+    class Container:
+        config = {"paths": {"images_dir": "docs/images"}}
+        image_service, image_validator = Images(), Validator()
+    class Git:
+        def read_file(self, _path): return None
+
+    assert run_pages(Container(), Git(), on_date) == 1

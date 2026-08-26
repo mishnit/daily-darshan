@@ -2,6 +2,7 @@
 
 Jobs (invoked by GitHub Actions):
   - image     : fetch + validate + store today's canonical image + pages, commit
+  - pages     : regenerate pages from today's stored image only, commit
   - expiry    : flip ACTIVE subscribers past end_date to EXPIRED, commit
   - renewal   : send renewal reminders, then commit renewals log
   - delivery  : send today's darshan to eligible subscribers, then commit sentlog
@@ -9,6 +10,7 @@ Jobs (invoked by GitHub Actions):
 
 Usage:
     python scheduler.py image
+    python scheduler.py pages
     python scheduler.py expiry
     python scheduler.py delivery
     python scheduler.py renewal
@@ -131,6 +133,32 @@ def run_image(container: Container, git: LocalGitRepository, on_date: date) -> i
     return 0
 
 
+def run_pages(container: Container, git: LocalGitRepository, on_date: date) -> int:
+    """Regenerate subscriber pages from an existing canonical image only.
+
+    This intentionally does not construct an image collector or fetch any
+    remote source. A manual Actions run can therefore repair pages without
+    changing today's selected darshan image.
+    """
+    image_path = container.image_service.canonical_path(on_date)
+    image_bytes = git.read_file(image_path)
+    image = Image(on_date, image_bytes or b"", source="stored_canonical")
+    if not image_bytes or not container.image_validator.validate(image):
+        print(f"[pages] FAILED: no valid stored image at {image_path}", file=sys.stderr)
+        return 1
+
+    pages = _render_pages(container, on_date)
+    container.logs.log("PAGES_REGENERATED", details=f"{on_date.isoformat()}:count={len(pages)}")
+    committed = list(pages)
+    logs_path = container.config["paths"].get("logs_csv")
+    if logs_path:
+        committed.append(logs_path)
+    if committed:
+        git.commit(committed, f"Regenerate daily pages {on_date.isoformat()}")
+    print(f"[pages] regenerated={len(pages)} image={image_path}")
+    return 0
+
+
 def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -> int:
     mode = container.config.get("delivery", {}).get("mode", "image")
     if mode == "utility_template":
@@ -234,7 +262,7 @@ def run_keepalive(container: Container, interval_seconds: int = 300) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Daily Darshan scheduler")
-    parser.add_argument("job", choices=["image", "delivery", "renewal", "expiry", "keepalive", "all"])
+    parser.add_argument("job", choices=["image", "pages", "delivery", "renewal", "expiry", "keepalive", "all"])
     parser.add_argument("--date", help="ISO date override (YYYY-MM-DD)", default=None)
     args = parser.parse_args(argv)
 
@@ -249,6 +277,8 @@ def main(argv: list[str] | None = None) -> int:
     rc = 0
     if args.job in ("image", "all"):
         rc |= run_image(container, git, on_date)
+    if args.job == "pages":
+        rc |= run_pages(container, git, on_date)
     # Expiry sweep runs before renewal/delivery so downstream steps see accurate
     # EXPIRED status (eligibility is date-gated regardless, but this keeps the
     # stored status truthful for reminders, reports and admin views).

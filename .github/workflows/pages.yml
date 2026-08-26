@@ -1,0 +1,45 @@
+name: Regenerate Daily Pages
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  pages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest httpx
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Configure git author
+        run: |
+          git config user.name "Daily Darshan Automation"
+          git config user.email "geekymishnit@gmail.com"
+
+      - name: Import GPG signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          test -n "$GPG_PRIVATE_KEY" || { echo "GPG_PRIVATE_KEY secret is required" >&2; exit 1; }
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          fingerprint="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+          test -n "$fingerprint" || { echo "No imported GPG secret key found" >&2; exit 1; }
+          git config --global user.signingkey "$fingerprint"
+          git config --global commit.gpgsign true
+          echo "GIT_COMMIT_GPG_SIGN=true" >> "$GITHUB_ENV"
+
+      - name: Regenerate pages from today's stored image
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+        run: python scheduler.py pages
