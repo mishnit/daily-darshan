@@ -23,7 +23,8 @@ class HttpImageSource(ImageSourcePort):
         raise NotImplementedError
 
     def _download(self, url: str, on_date: date) -> Image | None:
-        resp = self._session.get(url, timeout=self._timeout)
+        resp = self._session.get(url, timeout=self._timeout,
+                                 headers={"User-Agent": "DailyDarshan/2.0"})
         if resp.status_code != 200 or not resp.content:
             return None
         return Image(image_date=on_date, data=resp.content, source=self.name)
