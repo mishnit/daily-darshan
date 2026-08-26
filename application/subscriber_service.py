@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from domain.enums import PaymentStatus, SubscriberStatus
+from domain.enums import SubscriberStatus
 from domain.subscriber import Subscriber
 from application.ports.repositories import (
     LogRepositoryPort,
@@ -175,20 +175,17 @@ class SubscriberService:
             expired.append(sub.mobile)
         return expired
 
-    def _has_successful_payment(self, mobile: str) -> bool:
-        return any(
-            p.mobile == mobile and p.status == PaymentStatus.SUCCESS
-            for p in self._payments.all()
-        )
-
     def is_eligible(self, mobile: str, on_date: date | None = None) -> bool:
-        """Full eligibility (section 7): active status, successful payment,
-        opt-in, unexpired, and no successful delivery for the same date."""
+        """Delivery eligibility: active, opted-in, unexpired, and unsent today.
+
+        Payment verification activates or renews a subscription in the normal
+        workflow, but delivery itself is governed by the subscription record.
+        This allows an administrator to grant an active subscription without a
+        corresponding payment row.
+        """
         on_date = on_date or date.today()
         sub = self._subscribers.find(mobile)
         if sub is None or not sub.is_deliverable(on_date):
-            return False
-        if not self._has_successful_payment(mobile):
             return False
         if self._sentlog is not None and self._sentlog.was_sent(on_date, mobile):
             return False

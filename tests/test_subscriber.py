@@ -72,18 +72,18 @@ def _seed_active_with_payment(repos, mobile="9199", end=date(2026, 12, 31)):
                                       plan="monthly", amount=49, status=PaymentStatus.SUCCESS))
 
 
-def test_eligible_active_paid_optin(repos, plans):
+def test_eligible_active_optin_with_successful_payment(repos, plans):
     _seed_active_with_payment(repos)
     svc = SubscriberService(repos["subscribers"], repos["payments"], plans, repos["sentlog"])
     assert svc.is_eligible("9199", date(2026, 8, 19)) is True
 
 
-def test_not_eligible_without_successful_payment(repos, plans):
+def test_eligible_without_successful_payment(repos, plans):
     sub = Subscriber(mobile="9199", plan="monthly", status=SubscriberStatus.ACTIVE,
-                     start_date=date(2026, 1, 1), end_date=date(2026, 12, 31))
+                     start_date=date(2026, 1, 1), end_date=date(2026, 12, 31), opt_in=True)
     repos["subscribers"].append(sub)
     svc = SubscriberService(repos["subscribers"], repos["payments"], plans, repos["sentlog"])
-    assert svc.is_eligible("9199", date(2026, 8, 19)) is False
+    assert svc.is_eligible("9199", date(2026, 8, 19)) is True
 
 
 def test_not_eligible_when_expired(repos, plans):
