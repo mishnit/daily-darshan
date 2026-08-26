@@ -102,6 +102,7 @@ def test_e2e_remote_failure_writes_one_local_fallback_canonical_image():
         def prune_images(self, **_): return []
     class Validator:
         def validate(self, image): return image.data == b"fallback"
+        def validate_fallback(self, image): return image.data == b"fallback"
     class Logs:
         def __init__(self): self.events = []
         def log(self, *args, **kwargs): self.events.append(args)

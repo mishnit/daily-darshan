@@ -11,6 +11,7 @@ from application.ports.storage import ImageSourcePort
 
 class ImageValidatorProtocol(Protocol):
     def validate(self, image: Image) -> bool: ...
+    def validate_fallback(self, image: Image) -> bool: ...
 
 
 class AllSourcesFailed(Exception):
@@ -18,7 +19,7 @@ class AllSourcesFailed(Exception):
 
 
 class ImageCollector:
-    """Iterate sources in priority order; return first valid image (section 10)."""
+    """Choose the largest valid remote image from the configured source chain."""
 
     def __init__(
         self,
@@ -43,6 +44,7 @@ class ImageCollector:
 
     def collect(self, on_date: date | None = None) -> Image:
         on_date = on_date or date.today()
+        candidates: list[tuple[tuple[int, int, int], Image]] = []
         for source in self._sources_for(on_date):
             try:
                 candidate = source.fetch(on_date)
@@ -53,14 +55,37 @@ class ImageCollector:
                 self._log("IMAGE_FETCH_FAILED", details=f"{source.name}:no-candidate")
                 continue
             if self._validator.validate(candidate):
-                self._log("IMAGE_FETCH_SUCCESS", details=f"{source.name}:{candidate.sha256()}")
-                return candidate
+                candidates.append((_resolution_rank(candidate), candidate))
+                continue
             self._log("IMAGE_FETCH_FAILED", details=f"{source.name}:invalid")
+        if candidates:
+            # ``max`` preserves the configured order for an equal-resolution tie.
+            _, image = max(candidates, key=lambda item: item[0])
+            self._log("IMAGE_FETCH_SUCCESS", details=f"{image.source}:{image.sha256()}")
+            return image
         raise AllSourcesFailed(f"All image sources failed for {on_date.isoformat()}")
 
     def _log(self, event: str, mobile: str = "", details: str = "") -> None:
         if self._logs:
             self._logs.log(event, mobile, details)
+
+
+def _resolution_rank(image: Image) -> tuple[int, int, int]:
+    """Rank images by pixels, then their shorter and longer sides.
+
+    Pillow is a production dependency. The zero rank keeps lightweight test
+    doubles backward-compatible and preserves source order when dimensions
+    cannot be decoded.
+    """
+    try:
+        import io
+        from PIL import Image as PILImage
+
+        with PILImage.open(io.BytesIO(image.data)) as decoded:
+            width, height = decoded.size
+    except Exception:
+        return (0, 0, 0)
+    return (width * height, min(width, height), max(width, height))
 
 
 class ImageService:
