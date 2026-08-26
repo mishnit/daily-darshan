@@ -44,6 +44,14 @@ def test_validator_rejects_small_dimensions():
 
 
 @pytest.mark.skipif(not _PIL, reason="Pillow not installed")
+def test_validator_accepts_small_valid_fallback():
+    v = ImageValidator(allowed_formats=["PNG"], min_width=1080, min_height=1080)
+    img = Image(image_date=date.today(), data=_png_bytes(612, 612))
+    assert v.validate(img) is False
+    assert v.validate_fallback(img) is True
+
+
+@pytest.mark.skipif(not _PIL, reason="Pillow not installed")
 def test_validator_rejects_garbage_bytes():
     v = ImageValidator(allowed_formats=["PNG", "JPEG"])
     img = Image(image_date=date.today(), data=b"not-an-image")
@@ -76,6 +84,17 @@ def test_collector_falls_back_to_next_source():
     )
     result = collector.collect(date.today())
     assert result.source == "rss"
+
+
+@pytest.mark.skipif(not _PIL, reason="Pillow not installed")
+def test_collector_selects_largest_valid_remote_image():
+    small = Image(image_date=date.today(), data=_png_bytes(1080, 1080), source="primary")
+    large = Image(image_date=date.today(), data=_png_bytes(1080, 1350), source="secondary")
+    validator = ImageValidator(allowed_formats=["PNG"], min_width=1080, min_height=1080)
+    collector = ImageCollector(
+        [FakeSource("primary", small), FakeSource("secondary", large)], validator
+    )
+    assert collector.collect(date.today()).source == "secondary"
 
 
 def test_collector_skips_source_that_raises():

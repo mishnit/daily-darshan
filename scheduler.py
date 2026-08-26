@@ -69,7 +69,7 @@ def run_image(container: Container, git: LocalGitRepository, on_date: date) -> i
         fallback_path = f"{container.config['paths']['images_dir']}/{fallback}"
         fallback_bytes = git.read_file(fallback_path)
         candidate = Image(on_date, fallback_bytes or b"", source="local_fallback")
-        if not fallback_bytes or not container.image_validator.validate(candidate):
+        if not fallback_bytes or not container.image_validator.validate_fallback(candidate):
             container.logs.log("IMAGE_FETCH_FAILED", details=str(exc))
             print(f"[image] FAILED: {exc}; local fallback invalid or missing", file=sys.stderr)
             return 1
