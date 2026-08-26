@@ -5,7 +5,12 @@ from datetime import date
 
 import pytest
 
-from adapters.image_sources.temples import MahakalSource, SalangpurSource, IskconBangaloreSource
+from adapters.image_sources.temples import (
+    IskconBangaloreSource,
+    IskconVrindavanSource,
+    MahakalSource,
+    SalangpurSource,
+)
 from application.image_service import ImageCollector, ImageService
 from application.image_service import AllSourcesFailed
 from domain.image import Image
@@ -66,6 +71,36 @@ def test_dated_pages_reject_stale_content(cls, html, expected):
     session = Session([Response(html), Response(content=b"ok")])
     source = cls("https://example.test/darshan", session=session)
     assert bool(source.fetch(date(2026, 8, 25))) is expected
+
+
+def test_iskcon_bangalore_uses_wordpress_original_image_url():
+    on_date = date(2026, 8, 26)
+    session = Session([
+        Response('<time>2026-08-26</time><img src="/wp-content/uploads/2026/08/darshan-260x325.jpeg" alt="Krishna darshan">'),
+        Response(content=b"original"),
+    ])
+    source = IskconBangaloreSource("https://example.test/daily-darshan", session=session)
+
+    assert source.fetch(on_date)
+    assert session.calls[1] == "https://example.test/wp-content/uploads/2026/08/darshan.jpeg"
+    assert source.last_image_url == session.calls[1]
+
+
+def test_iskcon_vrindavan_uses_dated_gallery_hydration_image():
+    on_date = date(2026, 8, 26)
+    session = Session([
+        Response('window.__remixContext.enqueue("images_list [\\\"static/static-_16a8e9502b530a.jpg\\\"]")'),
+        Response(content=b"gallery-image"),
+    ])
+    source = IskconVrindavanSource("https://iskconvrindavan.com/daily-darshan-gallery", session=session)
+
+    image = source.fetch(on_date)
+
+    assert image and image.source == "iskcon_vrindavan"
+    assert session.calls == [
+        "https://iskconvrindavan.com/daily-darshan-gallery/2026-08-26/2/sringar-darshan",
+        "https://cdn.iskconvrindavan.com/static/static-_16a8e9502b530a.jpg",
+    ]
 
 
 def test_primary_failure_uses_secondary_and_only_fetches_chain_once():
