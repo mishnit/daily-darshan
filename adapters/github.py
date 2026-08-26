@@ -23,8 +23,8 @@ class LocalGitRepository(GitHubRepositoryPort):
     def __init__(
         self,
         root: str = ".",
-        author_name: str = "daily-darshan-bot",
-        author_email: str = "bot@users.noreply.github.com",
+        author_name: str = "Daily Darshan Automation",
+        author_email: str = "geekymishnit@gmail.com",
     ):
         self._root = os.path.abspath(root)
         self._author_name = author_name
@@ -61,10 +61,10 @@ class LocalGitRepository(GitHubRepositoryPort):
             # Nothing staged -> no-op (keeps job idempotent)
             return
         
-        # CI enables GPG signing explicitly after importing its signing key.
-        # Keep local/default commits unsigned unless opted in so development
-        # machines without that key remain usable.
-        sign_commits = os.environ.get("GIT_COMMIT_GPG_SIGN", "").strip().lower() in {
+        # Signed commits are the default. A missing key is a deliberate hard
+        # failure: silently producing an unsigned automation commit would
+        # violate the repository's audit requirement.
+        sign_commits = os.environ.get("GIT_COMMIT_GPG_SIGN", "true").strip().lower() in {
             "1", "true", "yes", "on",
         }
 
