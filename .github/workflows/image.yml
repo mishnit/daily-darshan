@@ -12,8 +12,6 @@ permissions:
 jobs:
   image:
     runs-on: ubuntu-latest
-    env:
-      GIT_COMMIT_GPG_SIGN: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -33,6 +31,7 @@ jobs:
           git config user.email "bot@users.noreply.github.com"
 
       - name: Import GPG signing key
+        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
@@ -42,6 +41,14 @@ jobs:
           test -n "$fingerprint" || { echo "No imported GPG secret key found" >&2; exit 1; }
           git config --global user.signingkey "$fingerprint"
           git config --global commit.gpgsign true
+
+          # LocalGitRepository reads this explicit opt-in. It is intentionally
+          # set only after a usable secret key has been imported.
+          echo "GIT_COMMIT_GPG_SIGN=true" >> "$GITHUB_ENV"
+
+      - name: Report unsigned fallback
+        if: ${{ secrets.GPG_PRIVATE_KEY == '' }}
+        run: echo "::warning::GPG_PRIVATE_KEY is not configured; scheduler commits will be unsigned."
 
       - name: Fetch and store today's image
         env:
