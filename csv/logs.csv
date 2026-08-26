@@ -5,3 +5,5 @@ timestamp,event,mobile,details
 2026-08-26T16:20:28.685430,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
 2026-08-26T16:20:31.166360,IMAGE_FETCH_FAILED,,mayapur:invalid
 2026-08-26T16:20:31.166627,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-08-26
+2026-08-26T16:26:58.165477,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-08-26T16:27:00.988286,IMAGE_FETCH_SUCCESS,,mayapur:17662795b541bf2376b194f19748173fb868de1efd94e9d443ceff9e53ab623c
