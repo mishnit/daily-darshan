@@ -17,3 +17,5 @@ timestamp,event,mobile,details
 2026-08-26T19:17:51.430147,IMAGE_FETCH_FAILED,,swaminarayan:no-candidate
 2026-08-26T19:17:54.057687,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
 2026-08-26T19:17:54.064944,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-08-27
+2026-08-27T15:22:36.620935,IMAGE_FETCH_FAILED,,iskcon_tirupati:no-candidate
+2026-08-27T15:22:44.283810,IMAGE_FETCH_SUCCESS,,swaminarayan:d34ee45ed1deb86814e8175825e2d346fcc7a61c93939912a21f92e268dba2f6
