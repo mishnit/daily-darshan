@@ -20,3 +20,4 @@ timestamp,event,mobile,details
 2026-08-27T15:22:36.620935,IMAGE_FETCH_FAILED,,iskcon_tirupati:no-candidate
 2026-08-27T15:22:44.283810,IMAGE_FETCH_SUCCESS,,swaminarayan:d34ee45ed1deb86814e8175825e2d346fcc7a61c93939912a21f92e268dba2f6
 2026-08-27T16:18:57.150205,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""Unsupported post request. Object with ID 'messages' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API docu"
+2026-08-28T12:53:20.471957,IMAGE_FETCH_SUCCESS,,iskcon_bangalore:83e22ea352e7f92c090eff1cdfcce18be77d33bc616d6d763a058d8aeaa1641f
