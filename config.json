@@ -27,7 +27,7 @@
     "iskcon_vrindavan": {"page_url": "https://iskconvrindavan.com/daily-darshan-gallery", "enabled": true},
     "iskcon_tirupati": {"page_url": "https://iskcontirupati.info/daily-darshan", "enabled": true},
     "swaminarayan": {"page_url": "https://swaminarayan.info/daily-darshan", "enabled": true},
-    "mayapur": {"page_url": "https://www.mayapur.com/", "enabled": true},
+    "mayapur": {"page_url": "https://www.mayapur.com/media/gallery/daily-darshan", "enabled": true},
     "devi": {"page_url": "", "enabled": false}
   },
   "image_source_config": {
