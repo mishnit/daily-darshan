@@ -25,3 +25,6 @@ timestamp,event,mobile,details
 2026-08-28T17:15:26.662842,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""Unsupported post request. Object with ID 'messages' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API docu"
 2026-08-29T11:16:05.693415,IMAGE_FETCH_SUCCESS,,salangpur:a385a148c78cb39b884aa0d87270c5aaf5e7405f85f70ecc44b848cd16dd3353
 2026-08-29T11:32:38.461738,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""Unsupported post request. Object with ID 'messages' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API docu"
+2026-08-29T20:23:58.914914,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-08-29T20:24:02.750713,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
+2026-08-29T20:24:02.751464,IMAGE_FETCH_SUCCESS,,mayapur:c4ec0828545dd21156405bc3c07c55449835133a62b6ba49c3afb00cd76c7ad4
