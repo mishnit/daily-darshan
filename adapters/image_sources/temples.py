@@ -32,12 +32,10 @@ _SWAMINARAYAN_CARD = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _MAYAPUR_ALBUM = re.compile(
-    r'<img\b[^>]*\balt=["\']Daily Darshan["\'][^>]*>.*?'
-    r'<p>\s*(?P<date>\d{2}/\d{2}/\d{4})\s*</p>.*?'
-    r'<a\b[^>]*\bhref=["\'](?P<album>/media/album/\d+)["\']',
-    re.IGNORECASE | re.DOTALL,
+    r'<p>\s*(?P<date>\d{2}/\d{2}/\d{4})\s*</p>\s*(?:<p>\s*)?'
+    r'<a\b[^>]*\bhref=["\'](?P<album>(?:https?://[^"\']+)?/media/album/\d+)["\']',
+    re.IGNORECASE,
 )
-_MAYAPUR_VIEWER = re.compile(r'href=["\'](?P<viewer>/imageviewer/show-album-pictures/\d+/\d+)["\']', re.IGNORECASE)
 _MAYAPUR_ORIGINAL = re.compile(r'images\[\d+\]\s*=\s*["\'](?P<image>/storage/albums/[^"\']+_image\.jpg)["\']', re.IGNORECASE)
 _MUMBAI_SRI_LINK = re.compile(r'href=["\'](?P<detail>/sringar/sringar-darshan-\d+)["\']', re.IGNORECASE)
 _MUMBAI_DATE = re.compile(r'<span[^>]*class=["\'][^"\']*(?:s_date|change_date)[^"\']*["\'][^>]*>\s*(?P<date>[^<]+)', re.IGNORECASE)
@@ -362,6 +360,9 @@ class MayapurSource(HttpImageSource):
     """Extract the largest original from Mayapur's dated daily-darshan album."""
 
     name = "mayapur"
+    # Mayapur's host is slow under automated clients. The first album original
+    # is already full-resolution; probing one keeps daily collection reliable.
+    max_originals_to_probe = 1
 
     def __init__(self, page_url: str, **kwargs):
         super().__init__(**kwargs)
@@ -387,15 +388,40 @@ class MayapurSource(HttpImageSource):
         )
         if not album_path:
             return None
-        album_url = urljoin(self._page_url, album_path)
+        # The gallery's album ID maps directly to the public first-image viewer;
+        # avoid loading the very large album page only to discover that link.
+        album_id = album_path.rsplit("/", 1)[-1]
+        return urljoin(self._page_url, f"/imageviewer/show-album-pictures/{album_id}/0")
+
+    @staticmethod
+    def _declared_dimensions(data: bytes) -> tuple[int, int] | None:
+        """Read JPEG dimensions from a short range response without decoding it."""
+        if PILImage is None:
+            return None
         try:
-            album = self._get(album_url)
+            with PILImage.open(io.BytesIO(data)) as image:
+                return image.size
         except Exception:
             return None
-        if album.status_code != 200 or not album.text:
+
+    def _probe_original(self, url: str) -> tuple[tuple[int, int], bytes | None] | None:
+        """Probe original dimensions, retaining bytes only if the server sent all."""
+        try:
+            response = self._session.get(
+                url,
+                timeout=self._timeout,
+                headers={"User-Agent": "DailyDarshan/2.0", "Range": "bytes=0-65535"},
+            )
+        except Exception:
             return None
-        match = _MAYAPUR_VIEWER.search(album.text)
-        return urljoin(album_url, match.group("viewer")) if match else None
+        if response.status_code not in (200, 206) or not response.content:
+            return None
+        dimensions = self._declared_dimensions(response.content)
+        if dimensions is None:
+            return None
+        headers = getattr(response, "headers", {}) or {}
+        # A 206 response is deliberately partial and must be downloaded again.
+        return dimensions, (None if response.status_code == 206 or headers.get("Content-Range") else response.content)
 
     def fetch(self, on_date: date):
         viewer_url = self._viewer_url(on_date)
@@ -408,23 +434,20 @@ class MayapurSource(HttpImageSource):
         if viewer.status_code != 200 or not viewer.text:
             return None
 
-        best = None
-        for match in _MAYAPUR_ORIGINAL.finditer(viewer.text):
+        originals = []
+        for index, match in enumerate(_MAYAPUR_ORIGINAL.finditer(viewer.text)):
+            if index >= self.max_originals_to_probe:
+                break
             url = urljoin(viewer_url, match.group("image"))
-            try:
-                image = self._download(url, on_date)
-            except Exception:
+            probe = self._probe_original(url)
+            if probe is None:
                 continue
-            if image is None:
-                continue
-            dimensions = MahakalSource._dimensions(image.data)
-            if dimensions is None:
-                continue
-            width, height = dimensions
-            candidate = (width * height, width, height, url, image)
-            if best is None or candidate[:4] > best[:4]:
-                best = candidate
-        if best is None:
-            return None
-        self.last_image_url = best[3]
-        return best[4]
+            (width, height), cached = probe
+            originals.append((width * height, width, height, url, cached))
+
+        for _, _, _, url, cached in sorted(originals, reverse=True):
+            image = Image(image_date=on_date, data=cached, source=self.name) if cached else self._download(url, on_date)
+            if image is not None and MahakalSource._dimensions(image.data) is not None:
+                self.last_image_url = url
+                return image
+        return None

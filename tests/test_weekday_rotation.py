@@ -226,10 +226,9 @@ def test_mayapur_uses_dated_album_original_and_selects_largest_image():
     on_date = date(2026, 8, 29)
     session = Session([
         Response(
-            '<img alt="Daily Darshan" src="/storage/albums/old_cover.jpg"><p>28/08/2026</p><a href="/media/album/664">Show Album</a>'
-            '<img alt="Daily Darshan" src="/storage/albums/today_cover.jpg"><p>29/08/2026</p><a href="/media/album/665">Show Album</a>'
+            '<img alt="Daily Darshan" src="/storage/albums/old_cover.jpg"><p>28/08/2026</p><a href="https://www.mayapur.com/media/album/664">Show Album</a>'
+            '<img alt="Daily Darshan" src="/storage/albums/today_cover.jpg"><p>29/08/2026</p><a href="https://www.mayapur.com/media/album/665">Show Album</a>'
         ),
-        Response('<a href="/imageviewer/show-album-pictures/665/0"><img src="/storage/albums/665/small_thumbnail.jpg"></a>'),
         Response(
             'images[0]="/storage/albums/665/small_image.jpg"; '
             'images[1]="/storage/albums/665/large_image.jpg";'
@@ -238,6 +237,7 @@ def test_mayapur_uses_dated_album_original_and_selects_largest_image():
         Response(content=_jpeg(1800, 1200)),
     ])
     source = MayapurSource("https://www.mayapur.com/media/gallery/daily-darshan", session=session)
+    source.max_originals_to_probe = 2
 
     image = source.fetch(on_date)
 
@@ -245,7 +245,6 @@ def test_mayapur_uses_dated_album_original_and_selects_largest_image():
     assert source.last_image_url == "https://www.mayapur.com/storage/albums/665/large_image.jpg"
     assert session.calls == [
         "https://www.mayapur.com/media/gallery/daily-darshan",
-        "https://www.mayapur.com/media/album/665",
         "https://www.mayapur.com/imageviewer/show-album-pictures/665/0",
         "https://www.mayapur.com/storage/albums/665/small_image.jpg",
         "https://www.mayapur.com/storage/albums/665/large_image.jpg",
