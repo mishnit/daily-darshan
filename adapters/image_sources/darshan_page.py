@@ -50,12 +50,15 @@ class DarshanPageSource(HttpImageSource):
         try: resp = self._session.get(page_url, timeout=self._timeout, headers={"User-Agent": "DailyDarshan/2.0"})
         except Exception: return None
         if resp.status_code != 200 or not resp.text or (self._check_page_date and _conflicting_date(resp.text, on_date)): return None
-        parser = _Images(); parser.feed(resp.text); best = None
+        parser = _Images(); parser.feed(resp.text)
         for raw, attrs, pixels in parser.items:
             url = urljoin(page_url, raw); text = f"{url} {attrs}".lower()
             if not url or any(word in text for word in _BAD): continue
             score = sum(10 for word in self._keywords if word in text) + (8 if "darshan" in text else 0) + (2 if url.lower().split("?", 1)[0].endswith((".jpg", ".jpeg", ".png", ".webp")) else 0)
-            candidate = (score, pixels, url)
-            if score and (best is None or candidate[:2] > best[:2]): best = candidate
-        if best: self.last_image_url = best[2]; return best[2]
+            if score:
+                # Relevant full-size darshans are ordered by the publisher.
+                # Keep that order and avoid fetching later alternatives merely
+                # to compare their declared dimensions.
+                self.last_image_url = url
+                return url
         return None

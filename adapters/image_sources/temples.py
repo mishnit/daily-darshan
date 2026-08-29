@@ -135,7 +135,6 @@ class MahakalSource(HttpImageSource):
         except Exception:
             return None
 
-        best = None
         for url in self._items(payload, on_date):
             try:
                 image = self._download(url, on_date)
@@ -146,14 +145,11 @@ class MahakalSource(HttpImageSource):
             dimensions = self._dimensions(image.data)
             if dimensions is None:
                 continue
-            width, height = dimensions
-            candidate = (width * height, width, height, url, image)
-            if best is None or candidate[:4] > best[:4]:
-                best = candidate
-        if best is None:
-            return None
-        self.last_image_url = best[3]
-        return best[4]
+            # The official API orders a day's original darshans.  Keep the
+            # first valid full-size image instead of downloading every item.
+            self.last_image_url = url
+            return image
+        return None
 
 
 class SalangpurSource(_TemplePageSource):
@@ -273,19 +269,15 @@ class IskconMumbaiSource(HttpImageSource):
             if detail.status_code != 200 or self._page_date(detail.text) != on_date:
                 continue
 
-            best = None
             for raw in self._embedded_images(detail.text):
                 dimensions = MahakalSource._dimensions(raw)
                 if dimensions is None:
                     continue
-                width, height = dimensions
-                candidate = (width * height, width, height, raw)
-                if best is None or candidate[:3] > best[:3]:
-                    best = candidate
-            if best is not None:
+                # The detail page supplies full-size embedded darshans in
+                # display order; stop at its first decodable image.
                 self.last_page_url = detail_url
                 self.last_image_url = f"{detail_url}#embedded-darshan"
-                return Image(image_date=on_date, data=best[3], source=self.name)
+                return Image(image_date=on_date, data=raw, source=self.name)
         return None
 
 
@@ -335,7 +327,6 @@ class SwaminarayanSource(HttpImageSource):
             except Exception:
                 continue
 
-            best = None
             for raw_url in images if isinstance(images, list) else []:
                 if not isinstance(raw_url, str) or not raw_url.startswith(("https://", "http://")):
                     continue
@@ -348,13 +339,10 @@ class SwaminarayanSource(HttpImageSource):
                 dimensions = MahakalSource._dimensions(image.data)
                 if dimensions is None:
                     continue
-                width, height = dimensions
-                candidate = (width * height, width, height, raw_url, image)
-                if best is None or candidate[:4] > best[:4]:
-                    best = candidate
-            if best is not None:
-                self.last_image_url = best[3]
-                return best[4]
+                # The endpoint itself returns HD images in display order.
+                # Fetching the first valid one bounds this source's runtime.
+                self.last_image_url = raw_url
+                return image
         return None
 class MayapurSource(HttpImageSource):
     """Extract the largest original from Mayapur's dated daily-darshan album."""

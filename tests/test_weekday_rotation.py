@@ -130,7 +130,7 @@ def test_iskcon_vrindavan_uses_dated_gallery_hydration_image():
     ]
 
 
-def test_salangpur_prefers_largest_declared_darshan_image():
+def test_salangpur_uses_first_eligible_darshan_image():
     on_date = date(2026, 8, 27)
     session = Session([
         Response(
@@ -138,12 +138,12 @@ def test_salangpur_prefers_largest_declared_darshan_image():
             '<img src="small.jpg" alt="Daily Darshan (27-08-2026 Thursday)" width="600" height="800">'
             '<img src="best.jpg" alt="Daily Darshan (27-08-2026 Thursday)" width="1600" height="2200">'
         ),
-        Response(content=b"best-image"),
+        Response(content=b"first-image"),
     ])
     source = SalangpurSource("https://example.test/dev-darshan", session=session)
 
     assert source.fetch(on_date)
-    assert session.calls[1] == "https://example.test/best.jpg"
+    assert session.calls[1] == "https://example.test/small.jpg"
 
 
 def test_tirupati_rejects_map_image_when_no_darshan_is_available():
@@ -154,7 +154,7 @@ def test_tirupati_rejects_map_image_when_no_darshan_is_available():
     assert len(session.calls) == 1
 
 
-def test_swaminarayan_uses_current_kalupur_card_to_fetch_largest_hd_image():
+def test_swaminarayan_uses_first_hd_image_from_current_kalupur_card():
     on_date = date(2026, 8, 27)
     temple_id = "kalupur-id"
     session = Session([
@@ -166,19 +166,17 @@ def test_swaminarayan_uses_current_kalupur_card_to_fetch_largest_hd_image():
         ),
         Response(text=json.dumps(["https://images.example.test/small.jpg", "https://images.example.test/large.jpg"])),
         Response(content=_jpeg(800, 600)),
-        Response(content=_jpeg(1600, 1200)),
     ])
     source = SwaminarayanSource("https://swaminarayan.info/daily-darshan", session=session)
 
     image = source.fetch(on_date)
 
     assert image and image.source == "swaminarayan"
-    assert source.last_image_url == "https://images.example.test/large.jpg"
+    assert source.last_image_url == "https://images.example.test/small.jpg"
     assert session.calls == [
         "https://dailydarshanserver.nnd.media/api/iframe/content?mode=dark",
         f"https://dailydarshanserver.nnd.media/temple/dailydarshan/hd/{temple_id}/2026-08-27",
         "https://images.example.test/small.jpg",
-        "https://images.example.test/large.jpg",
     ]
 
 
@@ -192,7 +190,7 @@ def _data_image(width, height):
     return "data:image/jpeg;base64," + base64.b64encode(_jpeg(width, height)).decode("ascii")
 
 
-def test_mahakal_uses_official_dated_full_size_image_and_selects_largest():
+def test_mahakal_uses_first_official_dated_full_size_image():
     on_date = date(2026, 8, 29)
     payload = {
         "success": True,
@@ -210,19 +208,18 @@ def test_mahakal_uses_official_dated_full_size_image_and_selects_largest():
     session = Session([
         Response(text=json.dumps(payload)),
         Response(content=_jpeg(800, 600)),
-        Response(content=_jpeg(1600, 1200)),
     ])
     source = MahakalSource("https://example.test/live-darshan", session=session)
 
     image = source.fetch(on_date)
 
     assert image and image.source == "mahakal"
-    assert source.last_image_url == "https://media.test/large.jpg"
+    assert source.last_image_url == "https://media.test/small.jpg"
     assert session.calls[0] == "https://prod-api.mahakal.brainabove.net/public/api/v1/media"
-    assert session.calls[1:] == ["https://media.test/small.jpg", "https://media.test/large.jpg"]
+    assert session.calls[1:] == ["https://media.test/small.jpg"]
 
 
-def test_mayapur_uses_dated_album_original_and_selects_largest_image():
+def test_mayapur_uses_first_dated_album_original():
     on_date = date(2026, 8, 29)
     session = Session([
         Response(
@@ -234,24 +231,21 @@ def test_mayapur_uses_dated_album_original_and_selects_largest_image():
             'images[1]="/storage/albums/665/large_image.jpg";'
         ),
         Response(content=_jpeg(800, 600)),
-        Response(content=_jpeg(1800, 1200)),
     ])
     source = MayapurSource("https://www.mayapur.com/media/gallery/daily-darshan", session=session)
-    source.max_originals_to_probe = 2
 
     image = source.fetch(on_date)
 
     assert image and image.source == "mayapur"
-    assert source.last_image_url == "https://www.mayapur.com/storage/albums/665/large_image.jpg"
+    assert source.last_image_url == "https://www.mayapur.com/storage/albums/665/small_image.jpg"
     assert session.calls == [
         "https://www.mayapur.com/media/gallery/daily-darshan",
         "https://www.mayapur.com/imageviewer/show-album-pictures/665/0",
         "https://www.mayapur.com/storage/albums/665/small_image.jpg",
-        "https://www.mayapur.com/storage/albums/665/large_image.jpg",
     ]
 
 
-def test_mumbai_decodes_date_matched_embedded_darshan_and_selects_largest():
+def test_mumbai_decodes_first_date_matched_embedded_darshan():
     on_date = date(2026, 8, 29)
     session = Session([
         Response('<a href="/sringar/sringar-darshan-605">Latest</a><a href="/sringar/sringar-darshan-604">Older</a>'),
