@@ -278,6 +278,37 @@ def test_scheduler_stores_all_source_candidates_and_largest_canonical_image():
     ]
 
 
+def test_image_only_store_skips_subscriber_page_rendering():
+    on_date = date(2026, 8, 26)
+    candidate = Image(on_date, b"candidate", "mayapur")
+
+    class Images:
+        def canonical_path(self, day): return f"docs/images/{day}.jpg"
+        def candidate_path(self, day, source): return f"docs/images/{day}_{source}.jpg"
+        def collect_daily_images(self, _day): return [candidate]
+        def select_largest(self, candidates): return candidates[0]
+        def prune_images(self, **_): return []
+    class Logs:
+        def log(self, *_args, **_kwargs): pass
+    class Pages:
+        def __init__(self): self.calls = 0
+        def write_all(self, *_args, **_kwargs): self.calls += 1; return []
+    class Subs:
+        def all(self): return []
+    pages = Pages()
+    class Container:
+        config = {"paths": {"images_dir": "docs/images"}, "delivery": {"image_retention_days": 7}}
+        image_service, logs, page_renderer, subscribers = Images(), Logs(), pages, Subs()
+        root = "."
+    class Git:
+        def read_file(self, _path): return None
+        def write_file(self, *_args): pass
+        def commit(self, *_args): pass
+
+    assert run_image(Container(), Git(), on_date, render_pages=False) == 0
+    assert pages.calls == 0
+
+
 def test_pages_job_uses_stored_image_without_fetching_sources():
     on_date = date(2026, 8, 26)
 
