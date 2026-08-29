@@ -1,9 +1,12 @@
 """Deterministic coverage for weekday source selection and one-image invariant."""
 from __future__ import annotations
 
+import io
+import json
 from datetime import date
 
 import pytest
+from PIL import Image as PILImage
 
 from adapters.image_sources.temples import (
     IskconBangaloreSource,
@@ -64,8 +67,6 @@ def test_salangpur_uses_requested_date_and_ignores_logo():
 
 
 @pytest.mark.parametrize("cls, html, expected", [
-    (MahakalSource, '<time>2026-08-24</time><img src="mahakal.jpg" alt="Mahakal bhasma darshan">', False),
-    (MahakalSource, '<time>2026-08-25</time><img src="mahakal.jpg" alt="Mahakal bhasma darshan">', True),
     (IskconBangaloreSource, '<time>2026-08-24</time><img src="krishna.jpg" alt="Krishna darshan">', False),
     (IskconBangaloreSource, '<time>2026-08-25</time><img src="krishna.jpg" alt="Krishna darshan">', True),
 ])
@@ -149,11 +150,40 @@ def test_swaminarayan_uses_only_current_kalupur_card_from_official_feed():
     ]
 
 
-def test_mahakal_spa_shell_does_not_produce_a_non_darshan_candidate():
-    session = Session([Response('<div id="root"></div><script src="/assets/index.js"></script>')])
+def _jpeg(width, height):
+    buffer = io.BytesIO()
+    PILImage.new("RGB", (width, height), "gold").save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+def test_mahakal_uses_official_dated_full_size_image_and_selects_largest():
+    on_date = date(2026, 8, 29)
+    payload = {
+        "success": True,
+        "data": {
+            "Bhasma Aarti": [
+                {"media_type": "video", "date": "2026-08-29T00:00:00.000Z", "media_url": "https://media.test/video.mp4"},
+                {"media_type": "image", "date": "2026-08-28T00:00:00.000Z", "actual_media_url": "https://media.test/stale.jpg"},
+                {"media_type": "image", "date": "2026-08-29T00:00:00.000Z", "actual_media_url": "https://media.test/small.jpg", "thumbnail_url": "https://media.test/small-thumb.jpg"},
+            ],
+            "Bhog Aarti": [
+                {"media_type": "image", "date": "2026-08-29T00:00:00.000Z", "actual_media_url": "https://media.test/large.jpg"},
+            ],
+        },
+    }
+    session = Session([
+        Response(text=json.dumps(payload)),
+        Response(content=_jpeg(800, 600)),
+        Response(content=_jpeg(1600, 1200)),
+    ])
     source = MahakalSource("https://example.test/live-darshan", session=session)
 
-    assert source.fetch(date(2026, 8, 27)) is None
+    image = source.fetch(on_date)
+
+    assert image and image.source == "mahakal"
+    assert source.last_image_url == "https://media.test/large.jpg"
+    assert session.calls[0] == "https://prod-api.mahakal.brainabove.net/public/api/v1/media"
+    assert session.calls[1:] == ["https://media.test/small.jpg", "https://media.test/large.jpg"]
 
 
 def test_primary_failure_uses_secondary_and_only_fetches_chain_once():
