@@ -17,7 +17,7 @@
     "wednesday": ["iskcon_bangalore", "iskcon_vrindavan", "mayapur"],
     "thursday": ["iskcon_tirupati", "swaminarayan", "iskcon_bangalore"],
     "friday": ["devi", "mayapur", "iskcon_bangalore"],
-    "saturday": ["salangpur", "iskcon_bangalore"],
+    "saturday": ["salangpur", "iskcon_bangalore", "mahakal", "iskcon_vrindavan", "iskcon_tirupati", "swaminarayan", "mayapur", "iskcon_mumbai"],
     "sunday": ["iskcon_vrindavan", "mayapur", "iskcon_bangalore", "iskcon_mumbai"]
   },
   "temple_sources": {
