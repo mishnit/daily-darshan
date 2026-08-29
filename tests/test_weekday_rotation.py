@@ -9,10 +9,12 @@ import pytest
 from PIL import Image as PILImage
 
 from adapters.image_sources.temples import (
+    ConfiguredTempleSource,
     IskconBangaloreSource,
     IskconTirupatiSource,
     IskconVrindavanSource,
     MahakalSource,
+    MayapurSource,
     SalangpurSource,
     SwaminarayanSource,
 )
@@ -20,6 +22,7 @@ from application.image_service import ImageCollector, ImageService
 from application.image_service import AllSourcesFailed
 from domain.image import Image
 from scheduler import run_image, run_pages
+from config import Container
 from tests.conftest import FakeSource
 
 
@@ -54,6 +57,25 @@ ROTATION = {
 def test_weekday_routing(on_date, expected):
     collector = ImageCollector({}, Valid(), rotation=ROTATION)
     assert collector.source_names_for(on_date) == expected
+
+
+def test_every_enabled_configured_temple_is_registered_as_a_source():
+    container = Container.__new__(Container)
+    container.config = {
+        "daily_image_rotation": {"saturday": ["known", "new_temple"]},
+        "temple_sources": {
+            "known": {"page_url": "https://known.test/darshan", "enabled": True},
+            "new_temple": {"page_url": "https://new.test/darshan", "enabled": True},
+            "disabled": {"page_url": "https://disabled.test/darshan", "enabled": False},
+        },
+        "image_source_config": {},
+    }
+
+    sources = container._build_sources()
+
+    assert set(sources) == {"known", "new_temple"}
+    assert isinstance(sources["new_temple"], ConfiguredTempleSource)
+    assert sources["new_temple"].name == "new_temple"
 
 
 def test_salangpur_uses_requested_date_and_ignores_logo():
@@ -130,23 +152,31 @@ def test_tirupati_rejects_map_image_when_no_darshan_is_available():
     assert len(session.calls) == 1
 
 
-def test_swaminarayan_uses_only_current_kalupur_card_from_official_feed():
+def test_swaminarayan_uses_current_kalupur_card_to_fetch_largest_hd_image():
     on_date = date(2026, 8, 27)
+    temple_id = "kalupur-id"
     session = Session([
         Response(
-            '<div class="header-container">Wed, 26 August 2026</div>'
+            '<a href="/api/iframe/temple?mode=dark&id=stale"><div class="header-container">Wed, 26 August 2026</div>'
             '<img data-src="https://images.example.test/stale.jpg"><div class="temple-name">Ahmedabad (Kalupur)</div>'
-            '<div class="header-container">Thu, 27 August 2026</div>'
-            '<img data-src="https://images.example.test/today.jpg"><div class="temple-name">Ahmedabad (Kalupur)</div>'
+            '</a><a href="/api/iframe/temple?mode=dark&id=kalupur-id"><div class="header-container">Thu, 27 August 2026</div>'
+            '<img data-src="https://images.example.test/cover.jpg"><div class="temple-name">Ahmedabad (Kalupur)</div></a>'
         ),
-        Response(content=b"today-image"),
+        Response(text=json.dumps(["https://images.example.test/small.jpg", "https://images.example.test/large.jpg"])),
+        Response(content=_jpeg(800, 600)),
+        Response(content=_jpeg(1600, 1200)),
     ])
     source = SwaminarayanSource("https://swaminarayan.info/daily-darshan", session=session)
 
-    assert source.fetch(on_date)
+    image = source.fetch(on_date)
+
+    assert image and image.source == "swaminarayan"
+    assert source.last_image_url == "https://images.example.test/large.jpg"
     assert session.calls == [
         "https://dailydarshanserver.nnd.media/api/iframe/content?mode=dark",
-        "https://images.example.test/today.jpg",
+        f"https://dailydarshanserver.nnd.media/temple/dailydarshan/hd/{temple_id}/2026-08-27",
+        "https://images.example.test/small.jpg",
+        "https://images.example.test/large.jpg",
     ]
 
 
@@ -184,6 +214,36 @@ def test_mahakal_uses_official_dated_full_size_image_and_selects_largest():
     assert source.last_image_url == "https://media.test/large.jpg"
     assert session.calls[0] == "https://prod-api.mahakal.brainabove.net/public/api/v1/media"
     assert session.calls[1:] == ["https://media.test/small.jpg", "https://media.test/large.jpg"]
+
+
+def test_mayapur_uses_dated_album_original_and_selects_largest_image():
+    on_date = date(2026, 8, 29)
+    session = Session([
+        Response(
+            '<img alt="Daily Darshan" src="/storage/albums/old_cover.jpg"><p>28/08/2026</p><a href="/media/album/664">Show Album</a>'
+            '<img alt="Daily Darshan" src="/storage/albums/today_cover.jpg"><p>29/08/2026</p><a href="/media/album/665">Show Album</a>'
+        ),
+        Response('<a href="/imageviewer/show-album-pictures/665/0"><img src="/storage/albums/665/small_thumbnail.jpg"></a>'),
+        Response(
+            'images[0]="/storage/albums/665/small_image.jpg"; '
+            'images[1]="/storage/albums/665/large_image.jpg";'
+        ),
+        Response(content=_jpeg(800, 600)),
+        Response(content=_jpeg(1800, 1200)),
+    ])
+    source = MayapurSource("https://www.mayapur.com/media/gallery/daily-darshan", session=session)
+
+    image = source.fetch(on_date)
+
+    assert image and image.source == "mayapur"
+    assert source.last_image_url == "https://www.mayapur.com/storage/albums/665/large_image.jpg"
+    assert session.calls == [
+        "https://www.mayapur.com/media/gallery/daily-darshan",
+        "https://www.mayapur.com/media/album/665",
+        "https://www.mayapur.com/imageviewer/show-album-pictures/665/0",
+        "https://www.mayapur.com/storage/albums/665/small_image.jpg",
+        "https://www.mayapur.com/storage/albums/665/large_image.jpg",
+    ]
 
 
 def test_primary_failure_uses_secondary_and_only_fetches_chain_once():

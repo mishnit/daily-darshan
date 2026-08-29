@@ -6,7 +6,7 @@ import json
 import re
 from datetime import date, datetime
 from html import unescape
-from urllib.parse import urlunsplit, urlsplit
+from urllib.parse import parse_qs, urljoin, urlunsplit, urlsplit
 
 try:
     from PIL import Image as PILImage
@@ -22,12 +22,20 @@ _VRINDAVAN_GALLERY_IMAGE = re.compile(r"static/static-_[a-z0-9]+\.jpg", re.IGNOR
 _VRINDAVAN_CDN = "https://cdn.iskconvrindavan.com/"
 _SWAMINARAYAN_FEED = "https://dailydarshanserver.nnd.media/api/iframe/content?mode=dark"
 _SWAMINARAYAN_CARD = re.compile(
+    r'<a\b[^>]*\bhref=["\'](?P<detail>[^"\']+)["\'][^>]*>.*?'
     r'<div[^>]*class="[^"]*header-container[^"]*"[^>]*>\s*(?P<date>[^<]+?)\s*</div>'
     r'.*?<img(?P<image>[^>]+)>.*?<div[^>]*class="[^"]*temple-name[^"]*"[^>]*>'
     r'\s*(?P<temple>[^<]+?)\s*</div>',
     re.IGNORECASE | re.DOTALL,
 )
-_HTML_ATTR = re.compile(r'(?P<name>[\w-]+)=["\'](?P<value>.*?)["\']', re.DOTALL)
+_MAYAPUR_ALBUM = re.compile(
+    r'<img\b[^>]*\balt=["\']Daily Darshan["\'][^>]*>.*?'
+    r'<p>\s*(?P<date>\d{2}/\d{2}/\d{4})\s*</p>.*?'
+    r'<a\b[^>]*\bhref=["\'](?P<album>/media/album/\d+)["\']',
+    re.IGNORECASE | re.DOTALL,
+)
+_MAYAPUR_VIEWER = re.compile(r'href=["\'](?P<viewer>/imageviewer/show-album-pictures/\d+/\d+)["\']', re.IGNORECASE)
+_MAYAPUR_ORIGINAL = re.compile(r'images\[\d+\]\s*=\s*["\'](?P<image>/storage/albums/[^"\']+_image\.jpg)["\']', re.IGNORECASE)
 
 class _TemplePageSource(DarshanPageSource):
     keywords = []
@@ -36,6 +44,21 @@ class _TemplePageSource(DarshanPageSource):
     def __init__(self, page_url, **kwargs):
         super().__init__(page_url, self.keywords, check_page_date=self.page_is_dated,
                          date_parameter=self.date_parameter, **kwargs)
+
+
+class ConfiguredTempleSource(DarshanPageSource):
+    """Safe generic adapter for an enabled temple configured at runtime.
+
+    Named adapters below retain their site-specific parsing. This adapter keeps
+    a newly configured source from being silently omitted while still requiring
+    a darshan-relevant, ordinary image URL before anything is stored.
+    """
+
+    def __init__(self, name: str, page_url: str, **kwargs):
+        self.name = name
+        keywords = [part for part in name.lower().split("_") if part]
+        super().__init__(page_url, keywords + ["darshan"], **kwargs)
+
 
 class MahakalSource(HttpImageSource):
     """Read dated, full-resolution darshan images from Mahakal's official API.
@@ -178,11 +201,18 @@ class IskconVrindavanSource(_TemplePageSource):
 
 class IskconTirupatiSource(_TemplePageSource):
     name, keywords = "iskcon_tirupati", ["tirupati", "krishna", "darshan"]
-class SwaminarayanSource(_TemplePageSource):
-    name, keywords = "swaminarayan", ["swaminarayan", "darshan", "vishnu"]
+class SwaminarayanSource(HttpImageSource):
+    """Extract the largest dated HD darshan, not the Kalupur card cover."""
 
-    def resolve_url(self, on_date):
-        """Read Ahmedabad (Kalupur)'s dated card from the official iframe feed."""
+    name = "swaminarayan"
+
+    def __init__(self, page_url: str, **kwargs):
+        super().__init__(**kwargs)
+        self._page_url = page_url
+        self.last_page_url = ""
+        self.last_image_url = ""
+
+    def fetch(self, on_date: date):
         self.last_page_url = _SWAMINARAYAN_FEED
         try:
             response = self._session.get(
@@ -201,11 +231,110 @@ class SwaminarayanSource(_TemplePageSource):
                 continue
             if card_date != on_date or "kalupur" not in unescape(card.group("temple")).lower():
                 continue
-            attrs = {m.group("name").lower(): unescape(m.group("value")) for m in _HTML_ATTR.finditer(card.group("image"))}
-            url = attrs.get("data-src") or attrs.get("src")
-            if url and not url.startswith("data:"):
-                self.last_image_url = url
-                return url
+
+            detail_url = urljoin(_SWAMINARAYAN_FEED, unescape(card.group("detail")))
+            temple_id = parse_qs(urlsplit(detail_url).query).get("id", [None])[0]
+            if not temple_id:
+                continue
+            hd_url = urljoin(detail_url, f"/temple/dailydarshan/hd/{temple_id}/{on_date.isoformat()}")
+            try:
+                hd_response = self._session.get(
+                    hd_url,
+                    timeout=self._timeout,
+                    headers={"User-Agent": "DailyDarshan/2.0"},
+                )
+                images = json.loads(hd_response.text) if hd_response.status_code == 200 else []
+            except Exception:
+                continue
+
+            best = None
+            for raw_url in images if isinstance(images, list) else []:
+                if not isinstance(raw_url, str) or not raw_url.startswith(("https://", "http://")):
+                    continue
+                try:
+                    image = self._download(raw_url, on_date)
+                except Exception:
+                    continue
+                if image is None:
+                    continue
+                dimensions = MahakalSource._dimensions(image.data)
+                if dimensions is None:
+                    continue
+                width, height = dimensions
+                candidate = (width * height, width, height, raw_url, image)
+                if best is None or candidate[:4] > best[:4]:
+                    best = candidate
+            if best is not None:
+                self.last_image_url = best[3]
+                return best[4]
         return None
-class MayapurSource(_TemplePageSource):
-    name, keywords = "mayapur", ["mayapur", "krishna", "radha", "darshan"]
+class MayapurSource(HttpImageSource):
+    """Extract the largest original from Mayapur's dated daily-darshan album."""
+
+    name = "mayapur"
+
+    def __init__(self, page_url: str, **kwargs):
+        super().__init__(**kwargs)
+        self._page_url = page_url
+        self.last_page_url = ""
+        self.last_image_url = ""
+
+    def _get(self, url: str):
+        return self._session.get(url, timeout=self._timeout, headers={"User-Agent": "DailyDarshan/2.0"})
+
+    def _viewer_url(self, on_date: date) -> str | None:
+        self.last_page_url = self._page_url
+        try:
+            gallery = self._get(self._page_url)
+        except Exception:
+            return None
+        if gallery.status_code != 200 or not gallery.text:
+            return None
+        requested = on_date.strftime("%d/%m/%Y")
+        album_path = next(
+            (match.group("album") for match in _MAYAPUR_ALBUM.finditer(gallery.text) if match.group("date") == requested),
+            None,
+        )
+        if not album_path:
+            return None
+        album_url = urljoin(self._page_url, album_path)
+        try:
+            album = self._get(album_url)
+        except Exception:
+            return None
+        if album.status_code != 200 or not album.text:
+            return None
+        match = _MAYAPUR_VIEWER.search(album.text)
+        return urljoin(album_url, match.group("viewer")) if match else None
+
+    def fetch(self, on_date: date):
+        viewer_url = self._viewer_url(on_date)
+        if not viewer_url:
+            return None
+        try:
+            viewer = self._get(viewer_url)
+        except Exception:
+            return None
+        if viewer.status_code != 200 or not viewer.text:
+            return None
+
+        best = None
+        for match in _MAYAPUR_ORIGINAL.finditer(viewer.text):
+            url = urljoin(viewer_url, match.group("image"))
+            try:
+                image = self._download(url, on_date)
+            except Exception:
+                continue
+            if image is None:
+                continue
+            dimensions = MahakalSource._dimensions(image.data)
+            if dimensions is None:
+                continue
+            width, height = dimensions
+            candidate = (width * height, width, height, url, image)
+            if best is None or candidate[:4] > best[:4]:
+                best = candidate
+        if best is None:
+            return None
+        self.last_image_url = best[3]
+        return best[4]
