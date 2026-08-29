@@ -11,7 +11,7 @@ from functools import lru_cache
 
 from adapters.image_sources import (ImageValidator, RSSSource, TempleSource, WebsiteSource,
     ConfiguredTempleSource, MahakalSource, SalangpurSource, IskconBangaloreSource, IskconVrindavanSource,
-    IskconTirupatiSource, SwaminarayanSource, MayapurSource)
+    IskconTirupatiSource, IskconMumbaiSource, SwaminarayanSource, MayapurSource)
 from adapters.github import GitHubApiRepository
 from adapters.page_renderer import PageRenderer
 from adapters.repo_sync import RepoSync
@@ -165,7 +165,7 @@ class Container:
         temple_factories = {
             "mahakal": MahakalSource, "salangpur": SalangpurSource,
             "iskcon_bangalore": IskconBangaloreSource, "iskcon_vrindavan": IskconVrindavanSource,
-            "iskcon_tirupati": IskconTirupatiSource, "swaminarayan": SwaminarayanSource,
+            "iskcon_tirupati": IskconTirupatiSource, "iskcon_mumbai": IskconMumbaiSource, "swaminarayan": SwaminarayanSource,
             "mayapur": MayapurSource,
         }
         remote_cfg = self.config.get("temple_sources", {})
