@@ -34,7 +34,7 @@
   "image_source_config": {
     "temple": { "base_url": "" },
     "rss": { "feed_url": "" },
-    "website": { "page_url": "https://www.iskconmumbai.com/daily-sringar-darshan" }
+    "website": { "page_url": "" }
   },
   "image_validation": {
     "min_width": 200,
