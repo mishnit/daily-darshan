@@ -152,23 +152,31 @@ def test_tirupati_rejects_map_image_when_no_darshan_is_available():
     assert len(session.calls) == 1
 
 
-def test_swaminarayan_uses_only_current_kalupur_card_from_official_feed():
+def test_swaminarayan_uses_current_kalupur_card_to_fetch_largest_hd_image():
     on_date = date(2026, 8, 27)
+    temple_id = "kalupur-id"
     session = Session([
         Response(
-            '<div class="header-container">Wed, 26 August 2026</div>'
+            '<a href="/api/iframe/temple?mode=dark&id=stale"><div class="header-container">Wed, 26 August 2026</div>'
             '<img data-src="https://images.example.test/stale.jpg"><div class="temple-name">Ahmedabad (Kalupur)</div>'
-            '<div class="header-container">Thu, 27 August 2026</div>'
-            '<img data-src="https://images.example.test/today.jpg"><div class="temple-name">Ahmedabad (Kalupur)</div>'
+            '</a><a href="/api/iframe/temple?mode=dark&id=kalupur-id"><div class="header-container">Thu, 27 August 2026</div>'
+            '<img data-src="https://images.example.test/cover.jpg"><div class="temple-name">Ahmedabad (Kalupur)</div></a>'
         ),
-        Response(content=b"today-image"),
+        Response(text=json.dumps(["https://images.example.test/small.jpg", "https://images.example.test/large.jpg"])),
+        Response(content=_jpeg(800, 600)),
+        Response(content=_jpeg(1600, 1200)),
     ])
     source = SwaminarayanSource("https://swaminarayan.info/daily-darshan", session=session)
 
-    assert source.fetch(on_date)
+    image = source.fetch(on_date)
+
+    assert image and image.source == "swaminarayan"
+    assert source.last_image_url == "https://images.example.test/large.jpg"
     assert session.calls == [
         "https://dailydarshanserver.nnd.media/api/iframe/content?mode=dark",
-        "https://images.example.test/today.jpg",
+        f"https://dailydarshanserver.nnd.media/temple/dailydarshan/hd/{temple_id}/2026-08-27",
+        "https://images.example.test/small.jpg",
+        "https://images.example.test/large.jpg",
     ]
 
 

@@ -6,7 +6,7 @@ import json
 import re
 from datetime import date, datetime
 from html import unescape
-from urllib.parse import urljoin, urlunsplit, urlsplit
+from urllib.parse import parse_qs, urljoin, urlunsplit, urlsplit
 
 try:
     from PIL import Image as PILImage
@@ -22,12 +22,12 @@ _VRINDAVAN_GALLERY_IMAGE = re.compile(r"static/static-_[a-z0-9]+\.jpg", re.IGNOR
 _VRINDAVAN_CDN = "https://cdn.iskconvrindavan.com/"
 _SWAMINARAYAN_FEED = "https://dailydarshanserver.nnd.media/api/iframe/content?mode=dark"
 _SWAMINARAYAN_CARD = re.compile(
+    r'<a\b[^>]*\bhref=["\'](?P<detail>[^"\']+)["\'][^>]*>.*?'
     r'<div[^>]*class="[^"]*header-container[^"]*"[^>]*>\s*(?P<date>[^<]+?)\s*</div>'
     r'.*?<img(?P<image>[^>]+)>.*?<div[^>]*class="[^"]*temple-name[^"]*"[^>]*>'
     r'\s*(?P<temple>[^<]+?)\s*</div>',
     re.IGNORECASE | re.DOTALL,
 )
-_HTML_ATTR = re.compile(r'(?P<name>[\w-]+)=["\'](?P<value>.*?)["\']', re.DOTALL)
 _MAYAPUR_ALBUM = re.compile(
     r'<img\b[^>]*\balt=["\']Daily Darshan["\'][^>]*>.*?'
     r'<p>\s*(?P<date>\d{2}/\d{2}/\d{4})\s*</p>.*?'
@@ -201,11 +201,18 @@ class IskconVrindavanSource(_TemplePageSource):
 
 class IskconTirupatiSource(_TemplePageSource):
     name, keywords = "iskcon_tirupati", ["tirupati", "krishna", "darshan"]
-class SwaminarayanSource(_TemplePageSource):
-    name, keywords = "swaminarayan", ["swaminarayan", "darshan", "vishnu"]
+class SwaminarayanSource(HttpImageSource):
+    """Extract the largest dated HD darshan, not the Kalupur card cover."""
 
-    def resolve_url(self, on_date):
-        """Read Ahmedabad (Kalupur)'s dated card from the official iframe feed."""
+    name = "swaminarayan"
+
+    def __init__(self, page_url: str, **kwargs):
+        super().__init__(**kwargs)
+        self._page_url = page_url
+        self.last_page_url = ""
+        self.last_image_url = ""
+
+    def fetch(self, on_date: date):
         self.last_page_url = _SWAMINARAYAN_FEED
         try:
             response = self._session.get(
@@ -224,11 +231,42 @@ class SwaminarayanSource(_TemplePageSource):
                 continue
             if card_date != on_date or "kalupur" not in unescape(card.group("temple")).lower():
                 continue
-            attrs = {m.group("name").lower(): unescape(m.group("value")) for m in _HTML_ATTR.finditer(card.group("image"))}
-            url = attrs.get("data-src") or attrs.get("src")
-            if url and not url.startswith("data:"):
-                self.last_image_url = url
-                return url
+
+            detail_url = urljoin(_SWAMINARAYAN_FEED, unescape(card.group("detail")))
+            temple_id = parse_qs(urlsplit(detail_url).query).get("id", [None])[0]
+            if not temple_id:
+                continue
+            hd_url = urljoin(detail_url, f"/temple/dailydarshan/hd/{temple_id}/{on_date.isoformat()}")
+            try:
+                hd_response = self._session.get(
+                    hd_url,
+                    timeout=self._timeout,
+                    headers={"User-Agent": "DailyDarshan/2.0"},
+                )
+                images = json.loads(hd_response.text) if hd_response.status_code == 200 else []
+            except Exception:
+                continue
+
+            best = None
+            for raw_url in images if isinstance(images, list) else []:
+                if not isinstance(raw_url, str) or not raw_url.startswith(("https://", "http://")):
+                    continue
+                try:
+                    image = self._download(raw_url, on_date)
+                except Exception:
+                    continue
+                if image is None:
+                    continue
+                dimensions = MahakalSource._dimensions(image.data)
+                if dimensions is None:
+                    continue
+                width, height = dimensions
+                candidate = (width * height, width, height, raw_url, image)
+                if best is None or candidate[:4] > best[:4]:
+                    best = candidate
+            if best is not None:
+                self.last_image_url = best[3]
+                return best[4]
         return None
 class MayapurSource(HttpImageSource):
     """Extract the largest original from Mayapur's dated daily-darshan album."""
