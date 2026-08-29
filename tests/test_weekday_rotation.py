@@ -14,6 +14,7 @@ from adapters.image_sources.temples import (
     IskconTirupatiSource,
     IskconVrindavanSource,
     MahakalSource,
+    MayapurSource,
     SalangpurSource,
     SwaminarayanSource,
 )
@@ -205,6 +206,36 @@ def test_mahakal_uses_official_dated_full_size_image_and_selects_largest():
     assert source.last_image_url == "https://media.test/large.jpg"
     assert session.calls[0] == "https://prod-api.mahakal.brainabove.net/public/api/v1/media"
     assert session.calls[1:] == ["https://media.test/small.jpg", "https://media.test/large.jpg"]
+
+
+def test_mayapur_uses_dated_album_original_and_selects_largest_image():
+    on_date = date(2026, 8, 29)
+    session = Session([
+        Response(
+            '<img alt="Daily Darshan" src="/storage/albums/old_cover.jpg"><p>28/08/2026</p><a href="/media/album/664">Show Album</a>'
+            '<img alt="Daily Darshan" src="/storage/albums/today_cover.jpg"><p>29/08/2026</p><a href="/media/album/665">Show Album</a>'
+        ),
+        Response('<a href="/imageviewer/show-album-pictures/665/0"><img src="/storage/albums/665/small_thumbnail.jpg"></a>'),
+        Response(
+            'images[0]="/storage/albums/665/small_image.jpg"; '
+            'images[1]="/storage/albums/665/large_image.jpg";'
+        ),
+        Response(content=_jpeg(800, 600)),
+        Response(content=_jpeg(1800, 1200)),
+    ])
+    source = MayapurSource("https://www.mayapur.com/media/gallery/daily-darshan", session=session)
+
+    image = source.fetch(on_date)
+
+    assert image and image.source == "mayapur"
+    assert source.last_image_url == "https://www.mayapur.com/storage/albums/665/large_image.jpg"
+    assert session.calls == [
+        "https://www.mayapur.com/media/gallery/daily-darshan",
+        "https://www.mayapur.com/media/album/665",
+        "https://www.mayapur.com/imageviewer/show-album-pictures/665/0",
+        "https://www.mayapur.com/storage/albums/665/small_image.jpg",
+        "https://www.mayapur.com/storage/albums/665/large_image.jpg",
+    ]
 
 
 def test_primary_failure_uses_secondary_and_only_fetches_chain_once():

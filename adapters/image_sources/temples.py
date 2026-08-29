@@ -6,7 +6,7 @@ import json
 import re
 from datetime import date, datetime
 from html import unescape
-from urllib.parse import urlunsplit, urlsplit
+from urllib.parse import urljoin, urlunsplit, urlsplit
 
 try:
     from PIL import Image as PILImage
@@ -28,6 +28,14 @@ _SWAMINARAYAN_CARD = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _HTML_ATTR = re.compile(r'(?P<name>[\w-]+)=["\'](?P<value>.*?)["\']', re.DOTALL)
+_MAYAPUR_ALBUM = re.compile(
+    r'<img\b[^>]*\balt=["\']Daily Darshan["\'][^>]*>.*?'
+    r'<p>\s*(?P<date>\d{2}/\d{2}/\d{4})\s*</p>.*?'
+    r'<a\b[^>]*\bhref=["\'](?P<album>/media/album/\d+)["\']',
+    re.IGNORECASE | re.DOTALL,
+)
+_MAYAPUR_VIEWER = re.compile(r'href=["\'](?P<viewer>/imageviewer/show-album-pictures/\d+/\d+)["\']', re.IGNORECASE)
+_MAYAPUR_ORIGINAL = re.compile(r'images\[\d+\]\s*=\s*["\'](?P<image>/storage/albums/[^"\']+_image\.jpg)["\']', re.IGNORECASE)
 
 class _TemplePageSource(DarshanPageSource):
     keywords = []
@@ -222,5 +230,73 @@ class SwaminarayanSource(_TemplePageSource):
                 self.last_image_url = url
                 return url
         return None
-class MayapurSource(_TemplePageSource):
-    name, keywords = "mayapur", ["mayapur", "krishna", "radha", "darshan"]
+class MayapurSource(HttpImageSource):
+    """Extract the largest original from Mayapur's dated daily-darshan album."""
+
+    name = "mayapur"
+
+    def __init__(self, page_url: str, **kwargs):
+        super().__init__(**kwargs)
+        self._page_url = page_url
+        self.last_page_url = ""
+        self.last_image_url = ""
+
+    def _get(self, url: str):
+        return self._session.get(url, timeout=self._timeout, headers={"User-Agent": "DailyDarshan/2.0"})
+
+    def _viewer_url(self, on_date: date) -> str | None:
+        self.last_page_url = self._page_url
+        try:
+            gallery = self._get(self._page_url)
+        except Exception:
+            return None
+        if gallery.status_code != 200 or not gallery.text:
+            return None
+        requested = on_date.strftime("%d/%m/%Y")
+        album_path = next(
+            (match.group("album") for match in _MAYAPUR_ALBUM.finditer(gallery.text) if match.group("date") == requested),
+            None,
+        )
+        if not album_path:
+            return None
+        album_url = urljoin(self._page_url, album_path)
+        try:
+            album = self._get(album_url)
+        except Exception:
+            return None
+        if album.status_code != 200 or not album.text:
+            return None
+        match = _MAYAPUR_VIEWER.search(album.text)
+        return urljoin(album_url, match.group("viewer")) if match else None
+
+    def fetch(self, on_date: date):
+        viewer_url = self._viewer_url(on_date)
+        if not viewer_url:
+            return None
+        try:
+            viewer = self._get(viewer_url)
+        except Exception:
+            return None
+        if viewer.status_code != 200 or not viewer.text:
+            return None
+
+        best = None
+        for match in _MAYAPUR_ORIGINAL.finditer(viewer.text):
+            url = urljoin(viewer_url, match.group("image"))
+            try:
+                image = self._download(url, on_date)
+            except Exception:
+                continue
+            if image is None:
+                continue
+            dimensions = MahakalSource._dimensions(image.data)
+            if dimensions is None:
+                continue
+            width, height = dimensions
+            candidate = (width * height, width, height, url, image)
+            if best is None or candidate[:4] > best[:4]:
+                best = candidate
+        if best is None:
+            return None
+        self.last_image_url = best[3]
+        return best[4]
