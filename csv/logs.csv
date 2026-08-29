@@ -64,3 +64,5 @@ timestamp,event,mobile,details
 2026-08-29T21:54:15.921434,IMAGE_FETCH_FAILED,,iskcon_mumbai:no-candidate
 2026-08-29T21:54:15.928249,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-08-30
 2026-08-29T22:01:53.666593,IMAGE_FETCH_SUCCESS,,mayapur:5c965246a3f83e2f3cda7c9fb229c771805228e91ac679a4501aac3a3d1a9f27
+2026-08-29T22:02:31.125558,IMAGE_FETCH_FAILED,,iskcon_mumbai:no-candidate
+2026-08-29T22:02:31.132241,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-08-30
