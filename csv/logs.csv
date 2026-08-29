@@ -72,3 +72,4 @@ timestamp,event,mobile,details
 2026-08-29T22:40:20.411458,IMAGE_FETCH_SUCCESS,,iskcon_mumbai:a86347fca68173c41c265e174e4d23b23fbde07e023daaf3d8251252706026db
 2026-08-29T22:40:23.127672,IMAGE_FETCH_FAILED,,mayapur:no-candidate
 2026-08-29T22:40:23.134172,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-08-30
+2026-08-29T22:42:42.169071,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""Unsupported post request. Object with ID 'messages' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API docu"
