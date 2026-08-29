@@ -12,6 +12,7 @@ on:
         type: choice
         options:
           - "1"
+          - "2"
           - "7"
 
 permissions:
@@ -58,16 +59,16 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
           BACKFILL_DAYS: ${{ inputs.backfill_days || '1' }}
         run: |
-          # Scheduled runs always fetch today only. A seven-day backfill is
-          # deliberately available only from an explicit manual dispatch.
+          # Scheduled runs always fetch today only. Backfill is deliberately
+          # available only from an explicit manual dispatch.
           if [ "${{ github.event_name }}" != "workflow_dispatch" ] || [ "$BACKFILL_DAYS" = "1" ]; then
             python scheduler.py image
             exit 0
           fi
 
-          test "$BACKFILL_DAYS" = "7" || { echo "Unsupported backfill_days: $BACKFILL_DAYS" >&2; exit 1; }
+          case "$BACKFILL_DAYS" in 2|7) ;; *) echo "Unsupported backfill_days: $BACKFILL_DAYS" >&2; exit 1 ;; esac
           # Fetch historic dates without rewriting subscriber pages each time.
-          for offset in $(seq 6 -1 1); do
+          for offset in $(seq $((BACKFILL_DAYS - 1)) -1 1); do
             image_date="$(TZ=Asia/Kolkata date -d "today - ${offset} days" +%F)"
             echo "Fetching image for ${image_date}"
             python scheduler.py image-only --date "$image_date"
