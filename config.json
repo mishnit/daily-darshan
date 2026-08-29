@@ -25,7 +25,7 @@
     "salangpur": {"page_url": "https://salangpurhanumanji.org/dev-darshan/dev-darshan-detail/dev-darshan.php", "enabled": true},
     "iskcon_bangalore": {"page_url": "https://www.iskconbangalore.org/daily-darshan", "enabled": true},
     "iskcon_vrindavan": {"page_url": "https://iskconvrindavan.com/daily-darshan-gallery", "enabled": true},
-    "iskcon_tirupati": {"page_url": "https://iskcontirupati.info/daily-darshan", "enabled": true},
+    "iskcon_tirupati": {"page_url": "https://iskcontirupati.info/daily-darshan", "enabled": false},
     "swaminarayan": {"page_url": "https://swaminarayan.info/daily-darshan", "enabled": true},
     "mayapur": {"page_url": "https://www.mayapur.com/media/gallery/daily-darshan", "enabled": true},
     "iskcon_mumbai": {"page_url": "https://www.iskconmumbai.com/daily-sringar-darshan", "enabled": true},
