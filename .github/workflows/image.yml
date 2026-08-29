@@ -2,9 +2,17 @@ name: Daily Image
 
 on:
   schedule:
-    # 02:30 UTC = 08:00 IST (Tech Doc section 11)
     - cron: "0 20 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      backfill_days:
+        description: "Number of days to fetch, including today (manual runs only)"
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "7"
 
 permissions:
   contents: write
@@ -45,7 +53,21 @@ jobs:
           # set only after a usable secret key has been imported.
           echo "GIT_COMMIT_GPG_SIGN=true" >> "$GITHUB_ENV"
 
-      - name: Fetch and store today's image
+      - name: Fetch and store daily images
         env:
           GITHUB_REPO: ${{ github.repository }}
-        run: python scheduler.py image
+          BACKFILL_DAYS: ${{ inputs.backfill_days || '1' }}
+        run: |
+          # Scheduled runs always fetch today only. A seven-day backfill is
+          # deliberately available only from an explicit manual dispatch.
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] || [ "$BACKFILL_DAYS" = "1" ]; then
+            python scheduler.py image
+            exit 0
+          fi
+
+          test "$BACKFILL_DAYS" = "7" || { echo "Unsupported backfill_days: $BACKFILL_DAYS" >&2; exit 1; }
+          for offset in $(seq 6 -1 0); do
+            image_date="$(TZ=Asia/Kolkata date -d "today - ${offset} days" +%F)"
+            echo "Fetching image for ${image_date}"
+            python scheduler.py image --date "$image_date"
+          done
