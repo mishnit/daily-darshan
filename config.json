@@ -17,8 +17,8 @@
     "wednesday": ["iskcon_bangalore"],
     "thursday": ["swaminarayan"],
     "friday": ["iskcon_vrindavan"],
-    "saturday": ["mayapur"],
-    "sunday": ["iskcon_mumbai"]
+    "saturday": ["iskcon_mumbai"],
+    "sunday": ["mayapur"]
   },
   "temple_sources": {
     "mahakal": {"page_url": "https://www.shrimahakaleshwar.mp.gov.in/live-darshan", "enabled": true},
