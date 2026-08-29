@@ -39,3 +39,4 @@ timestamp,event,mobile,details
 2026-08-29T20:32:55.949506,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
 2026-08-29T20:32:55.955182,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-08-27
 2026-08-29T20:33:03.097109,IMAGE_FETCH_SUCCESS,,iskcon_bangalore:83e22ea352e7f92c090eff1cdfcce18be77d33bc616d6d763a058d8aeaa1641f
+2026-08-29T20:33:14.407357,IMAGE_FETCH_SUCCESS,,salangpur:a385a148c78cb39b884aa0d87270c5aaf5e7405f85f70ecc44b848cd16dd3353
