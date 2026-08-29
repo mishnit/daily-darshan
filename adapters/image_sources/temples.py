@@ -1,6 +1,8 @@
 """Small official temple adapters used by the weekday rotation registry."""
 from __future__ import annotations
 
+import base64
+import binascii
 import io
 import json
 import re
@@ -15,6 +17,7 @@ except Exception:  # pragma: no cover - Pillow is a project dependency
 
 from .darshan_page import DarshanPageSource
 from .http_source import HttpImageSource
+from domain.image import Image
 
 
 _WORDPRESS_SIZE_SUFFIX = re.compile(r"-\d{1,5}x\d{1,5}(?=\.[^.]+$)", re.IGNORECASE)
@@ -36,6 +39,10 @@ _MAYAPUR_ALBUM = re.compile(
 )
 _MAYAPUR_VIEWER = re.compile(r'href=["\'](?P<viewer>/imageviewer/show-album-pictures/\d+/\d+)["\']', re.IGNORECASE)
 _MAYAPUR_ORIGINAL = re.compile(r'images\[\d+\]\s*=\s*["\'](?P<image>/storage/albums/[^"\']+_image\.jpg)["\']', re.IGNORECASE)
+_MUMBAI_SRI_LINK = re.compile(r'href=["\'](?P<detail>/sringar/sringar-darshan-\d+)["\']', re.IGNORECASE)
+_MUMBAI_DATE = re.compile(r'<span[^>]*class=["\'][^"\']*(?:s_date|change_date)[^"\']*["\'][^>]*>\s*(?P<date>[^<]+)', re.IGNORECASE)
+_IMG_TAG = re.compile(r'<img\b(?P<attrs>[^>]*)>', re.IGNORECASE | re.DOTALL)
+_HTML_ATTR = re.compile(r'(?P<name>[\w-]+)=["\'](?P<value>.*?)["\']', re.DOTALL)
 
 class _TemplePageSource(DarshanPageSource):
     keywords = []
@@ -201,6 +208,89 @@ class IskconVrindavanSource(_TemplePageSource):
 
 class IskconTirupatiSource(_TemplePageSource):
     name, keywords = "iskcon_tirupati", ["tirupati", "krishna", "darshan"]
+
+
+class IskconMumbaiSource(HttpImageSource):
+    """Decode date-matched Sringar Darshan images embedded by ISKCON Mumbai."""
+
+    name = "iskcon_mumbai"
+    max_detail_pages = 14
+
+    def __init__(self, page_url: str, **kwargs):
+        super().__init__(**kwargs)
+        self._page_url = page_url
+        self.last_page_url = ""
+        self.last_image_url = ""
+
+    @staticmethod
+    def _page_date(html: str) -> date | None:
+        match = _MUMBAI_DATE.search(html)
+        if not match:
+            return None
+        raw = unescape(match.group("date")).strip()
+        for fmt in ("%b %d, %Y", "%d %b %Y"):
+            try:
+                return datetime.strptime(raw, fmt).date()
+            except ValueError:
+                continue
+        return None
+
+    @staticmethod
+    def _embedded_images(html: str) -> list[bytes]:
+        images = []
+        for tag in _IMG_TAG.finditer(html):
+            attrs = {m.group("name").lower(): unescape(m.group("value")) for m in _HTML_ATTR.finditer(tag.group("attrs"))}
+            if "darshan-detail-images" not in attrs.get("class", ""):
+                continue
+            value = attrs.get("src", "")
+            if not value.startswith("data:image/") or "," not in value:
+                continue
+            try:
+                images.append(base64.b64decode(value.split(",", 1)[1], validate=True))
+            except (ValueError, binascii.Error):
+                continue
+        return images
+
+    def fetch(self, on_date: date):
+        self.last_page_url = self._page_url
+        try:
+            listing = self._session.get(self._page_url, timeout=self._timeout, headers={"User-Agent": "DailyDarshan/2.0"})
+        except Exception:
+            return None
+        if listing.status_code != 200 or not listing.text:
+            return None
+
+        seen = set()
+        for match in _MUMBAI_SRI_LINK.finditer(listing.text):
+            detail_url = urljoin(self._page_url, unescape(match.group("detail")))
+            if detail_url in seen:
+                continue
+            seen.add(detail_url)
+            if len(seen) > self.max_detail_pages:
+                break
+            try:
+                detail = self._session.get(detail_url, timeout=self._timeout, headers={"User-Agent": "DailyDarshan/2.0"})
+            except Exception:
+                continue
+            if detail.status_code != 200 or self._page_date(detail.text) != on_date:
+                continue
+
+            best = None
+            for raw in self._embedded_images(detail.text):
+                dimensions = MahakalSource._dimensions(raw)
+                if dimensions is None:
+                    continue
+                width, height = dimensions
+                candidate = (width * height, width, height, raw)
+                if best is None or candidate[:3] > best[:3]:
+                    best = candidate
+            if best is not None:
+                self.last_page_url = detail_url
+                self.last_image_url = f"{detail_url}#embedded-darshan"
+                return Image(image_date=on_date, data=best[3], source=self.name)
+        return None
+
+
 class SwaminarayanSource(HttpImageSource):
     """Extract the largest dated HD darshan, not the Kalupur card cover."""
 

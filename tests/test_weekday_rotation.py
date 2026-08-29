@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import base64
 from datetime import date
 
 import pytest
@@ -13,6 +14,7 @@ from adapters.image_sources.temples import (
     IskconBangaloreSource,
     IskconTirupatiSource,
     IskconVrindavanSource,
+    IskconMumbaiSource,
     MahakalSource,
     MayapurSource,
     SalangpurSource,
@@ -186,6 +188,10 @@ def _jpeg(width, height):
     return buffer.getvalue()
 
 
+def _data_image(width, height):
+    return "data:image/jpeg;base64," + base64.b64encode(_jpeg(width, height)).decode("ascii")
+
+
 def test_mahakal_uses_official_dated_full_size_image_and_selects_largest():
     on_date = date(2026, 8, 29)
     payload = {
@@ -243,6 +249,33 @@ def test_mayapur_uses_dated_album_original_and_selects_largest_image():
         "https://www.mayapur.com/imageviewer/show-album-pictures/665/0",
         "https://www.mayapur.com/storage/albums/665/small_image.jpg",
         "https://www.mayapur.com/storage/albums/665/large_image.jpg",
+    ]
+
+
+def test_mumbai_decodes_date_matched_embedded_darshan_and_selects_largest():
+    on_date = date(2026, 8, 29)
+    session = Session([
+        Response('<a href="/sringar/sringar-darshan-605">Latest</a><a href="/sringar/sringar-darshan-604">Older</a>'),
+        Response(
+            '<span class="s_date">Aug 28, 2026</span>'
+            f'<img class="darshan-detail-images" src="{_data_image(100, 100)}">'
+        ),
+        Response(
+            '<span class="s_date">Aug 29, 2026</span>'
+            f'<img class="darshan-detail-images" src="{_data_image(800, 600)}">'
+            f'<img class="darshan-detail-images" src="{_data_image(1800, 1200)}">'
+        ),
+    ])
+    source = IskconMumbaiSource("https://www.iskconmumbai.com/daily-sringar-darshan", session=session)
+
+    image = source.fetch(on_date)
+
+    assert image and image.source == "iskcon_mumbai"
+    assert source.last_image_url.endswith("/sringar/sringar-darshan-604#embedded-darshan")
+    assert session.calls == [
+        "https://www.iskconmumbai.com/daily-sringar-darshan",
+        "https://www.iskconmumbai.com/sringar/sringar-darshan-605",
+        "https://www.iskconmumbai.com/sringar/sringar-darshan-604",
     ]
 
 
