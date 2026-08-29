@@ -66,8 +66,11 @@ jobs:
           fi
 
           test "$BACKFILL_DAYS" = "7" || { echo "Unsupported backfill_days: $BACKFILL_DAYS" >&2; exit 1; }
-          for offset in $(seq 6 -1 0); do
+          # Fetch historic dates without rewriting subscriber pages each time.
+          for offset in $(seq 6 -1 1); do
             image_date="$(TZ=Asia/Kolkata date -d "today - ${offset} days" +%F)"
             echo "Fetching image for ${image_date}"
-            python scheduler.py image --date "$image_date"
+            python scheduler.py image-only --date "$image_date"
           done
+          # Today's normal job stores the image and refreshes subscriber pages.
+          python scheduler.py image

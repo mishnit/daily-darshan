@@ -69,7 +69,10 @@ def _canonical_jpeg(data: bytes) -> bytes:
         return data
 
 
-def run_image(container: Container, git: LocalGitRepository, on_date: date) -> int:
+def run_image(
+    container: Container, git: LocalGitRepository, on_date: date, *, render_pages: bool = True
+) -> int:
+    """Fetch/store a day's images, optionally regenerating subscriber pages."""
     path = container.image_service.canonical_path(on_date)
     candidates: list[Image] = []
     try:
@@ -101,11 +104,12 @@ def run_image(container: Container, git: LocalGitRepository, on_date: date) -> i
         committed.append(path)
         print(f"[image] stored {len(candidates)} candidate(s); {path} uses source={image.source}")
     else:
-        print(f"[image] no remote image stored at {path}; refreshing pages only.")
+        page_action = "refreshing pages only" if render_pages else "leaving subscriber pages unchanged"
+        print(f"[image] no remote image stored at {path}; {page_action}.")
 
-    # Always (re)generate per-subscriber pages so subscribers who signed up since
-    # the last run get a page even when today's image already exists.
-    pages = _render_pages(container, on_date)
+    # Normal daily runs always regenerate pages. Backfill uses image-only mode
+    # for historic dates, avoiding six needless rewrites of the same pages.
+    pages = _render_pages(container, on_date) if render_pages else []
     committed.extend(pages)
 
     # Retention: keep only the newest N dated images plus the fallback, and
@@ -262,7 +266,7 @@ def run_keepalive(container: Container, interval_seconds: int = 300) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Daily Darshan scheduler")
-    parser.add_argument("job", choices=["image", "pages", "delivery", "renewal", "expiry", "keepalive", "all"])
+    parser.add_argument("job", choices=["image", "image-only", "pages", "delivery", "renewal", "expiry", "keepalive", "all"])
     parser.add_argument("--date", help="ISO date override (YYYY-MM-DD)", default=None)
     args = parser.parse_args(argv)
 
@@ -277,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
     rc = 0
     if args.job in ("image", "all"):
         rc |= run_image(container, git, on_date)
+    if args.job == "image-only":
+        rc |= run_image(container, git, on_date, render_pages=False)
     if args.job == "pages":
         rc |= run_pages(container, git, on_date)
     # Expiry sweep runs before renewal/delivery so downstream steps see accurate
