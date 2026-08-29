@@ -37,6 +37,21 @@ class _TemplePageSource(DarshanPageSource):
         super().__init__(page_url, self.keywords, check_page_date=self.page_is_dated,
                          date_parameter=self.date_parameter, **kwargs)
 
+
+class ConfiguredTempleSource(DarshanPageSource):
+    """Safe generic adapter for an enabled temple configured at runtime.
+
+    Named adapters below retain their site-specific parsing. This adapter keeps
+    a newly configured source from being silently omitted while still requiring
+    a darshan-relevant, ordinary image URL before anything is stored.
+    """
+
+    def __init__(self, name: str, page_url: str, **kwargs):
+        self.name = name
+        keywords = [part for part in name.lower().split("_") if part]
+        super().__init__(page_url, keywords + ["darshan"], **kwargs)
+
+
 class MahakalSource(HttpImageSource):
     """Read dated, full-resolution darshan images from Mahakal's official API.
 

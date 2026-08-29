@@ -10,7 +10,7 @@ import os
 from functools import lru_cache
 
 from adapters.image_sources import (ImageValidator, RSSSource, TempleSource, WebsiteSource,
-    MahakalSource, SalangpurSource, IskconBangaloreSource, IskconVrindavanSource,
+    ConfiguredTempleSource, MahakalSource, SalangpurSource, IskconBangaloreSource, IskconVrindavanSource,
     IskconTirupatiSource, SwaminarayanSource, MayapurSource)
 from adapters.github import GitHubApiRepository
 from adapters.page_renderer import PageRenderer
@@ -171,13 +171,15 @@ class Container:
         remote_cfg = self.config.get("temple_sources", {})
         if self.config.get("daily_image_rotation"):
             sources = {}
-            for name, cls in temple_factories.items():
-                item = remote_cfg.get(name, {})
-                if item.get("enabled", True) and item.get("page_url"):
-                    sources[name] = cls(item["page_url"])
-            # Friday's Devi slot remains deliberately pluggable/configured.
-            if remote_cfg.get("devi", {}).get("enabled") and remote_cfg["devi"].get("page_url"):
-                sources["devi"] = WebsiteSource(remote_cfg["devi"]["page_url"])
+            for name, item in remote_cfg.items():
+                if not item.get("enabled", True) or not item.get("page_url"):
+                    continue
+                # Friday's Devi slot remains deliberately pluggable/configured.
+                if name == "devi":
+                    sources[name] = WebsiteSource(item["page_url"])
+                    continue
+                cls = temple_factories.get(name)
+                sources[name] = cls(item["page_url"]) if cls else ConfiguredTempleSource(name, item["page_url"])
             return sources
         sources = []
         for name in self.config.get("image_sources", []):

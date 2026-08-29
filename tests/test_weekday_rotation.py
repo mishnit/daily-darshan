@@ -9,6 +9,7 @@ import pytest
 from PIL import Image as PILImage
 
 from adapters.image_sources.temples import (
+    ConfiguredTempleSource,
     IskconBangaloreSource,
     IskconTirupatiSource,
     IskconVrindavanSource,
@@ -20,6 +21,7 @@ from application.image_service import ImageCollector, ImageService
 from application.image_service import AllSourcesFailed
 from domain.image import Image
 from scheduler import run_image, run_pages
+from config import Container
 from tests.conftest import FakeSource
 
 
@@ -54,6 +56,25 @@ ROTATION = {
 def test_weekday_routing(on_date, expected):
     collector = ImageCollector({}, Valid(), rotation=ROTATION)
     assert collector.source_names_for(on_date) == expected
+
+
+def test_every_enabled_configured_temple_is_registered_as_a_source():
+    container = Container.__new__(Container)
+    container.config = {
+        "daily_image_rotation": {"saturday": ["known", "new_temple"]},
+        "temple_sources": {
+            "known": {"page_url": "https://known.test/darshan", "enabled": True},
+            "new_temple": {"page_url": "https://new.test/darshan", "enabled": True},
+            "disabled": {"page_url": "https://disabled.test/darshan", "enabled": False},
+        },
+        "image_source_config": {},
+    }
+
+    sources = container._build_sources()
+
+    assert set(sources) == {"known", "new_temple"}
+    assert isinstance(sources["new_temple"], ConfiguredTempleSource)
+    assert sources["new_temple"].name == "new_temple"
 
 
 def test_salangpur_uses_requested_date_and_ignores_logo():
