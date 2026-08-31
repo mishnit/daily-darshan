@@ -77,3 +77,5 @@ timestamp,event,mobile,details
 2026-08-30T22:30:37.605260,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-08-31
 2026-08-30T22:52:22.706885,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""Unsupported post request. Object with ID 'messages' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API docu"
 2026-08-31T02:51:33.974656,IMAGE_FETCH_SUCCESS,,mayapur:914a34bac19cda2da00e71976544b189eae471bc3c26498d4171dd8431dc6891
+2026-08-31T02:51:39.581927,IMAGE_FETCH_SUCCESS,,mahakal:b8b2c5335ed0e4ecbccc602447252b5c40378a533c9821496d036bf728f3130d
+2026-08-31T02:51:39.873506,IMAGES_PRUNED,,removed=2 kept<= 7
