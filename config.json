@@ -51,9 +51,9 @@
     "processed_csv": "csv/processed.csv"
   },
   "schedule": {
-    "image_cron_utc": "30 2 * * *",
-    "delivery_cron_utc": "0 3 * * *",
-    "renewal_cron_utc": "45 2 * * *"
+    "image_cron_utc": "0 20 * * *",
+    "delivery_cron_utc": "30 20 * * *",
+    "renewal_cron_utc": "15 20 * * *"
   },
   "renewal": {
     "reminder_days": [3, 1]
