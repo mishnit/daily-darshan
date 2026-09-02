@@ -84,3 +84,5 @@ timestamp,event,mobile,details
 2026-09-01T09:39:00.248218,IMAGE_FETCH_FAILED,,salangpur:invalid
 2026-09-01T09:39:00.248478,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-01
 2026-09-01T10:15:33.029145,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""Unsupported post request. Object with ID 'messages' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API docu"
+2026-09-02T09:10:07.705623,IMAGE_FETCH_SUCCESS,,iskcon_bangalore:8d6ab853bcb0252cb1b61dc44aa658e96c59154d7596a555076cf4dce2e6f8d3
+2026-09-02T09:10:07.898596,IMAGES_PRUNED,,removed=2 kept<= 7
