@@ -99,3 +99,5 @@ timestamp,event,mobile,details
 2026-09-06T09:01:02.672738,IMAGE_FETCH_FAILED,,mayapur:no-candidate
 2026-09-06T09:01:02.678353,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-06
 2026-09-06T09:32:17.602218,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""Unsupported post request. Object with ID 'messages' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API docu"
+2026-09-07T09:49:11.657286,IMAGE_FETCH_SUCCESS,,mahakal:c8ca8c6e653e52f43b2d3cbe258edf080c93ad8c9071fd066b1a32cdfa9f1246
+2026-09-07T09:49:12.000218,IMAGES_PRUNED,,removed=4 kept<= 7
