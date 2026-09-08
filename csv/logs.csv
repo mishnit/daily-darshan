@@ -104,3 +104,4 @@ timestamp,event,mobile,details
 2026-09-07T10:31:45.872841,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""Unsupported post request. Object with ID 'messages' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API docu"
 2026-09-08T09:13:34.364914,IMAGE_FETCH_FAILED,,salangpur:invalid
 2026-09-08T09:13:34.365185,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-08
+2026-09-08T09:52:19.015999,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""Unsupported post request. Object with ID 'messages' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API docu"
