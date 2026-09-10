@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from domain.enums import ReminderType, SubscriberStatus
-from domain.subscriber import Subscriber
+from domain.subscriber import Subscriber, sanitize_display_name
 from application.ports.repositories import (
     LogRepositoryPort,
     RenewalRepositoryPort,
@@ -30,6 +30,8 @@ class RenewalReminderService:
         renewals: RenewalRepositoryPort,
         whatsapp: WhatsAppClientPort,
         reminder_days: list[int],
+        template_name: str = "",
+        template_lang: str = "en_US",
         max_retries: int = 3,
         retry_sleep: float = 0.0,
         logs: LogRepositoryPort | None = None,
@@ -38,6 +40,8 @@ class RenewalReminderService:
         self._renewals = renewals
         self._whatsapp = whatsapp
         self._reminder_days = sorted(set(reminder_days), reverse=True)
+        self._template_name = template_name
+        self._template_lang = template_lang
         self._max_retries = max_retries
         self._retry_sleep = retry_sleep
         self._logs = logs
@@ -72,10 +76,20 @@ class RenewalReminderService:
     def already_sent(self, subscriber: Subscriber, reminder_type: ReminderType, expiry_date: date) -> bool:
         return self._renewals.already_sent(subscriber.mobile, reminder_type.value, expiry_date)
 
-    def _send_with_retry(self, mobile: str, message: str) -> WhatsAppResult:
+    def _send_with_retry(self, subscriber: Subscriber) -> WhatsAppResult:
+        if not self._template_name:
+            return WhatsAppResult(ok=False, error="config:renewal template_name is required")
+
+        name = sanitize_display_name(subscriber.name, "Devotee").title()
+        expiry = subscriber.end_date.isoformat() if subscriber.end_date else "soon"
         last = WhatsAppResult(ok=False, error="not attempted")
         for attempt in range(1, self._max_retries + 1):
-            last = self._whatsapp.send_text(mobile, message)
+            last = self._whatsapp.send_template_params(
+                subscriber.mobile,
+                self._template_name,
+                [name, expiry],
+                self._template_lang,
+            )
             if last.ok:
                 return last
             if attempt < self._max_retries and self._retry_sleep:
@@ -83,8 +97,13 @@ class RenewalReminderService:
         return last
 
     def send_reminder(self, subscriber: Subscriber, days_remaining: int) -> WhatsAppResult:
-        message = self.build_reminder(subscriber, days_remaining)
-        return self._send_with_retry(subscriber.mobile, message)
+        """Send an approved Utility template outside the 24-hour session window.
+
+        Template parameters are positional: {{1}} = display name and
+        {{2}} = subscription expiry date. ``days_remaining`` remains part of
+        the public method because it selects the 3-day/1-day idempotency key.
+        """
+        return self._send_with_retry(subscriber)
 
     def record_reminder(
         self,
