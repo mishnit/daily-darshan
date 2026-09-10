@@ -97,12 +97,27 @@ def test_every_enabled_configured_temple_is_registered_as_a_source():
 
 def test_salangpur_uses_requested_date_and_ignores_logo():
     on_date = date(2026, 8, 25)
-    session = Session([Response('<img src="/logo.png" alt="logo"><img src="/today.jpg" alt="Kashtbhanjan Hanuman darshan">'), Response(content=b"ok")])
+    session = Session([Response(
+        '<img src="/logo.png" alt="logo">'
+        '<img src="/wp-content/new_timing.webp" alt="">'
+        '<img src="/today.jpg" alt="Daily Darshan (25-08-2026 Tuesday) - Image 1">'
+    ), Response(content=b"ok")])
     source = SalangpurSource("https://example.test/dev.php", session=session)
     image = source.fetch(on_date)
     assert "date=2026-08-25" in session.calls[0]
     assert source.last_image_url == "https://example.test/today.jpg"
     assert image and image.source == "salangpur"
+
+
+def test_salangpur_returns_none_when_only_undated_timing_graphics_exist():
+    session = Session([Response(
+        '<img src="/wp-content/new_timing.webp" alt="">'
+        '<img src="/old.jpg" alt="Daily Darshan (07-09-2026 Monday)">'
+    )])
+    source = SalangpurSource("https://example.test/dev.php", session=session)
+
+    assert source.fetch(date(2026, 9, 8)) is None
+    assert session.calls == ["https://example.test/dev.php?date=2026-09-08"]
 
 
 @pytest.mark.parametrize("cls, html, expected", [
