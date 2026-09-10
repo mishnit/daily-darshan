@@ -593,7 +593,7 @@ Target infrastructure cost is **₹0** while chosen services stay within free ti
 WhatsApp Business/API messaging charges, an optional custom domain, and any usage beyond
 free-tier limits. Re-check provider free-tier limits before production.
 
-## key Rotation
+## Secret Key Rotation
 - When rotating the WhatsApp access token, update it in both: Render and GitHub Actions
 - When rotating WEBHOOK_VERIFY_TOKEN, update both Render and Meta Developer Dashboard → WhatsApp webhook verification
 - When rotating GITHUB_TOKEN, update Render only. GitHub Actions uses its automatically generated per-run token.
