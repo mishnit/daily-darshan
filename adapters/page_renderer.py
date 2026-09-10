@@ -50,6 +50,7 @@ _TEMPLATE = """<!DOCTYPE html>
          onerror="this.onerror=null; this.src='{fallback_url}';">
     <div class="meta">
       <div>Date: {date}</div>
+      {source_row}
       <div>Plan: {plan}</div>
       <div>Subscription active until: {end_date}</div>
     </div>
@@ -88,12 +89,20 @@ class PageRenderer:
         seg = self._image_url_path
         return f"{self._image_public_base}/{seg}/{fallback_name}"
 
+    @staticmethod
+    def source_display_name(source: str) -> str:
+        """Turn an internal source key into a friendly temple name."""
+        words = source.strip().replace("-", "_").split("_")
+        return " ".join(word.upper() if word.lower() == "iskcon" else word.title() for word in words if word)
+
     def render_html(self, subscriber: Subscriber, on_date: date, delivered: bool,
-                    images_dir: str | None = None) -> str:
+                    images_dir: str | None = None, source: str = "") -> str:
         status_text = "Delivered" if delivered else "Ready"
         from domain.subscriber import sanitize_display_name
         safe_name = sanitize_display_name(subscriber.name, "")
-        greeting = f"Namaste, {safe_name}" if safe_name else "Namaste"
+        greeting = f"Namaste {safe_name.title()} Ji" if safe_name else "Namaste Ji"
+        source_name = self.source_display_name(source)
+        source_row = f"<div>Temple: {html.escape(source_name)}</div>" if source_name else ""
         return _TEMPLATE.format(
             date=html.escape(on_date.isoformat()),
             status_text=html.escape(f"{status_text} — {on_date.isoformat()}"),
@@ -102,13 +111,14 @@ class PageRenderer:
             plan=html.escape(subscriber.plan or "—"),
             end_date=html.escape(subscriber.end_date.isoformat() if subscriber.end_date else "—"),
             greeting=html.escape(greeting),
+            source_row=source_row,
         )
 
     def page_path(self, subscription_id: str) -> str:
         return os.path.join(self._pages_dir, subscription_id, "index.html")
 
     def write_page(self, subscriber: Subscriber, on_date: date, delivered: bool = True,
-                   images_dir: str = "images", root: str = ".") -> str | None:
+                   images_dir: str = "images", root: str = ".", source: str = "") -> str | None:
         """Write the per-subscriber page. Returns the relative path written,
         or None if the subscriber has no subscription_id."""
         if not subscriber.subscription_id:
@@ -117,15 +127,15 @@ class PageRenderer:
         full = os.path.join(root, rel_path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "w", encoding="utf-8") as fh:
-            fh.write(self.render_html(subscriber, on_date, delivered, images_dir))
+            fh.write(self.render_html(subscriber, on_date, delivered, images_dir, source))
         return rel_path
 
     def write_all(self, subscribers: list[Subscriber], on_date: date,
                   delivered: bool = True, images_dir: str = "images",
-                  root: str = ".") -> list[str]:
+                  root: str = ".", source: str = "") -> list[str]:
         written = []
         for sub in subscribers:
-            path = self.write_page(sub, on_date, delivered, images_dir, root)
+            path = self.write_page(sub, on_date, delivered, images_dir, root, source)
             if path:
                 written.append(path)
         return written

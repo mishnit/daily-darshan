@@ -46,11 +46,12 @@ def _fallback_public_url(config: dict) -> str:
     return f"https://raw.githubusercontent.com/{repo}/{branch}/{images_dir}/{fallback}"
 
 
-def _render_pages(container: Container, on_date: date) -> list[str]:
+def _render_pages(container: Container, on_date: date, source: str = "") -> list[str]:
     """Generate per-subscriber static pages for on_date. Returns paths written."""
     return container.page_renderer.write_all(
         container.subscribers.all(), on_date, delivered=True,
         images_dir=container.config["paths"]["images_dir"], root=container.root,
+        source=source,
     )
 
 
@@ -144,7 +145,8 @@ def run_image(
 
     # Normal daily runs always regenerate pages. Backfill uses image-only mode
     # for historic dates, avoiding six needless rewrites of the same pages.
-    pages = _render_pages(container, on_date) if render_pages else []
+    page_source = image.source if image is not None else "local_fallback"
+    pages = _render_pages(container, on_date, page_source) if render_pages else []
     committed.extend(pages)
 
     # Retention: keep only the newest N dated images plus the fallback, and
