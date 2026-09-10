@@ -66,7 +66,7 @@
   "delivery": {
     "mode": "utility_template",
     "template_name": "daily_darshan_delivery_update",
-    "template_lang": "en",
+    "template_lang": "en_US",
     "page_base_url": "https://vipseva.com",
     "pages_dir": "docs",
     "image_public_base": "https://vipseva.com",
