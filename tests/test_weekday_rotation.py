@@ -145,6 +145,32 @@ def test_iskcon_vrindavan_uses_dated_gallery_hydration_image():
     ]
 
 
+def test_iskcon_vrindavan_falls_back_to_same_day_festival_darshan():
+    on_date = date(2026, 9, 4)
+    festival_image = "static/static-_886a9a158a3a74c.jpg"
+    session = Session([
+        Response('window.__remixContext.enqueue("no sringar images")'),
+        Response(
+            'other gallery data '
+            '\\"Festival Darshan\\",\\"festival-darshan\\" '
+            '\\"Janmastami 2026\\",\\"gallery_image/cover.jpg\\",'
+            f'\\"2026-09-04\\",\\"[\\\\\\"{festival_image}\\\\\\"]\\"'
+        ),
+        Response(content=b"festival-image"),
+    ])
+    source = IskconVrindavanSource("https://iskconvrindavan.com/daily-darshan-gallery", session=session)
+
+    image = source.fetch(on_date)
+
+    assert image and image.source == "iskcon_vrindavan"
+    assert source.last_image_url == f"https://cdn.iskconvrindavan.com/{festival_image}"
+    assert session.calls == [
+        "https://iskconvrindavan.com/daily-darshan-gallery/2026-09-04/2/sringar-darshan",
+        "https://iskconvrindavan.com/daily-darshan-gallery",
+        f"https://cdn.iskconvrindavan.com/{festival_image}",
+    ]
+
+
 def test_salangpur_uses_first_eligible_darshan_image():
     on_date = date(2026, 8, 27)
     session = Session([
@@ -285,6 +311,40 @@ def test_mumbai_decodes_first_date_matched_embedded_darshan():
         "https://www.iskconmumbai.com/sringar/sringar-darshan-605",
         "https://www.iskconmumbai.com/sringar/sringar-darshan-604",
     ]
+
+
+def test_mumbai_uses_listing_date_to_fetch_only_matching_large_detail_page():
+    on_date = date(2026, 9, 4)
+    session = Session([
+        Response(
+            '<a href="/sringar/sringar-darshan-616"><p>Sep 10, 2026</p></a>'
+            '<a href="/sringar/sringar-darshan-611"><p>Sep 04, 2026</p></a>'
+        ),
+        Response(
+            '<span class="s_date">Sep 04, 2026</span>'
+            f'<img class="darshan-detail-images" src="{_data_image(800, 600)}">'
+        ),
+    ])
+    source = IskconMumbaiSource("https://www.iskconmumbai.com/daily-sringar-darshan", session=session)
+
+    assert source.fetch(on_date)
+    assert session.calls == [
+        "https://www.iskconmumbai.com/daily-sringar-darshan",
+        "https://www.iskconmumbai.com/sringar/sringar-darshan-611",
+    ]
+
+
+def test_mumbai_does_not_load_detail_pages_when_listing_skips_requested_date():
+    session = Session([
+        Response(
+            '<a href="/sringar/sringar-darshan-612"><p>Sep 06, 2026</p></a>'
+            '<a href="/sringar/sringar-darshan-611"><p>Sep 04, 2026</p></a>'
+        )
+    ])
+    source = IskconMumbaiSource("https://www.iskconmumbai.com/daily-sringar-darshan", session=session)
+
+    assert source.fetch(date(2026, 9, 5)) is None
+    assert session.calls == ["https://www.iskconmumbai.com/daily-sringar-darshan"]
 
 
 def test_primary_failure_uses_secondary_and_only_fetches_chain_once():

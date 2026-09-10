@@ -8,6 +8,7 @@ import json
 import re
 from datetime import date, datetime
 from html import unescape
+from typing import Iterator
 from urllib.parse import parse_qs, urljoin, urlunsplit, urlsplit
 
 try:
@@ -23,6 +24,7 @@ from domain.image import Image
 _WORDPRESS_SIZE_SUFFIX = re.compile(r"-\d{1,5}x\d{1,5}(?=\.[^.]+$)", re.IGNORECASE)
 _VRINDAVAN_GALLERY_IMAGE = re.compile(r"static/static-_[a-z0-9]+\.jpg", re.IGNORECASE)
 _VRINDAVAN_CDN = "https://cdn.iskconvrindavan.com/"
+_VRINDAVAN_FESTIVAL_MARKER = r'\"Festival Darshan\",\"festival-darshan\"'
 _SWAMINARAYAN_FEED = "https://dailydarshanserver.nnd.media/api/iframe/content?mode=dark"
 _SWAMINARAYAN_CARD = re.compile(
     r'<a\b[^>]*\bhref=["\'](?P<detail>[^"\']+)["\'][^>]*>.*?'
@@ -38,6 +40,11 @@ _MAYAPUR_ALBUM = re.compile(
 )
 _MAYAPUR_ORIGINAL = re.compile(r'images\[\d+\]\s*=\s*["\'](?P<image>/storage/albums/[^"\']+_image\.jpg)["\']', re.IGNORECASE)
 _MUMBAI_SRI_LINK = re.compile(r'href=["\'](?P<detail>/sringar/sringar-darshan-\d+)["\']', re.IGNORECASE)
+_MUMBAI_LISTING_CARD = re.compile(
+    r'<a\b[^>]*\bhref=["\'](?P<detail>/sringar/sringar-darshan-\d+)["\'][^>]*>'
+    r'.*?<p\b[^>]*>\s*(?P<date>[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})\s*</p>',
+    re.IGNORECASE | re.DOTALL,
+)
 _MUMBAI_DATE = re.compile(r'<span[^>]*class=["\'][^"\']*(?:s_date|change_date)[^"\']*["\'][^>]*>\s*(?P<date>[^<]+)', re.IGNORECASE)
 _IMG_TAG = re.compile(r'<img\b(?P<attrs>[^>]*)>', re.IGNORECASE | re.DOTALL)
 _HTML_ATTR = re.compile(r'(?P<name>[\w-]+)=["\'](?P<value>.*?)["\']', re.DOTALL)
@@ -175,13 +182,8 @@ class IskconVrindavanSource(_TemplePageSource):
         """The official gallery uses a dated route, not a query parameter."""
         return f"{self._page_url.rstrip('/')}/{on_date.isoformat()}/2/sringar-darshan"
 
-    def resolve_url(self, on_date):
-        """Extract a dated Sringar image from the Remix hydration payload.
-
-        The page's Open Graph image is a site-wide share thumbnail, so relying on
-        its regular ``<img>``/metadata parser would not retrieve that day's darshan.
-        """
-        page_url = self.page_url(on_date)
+    def _image_url_from_page(self, page_url):
+        """Return the first gallery image from one Remix-rendered page."""
         self.last_page_url = page_url
         try:
             response = self._session.get(
@@ -196,7 +198,44 @@ class IskconVrindavanSource(_TemplePageSource):
         match = _VRINDAVAN_GALLERY_IMAGE.search(response.text)
         if not match:
             return None
-        self.last_image_url = f"{_VRINDAVAN_CDN}{match.group(0)}"
+        return f"{_VRINDAVAN_CDN}{match.group(0)}"
+
+    def _festival_image_url(self, on_date):
+        """Find a dated Festival Darshan image in the gallery index payload."""
+        self.last_page_url = self._page_url
+        try:
+            response = self._session.get(
+                self._page_url,
+                timeout=self._timeout,
+                headers={"User-Agent": "DailyDarshan/2.0"},
+            )
+        except Exception:
+            return None
+        if response.status_code != 200 or not response.text:
+            return None
+        festival_at = response.text.find(_VRINDAVAN_FESTIVAL_MARKER)
+        if festival_at < 0:
+            return None
+        section = response.text[festival_at:]
+        date_at = section.find(rf'\"{on_date.isoformat()}\"')
+        if date_at < 0:
+            return None
+        # The serialized images_list immediately follows its gallery date.
+        # Bound the search so a later, unrelated page date cannot be selected.
+        match = _VRINDAVAN_GALLERY_IMAGE.search(section, date_at, date_at + 1024)
+        if not match:
+            return None
+        return f"{_VRINDAVAN_CDN}{match.group(0)}"
+
+    def resolve_url(self, on_date):
+        """Extract Sringar, falling back to same-day Festival Darshan.
+
+        The page's Open Graph image is a site-wide share thumbnail, so relying on
+        its regular ``<img>``/metadata parser would not retrieve that day's darshan.
+        """
+        self.last_image_url = self._image_url_from_page(self.page_url(on_date))
+        if not self.last_image_url:
+            self.last_image_url = self._festival_image_url(on_date)
         return self.last_image_url
 
 
@@ -230,8 +269,26 @@ class IskconMumbaiSource(HttpImageSource):
         return None
 
     @staticmethod
-    def _embedded_images(html: str) -> list[bytes]:
-        images = []
+    def _detail_urls(html: str, on_date: date) -> list[str]:
+        """Select the requested dated card before loading huge detail pages.
+
+        Mumbai embeds dozens of full-size base64 images in each detail page,
+        making a sequential newest-to-oldest scan slow and memory intensive.
+        The listing itself publishes a trustworthy date beside every link.
+        Keep the old link-only behaviour for lightweight/legacy markup.
+        """
+        cards = list(_MUMBAI_LISTING_CARD.finditer(html))
+        if cards:
+            requested = on_date.strftime("%b %d, %Y")
+            return [
+                unescape(card.group("detail"))
+                for card in cards
+                if " ".join(unescape(card.group("date")).split()) == requested
+            ]
+        return [unescape(match.group("detail")) for match in _MUMBAI_SRI_LINK.finditer(html)]
+
+    @staticmethod
+    def _embedded_images(html: str) -> Iterator[bytes]:
         for tag in _IMG_TAG.finditer(html):
             attrs = {m.group("name").lower(): unescape(m.group("value")) for m in _HTML_ATTR.finditer(tag.group("attrs"))}
             if "darshan-detail-images" not in attrs.get("class", ""):
@@ -240,10 +297,11 @@ class IskconMumbaiSource(HttpImageSource):
             if not value.startswith("data:image/") or "," not in value:
                 continue
             try:
-                images.append(base64.b64decode(value.split(",", 1)[1], validate=True))
+                # Yield lazily: callers only need the first decodable image and
+                # live pages can contain hundreds of megabytes of base64 data.
+                yield base64.b64decode(value.split(",", 1)[1], validate=True)
             except (ValueError, binascii.Error):
                 continue
-        return images
 
     def fetch(self, on_date: date):
         self.last_page_url = self._page_url
@@ -255,8 +313,8 @@ class IskconMumbaiSource(HttpImageSource):
             return None
 
         seen = set()
-        for match in _MUMBAI_SRI_LINK.finditer(listing.text):
-            detail_url = urljoin(self._page_url, unescape(match.group("detail")))
+        for detail_path in self._detail_urls(listing.text, on_date):
+            detail_url = urljoin(self._page_url, detail_path)
             if detail_url in seen:
                 continue
             seen.add(detail_url)
