@@ -204,7 +204,18 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
     mode = container.config.get("delivery", {}).get("mode", "image")
     if mode == "utility_template":
         # Template mode: the image lives on the per-subscriber page; the WhatsApp
-        # message is a utility template carrying that page's URL. No bytes needed.
+        # message is a utility template carrying that page's URL. Do not send a
+        # link to a stale/broken page if today's image workflow did not finish.
+        image_path = container.image_service.canonical_path(on_date)
+        image_bytes = git.read_file(image_path)
+        image = Image(on_date, image_bytes or b"", source="stored_canonical")
+        if not image_bytes or not container.image_validator.validate(image):
+            print(
+                f"[delivery] FAILED: today's valid image is missing at {image_path}; "
+                "delivery was not attempted",
+                file=sys.stderr,
+            )
+            return 1
         report = container.delivery_service.deliver(on_date)
     else:
         image_url = _image_public_url(container.config, on_date)
@@ -228,7 +239,9 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
     git.commit([sentlog_path, container.config["paths"]["logs_csv"]],
                f"Daily delivery {on_date.isoformat()}")
     print(f"[delivery] sent={report.sent} skipped={report.skipped} failed={report.failed}")
-    return 1 if report.failed and not report.sent else 0
+    # A partial failure must stay visible in Actions; successful recipients are
+    # protected by sentlog idempotency when the job is retried.
+    return 1 if report.failed else 0
 
 
 def run_renewal(container: Container, git: LocalGitRepository, on_date: date) -> int:

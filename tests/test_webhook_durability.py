@@ -239,6 +239,49 @@ def test_health_ok_when_container_healthy(app_client):
     assert r.json()["status"] == "ok"
 
 
+def test_production_health_requires_all_webhook_secrets(tmp_path, monkeypatch):
+    import importlib
+    import config as config_mod
+    import main
+
+    monkeypatch.delenv("WHATSAPP_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("WHATSAPP_PHONE_NUMBER_ID", raising=False)
+    monkeypatch.delenv("WHATSAPP_APP_SECRET", raising=False)
+    monkeypatch.delenv("WEBHOOK_VERIFY_TOKEN", raising=False)
+    main = importlib.reload(main)
+    main.container = config_mod.Container(
+        config=_min_config(tmp_path, persistence={"mode": "github_api"}), root=str(tmp_path)
+    )
+    client = __import__("fastapi.testclient", fromlist=["TestClient"]).TestClient(main.app)
+
+    r = client.get("/health")
+    assert r.status_code == 503
+    assert r.json()["status"] == "degraded"
+    assert r.json()["checks"] == {
+        "subscribers_csv": "ok",
+        "durable_persistence": "local-only",
+        "signature_verification": "disabled",
+        "whatsapp_delivery": "missing credentials",
+        "webhook_verification": "missing token",
+    }
+
+
+def test_production_webhook_rejects_unsigned_payload(tmp_path, monkeypatch):
+    import importlib
+    import config as config_mod
+    import main
+
+    monkeypatch.delenv("WHATSAPP_APP_SECRET", raising=False)
+    main = importlib.reload(main)
+    main.container = config_mod.Container(
+        config=_min_config(tmp_path, persistence={"mode": "github_api"}), root=str(tmp_path)
+    )
+    client = __import__("fastapi.testclient", fromlist=["TestClient"]).TestClient(main.app)
+
+    r = client.post("/webhook", content=b'{"entry": []}')
+    assert r.status_code == 403
+
+
 def test_health_unhealthy_when_container_failed(monkeypatch):
     import importlib
     import main

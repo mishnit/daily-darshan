@@ -2,7 +2,8 @@ name: Daily Delivery
 
 on:
   schedule:
-    - cron: "19 5 * * *"
+    # 10:30 AM IST (GitHub cron is UTC).
+    - cron: "0 5 * * *"
     
   workflow_dispatch: {}
 
@@ -12,12 +13,29 @@ permissions:
 jobs:
   delivery:
     runs-on: ubuntu-latest
+    concurrency:
+      group: daily-darshan-repository-writes
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Validate delivery secrets
+        env:
+          WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+        run: |
+          missing=0
+          for name in WHATSAPP_ACCESS_TOKEN WHATSAPP_PHONE_NUMBER_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error title=Missing GitHub Actions secret::$name is required for WhatsApp delivery"
+              missing=1
+            fi
+          done
+          exit "$missing"
 
       - name: Install dependencies
         run: pip install -r requirements.txt pytest httpx

@@ -28,6 +28,20 @@ class MetaWhatsAppClient(WhatsAppClientPort):
         self._session = session or requests.Session()
 
     @property
+    def configuration_error(self) -> str:
+        """Return a safe diagnostic without exposing either credential."""
+        missing = []
+        if not self._token.strip():
+            missing.append("WHATSAPP_ACCESS_TOKEN")
+        if not self._phone_id.strip():
+            missing.append("WHATSAPP_PHONE_NUMBER_ID")
+        return f"missing configuration: {', '.join(missing)}" if missing else ""
+
+    @property
+    def is_configured(self) -> bool:
+        return not self.configuration_error
+
+    @property
     def _url(self) -> str:
         return f"{_GRAPH_BASE}/{self._phone_id}/messages"
 
@@ -39,6 +53,8 @@ class MetaWhatsAppClient(WhatsAppClientPort):
         }
 
     def _post(self, payload: dict) -> WhatsAppResult:
+        if self.configuration_error:
+            return WhatsAppResult(ok=False, error=f"config:{self.configuration_error}")
         try:
             resp = self._session.post(
                 self._url, json=payload, headers=self._headers, timeout=self._timeout
@@ -152,6 +168,8 @@ class MetaWhatsAppClient(WhatsAppClientPort):
     # private repos where a raw.githubusercontent.com link is not reachable.
     # ------------------------------------------------------------------ #
     def upload_media(self, content: bytes, mime_type: str = "image/jpeg") -> MediaUploadResult:
+        if self.configuration_error:
+            return MediaUploadResult(ok=False, error=f"config:{self.configuration_error}")
         url = f"{_GRAPH_BASE}/{self._phone_id}/media"
         try:
             resp = self._session.post(

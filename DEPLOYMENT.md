@@ -85,7 +85,7 @@ needs no secrets.
 > environment variables set on its host (Render/Fly), not as GitHub Actions secrets:
 > `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WEBHOOK_VERIFY_TOKEN`,
 > `WHATSAPP_APP_SECRET` (Meta app secret — verifies the `X-Hub-Signature-256` on inbound
-> webhooks; if unset, signature checks are skipped, so always set it in production), and
+> webhooks; production fails closed when it is unset), and
 > **`GITHUB_TOKEN` + `GITHUB_REPO` (required for durability)** — with
 > `persistence.mode=github_api`, the webhook uses these to pull/push its CSV writes to the
 > shared repo. **Without them the webhook writes local-only and those writes are lost on the
@@ -100,8 +100,8 @@ under the **Actions** tab automatically. They run on schedule:
 
 | Workflow | Cron (UTC) | Local time | Action |
 |----------|-----------|------------|--------|
-| **Daily Image** (`image.yml`) | `30 2 * * *` | 08:00 IST | Fetch → validate → store `images/YYYY-MM-DD.jpg` → commit |
-| **Daily Delivery** (`delivery.yml`) | `0 3 * * *` | 08:30 IST | Expire lapsed subscriptions (`ACTIVE`→`EXPIRED`), renewal reminders, then deliver today's image → update CSVs → commit |
+| **Daily Image** (`image.yml`) | `49 4 * * *` | 10:19 IST | Fetch → validate → store `docs/images/YYYY-MM-DD.jpg` and subscriber pages → commit |
+| **Daily Delivery** (`delivery.yml`) | `0 5 * * *` | 10:30 IST | Expire lapsed subscriptions (`ACTIVE`→`EXPIRED`), renewal reminders, then deliver today's page link → update CSVs → commit |
 
 ### E. Test without waiting for the cron (manual run)
 

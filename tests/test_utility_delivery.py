@@ -123,6 +123,29 @@ def test_meta_send_template_params_payload(monkeypatch):
     assert [p["text"] for p in body["parameters"]] == ["9199", "https://d.example/tok"]
 
 
+def test_meta_client_fails_fast_without_credentials():
+    """A missing Actions secret must never become a request to /messages."""
+    from adapters.whatsapp import MetaWhatsAppClient
+
+    class NoNetwork:
+        def post(self, *args, **kwargs):
+            raise AssertionError("network must not be called with missing credentials")
+
+    client = MetaWhatsAppClient(access_token="", phone_number_id="", session=NoNetwork())
+    result = client.send_text("9199", "hello")
+
+    assert result.ok is False
+    assert "WHATSAPP_ACCESS_TOKEN" in result.error
+    assert "WHATSAPP_PHONE_NUMBER_ID" in result.error
+
+
+def test_meta_client_configuration_status():
+    from adapters.whatsapp import MetaWhatsAppClient
+
+    assert MetaWhatsAppClient("token", "phone-id").is_configured is True
+    assert MetaWhatsAppClient("token", "").is_configured is False
+
+
 # ------------------------- #2 template delivery mode ------------------------- #
 
 def _seed_active(repos, mobile="9199", subid="tok-9199"):
