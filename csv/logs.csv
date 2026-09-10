@@ -120,3 +120,5 @@ timestamp,event,mobile,details
 2026-09-10T11:57:21.792864,IMAGE_FETCH_SUCCESS,,mahakal:c8ca8c6e653e52f43b2d3cbe258edf080c93ad8c9071fd066b1a32cdfa9f1246
 2026-09-10T11:57:24.962248,IMAGE_FETCH_FAILED,,salangpur:invalid
 2026-09-10T11:57:24.962483,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-08
+2026-09-10T11:57:29.023668,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
+2026-09-10T11:57:29.029223,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-09
