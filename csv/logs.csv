@@ -139,3 +139,5 @@ timestamp,event,mobile,details
 2026-09-10T13:03:25.204763,IMAGE_FETCH_SUCCESS,,iskcon_vrindavan:51f09ba06efaf644a7c07d6d5aeca6bfdd9ab68c7d834a97f5628b382d74ed3f
 2026-09-10T13:03:31.014956,IMAGE_FETCH_FAILED,,iskcon_mumbai:no-candidate
 2026-09-10T13:03:32.227376,IMAGE_FETCH_SUCCESS,,iskcon_vrindavan:1a7dc89d60f283bfdbba43b389a415c60f7d391d4283f199919b7421bf9fa974
+2026-09-10T13:03:34.674955,IMAGE_FETCH_FAILED,,mayapur:no-candidate
+2026-09-10T13:03:34.682101,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-06
