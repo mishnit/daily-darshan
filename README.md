@@ -594,6 +594,6 @@ WhatsApp Business/API messaging charges, an optional custom domain, and any usag
 free-tier limits. Re-check provider free-tier limits before production.
 
 ## Secret Key Rotation
-- When rotating the WhatsApp access token, update it in both: Render and GitHub Actions
+- When rotating WHATSAPP_ACCESS_TOKEN, update in both: Render and GitHub Actions
 - When rotating WEBHOOK_VERIFY_TOKEN, update both Render and Meta Developer Dashboard → WhatsApp webhook verification
 - When rotating GITHUB_TOKEN, update Render only. GitHub Actions uses its automatically generated per-run token.
