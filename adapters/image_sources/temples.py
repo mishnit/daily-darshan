@@ -161,6 +161,42 @@ class MahakalSource(HttpImageSource):
 
 class SalangpurSource(_TemplePageSource):
     name, keywords, date_parameter = "salangpur", ["salangpur", "kashtbhanjan", "hanuman", "darshan"], True
+
+    def resolve_url(self, on_date):
+        """Select only a Daily Darshan image labelled for the requested date.
+
+        The page starts with small navigation and temple-timing graphics hosted
+        on the same Salangpur domain. Domain-keyword scoring therefore cannot
+        distinguish them from the actual dated gallery.
+        """
+        page_url = self.page_url(on_date)
+        self.last_page_url = page_url
+        try:
+            response = self._session.get(
+                page_url,
+                timeout=self._timeout,
+                headers={"User-Agent": "DailyDarshan/2.0"},
+            )
+        except Exception:
+            return None
+        if response.status_code != 200 or not response.text:
+            return None
+
+        requested = on_date.strftime("%d-%m-%Y")
+        for tag in _IMG_TAG.finditer(response.text):
+            attrs = {
+                match.group("name").lower(): unescape(match.group("value"))
+                for match in _HTML_ATTR.finditer(tag.group("attrs"))
+            }
+            alt = " ".join(attrs.get("alt", "").lower().split())
+            if "daily darshan" not in alt or requested not in alt:
+                continue
+            raw_url = attrs.get("src") or attrs.get("data-src") or attrs.get("data-lazy-src")
+            if not raw_url:
+                continue
+            self.last_image_url = urljoin(page_url, raw_url)
+            return self.last_image_url
+        return None
 class IskconBangaloreSource(_TemplePageSource):
     name, keywords, page_is_dated = "iskcon_bangalore", ["iskcon", "bangalore", "krishna", "radha", "darshan"], True
 
