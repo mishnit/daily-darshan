@@ -229,6 +229,60 @@ def test_webhook_subscribe_cta_then_plan_then_name(webhook):
     assert len(main.container.payments.all()) == 1
 
 
+def test_signup_to_render_to_delivery_to_stop_end_to_end(webhook, tmp_path):
+    """Exercise the production journey across webhook, page and delivery.
+
+    This catches integration gaps that isolated CTA and renderer tests cannot:
+    the subscription id created by the webhook must be the page path and the
+    exact URL placed in the approved delivery template; STOP must then prevent
+    another delivery.
+    """
+    from application.delivery_service import DeliveryService
+    from datetime import date
+
+    main, client, fake = webhook
+    mobile = "918888888888"
+
+    def post(payload):
+        body = json.dumps(payload).encode()
+        response = client.post(
+            "/webhook", content=body,
+            headers={"X-Hub-Signature-256": _sign("s3cret", body)},
+        )
+        assert response.status_code == 200
+
+    post(_tap(mobile, "PLAN_monthly", "e2e-plan", name="nitin mishra", kind="list_reply"))
+    post(_tap(mobile, "CTA_OPTIN_AGREE", "e2e-consent"))
+    payment = main.container.payments.all()[0]
+    post(_msg(mobile, "123456789012", "e2e-utr"))
+    assert main.container.payments.find(payment.reference_id).utr == "123456789012"
+
+    main.container.payment_service.verify_payment(payment.reference_id)
+    subscriber = main.container.subscriber_service.activate(mobile, date(2026, 9, 10))
+    rel_page = main.container.page_renderer.write_page(
+        subscriber, date(2026, 9, 10), root=str(tmp_path), source="iskcon_vrindavan",
+    )
+    html = (tmp_path / rel_page).read_text(encoding="utf-8")
+    assert "Namaste Nitin Mishra Ji" in html
+    assert "Temple: ISKCON Vrindavan" in html
+
+    delivery = DeliveryService(
+        main.container.subscribers, main.container.sentlog, fake,
+        main.container.subscriber_service, max_retries=1,
+        delivery_mode="utility_template", template_name="daily_darshan_status",
+        page_base_url="https://vipseva.com",
+    )
+    report = delivery.deliver(date(2026, 9, 10))
+    assert report.sent == 1
+    sent = [item for item in fake.sent if item["type"] == "template_params"][-1]
+    assert sent["params"] == ["nitin mishra", f"https://vipseva.com/{subscriber.subscription_id}"]
+
+    post(_msg(mobile, "STOP", "e2e-stop"))
+    assert main.container.subscribers.find(mobile).opt_in is False
+    next_report = delivery.deliver(date(2026, 9, 11))
+    assert next_report.sent == 0 and next_report.skipped == 1
+
+
 def test_webhook_renew_cta_existing_subscriber_uses_plan_no_prompt(webhook):
     """Tapping Renew for a known subscriber uses their existing plan, greets by
     name, and does NOT re-prompt for a name."""

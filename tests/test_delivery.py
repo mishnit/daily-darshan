@@ -104,3 +104,51 @@ def test_delivery_aborts_when_no_url_and_no_bytes(repos, plans):
     wa = FakeWhatsApp()
     report = _delivery(repos, wa, plans).deliver(date(2026, 8, 19))
     assert report.sent == 0 and len(wa.sent) == 0
+
+
+def test_scheduler_template_delivery_refuses_missing_daily_image(capsys):
+    """Never send a live page URL when the image workflow did not complete."""
+    from types import SimpleNamespace
+    from scheduler import run_delivery
+
+    class Git:
+        def read_file(self, path):
+            return None
+
+        def commit(self, files, message):
+            raise AssertionError("nothing should be committed on preflight failure")
+
+    container = SimpleNamespace(
+        config={"delivery": {"mode": "utility_template"}},
+        image_service=SimpleNamespace(canonical_path=lambda on_date: "docs/images/missing.jpg"),
+        image_validator=SimpleNamespace(validate=lambda image: True),
+    )
+
+    assert run_delivery(container, Git(), date(2026, 9, 10)) == 1
+    assert "delivery was not attempted" in capsys.readouterr().err
+
+
+def test_scheduler_reports_partial_delivery_failure():
+    from types import SimpleNamespace
+    from scheduler import run_delivery
+
+    class Git:
+        def read_file(self, path):
+            return b"valid-image"
+
+        def commit(self, files, message):
+            pass
+
+    container = SimpleNamespace(
+        config={
+            "delivery": {"mode": "utility_template"},
+            "paths": {"sentlog_csv": "sent.csv", "logs_csv": "logs.csv"},
+        },
+        image_service=SimpleNamespace(canonical_path=lambda on_date: "docs/images/today.jpg"),
+        image_validator=SimpleNamespace(validate=lambda image: True),
+        delivery_service=SimpleNamespace(
+            deliver=lambda on_date: SimpleNamespace(sent=1, skipped=0, failed=1)
+        ),
+    )
+
+    assert run_delivery(container, Git(), date(2026, 9, 10)) == 1

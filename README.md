@@ -216,7 +216,7 @@ environment variables (Tech Doc §19).
 | `WHATSAPP_ACCESS_TOKEN` | WhatsApp adapter | Meta Cloud API token. |
 | `WHATSAPP_PHONE_NUMBER_ID` | WhatsApp adapter | Meta phone-number id. |
 | `WEBHOOK_VERIFY_TOKEN` | `main.py` GET `/webhook` | Meta webhook verification handshake. |
-| `WHATSAPP_APP_SECRET` | `main.py` POST `/webhook` | Meta app secret; verifies `X-Hub-Signature-256` on inbound webhooks. If unset, signature checks are skipped (dev only) — **set it in production**. |
+| `WHATSAPP_APP_SECRET` | `main.py` POST `/webhook` | Meta app secret; verifies `X-Hub-Signature-256` on inbound webhooks. Local mode can omit it; `github_api` production mode fails closed when it is absent. |
 | `GITHUB_TOKEN` | webhook durable persistence + `GitHubApiRepository` | Contents-API reads/writes so the webhook shares state with the scheduler (**required in production** with `persistence.mode=github_api`). In Actions, the built-in token + `contents: write` suffices. |
 | `GITHUB_REPO` | webhook persistence + scheduler | `owner/repo`. Used for the webhook's Contents-API sync and to build the public raw image URL. Auto-set in Actions via `${{ github.repository }}`; **set explicitly on the webhook host**. |
 | `GPG_PRIVATE_KEY` | GitHub Actions scheduler | **Required GitHub Actions secret** containing the ASCII-armored private key used to sign scheduler commits. Workflows fail rather than create unsigned commits if it is unavailable. Add the matching public key to the GitHub account so commits are marked Verified. |
@@ -476,8 +476,8 @@ Because both write CSVs on `main`, two mechanisms keep them from clobbering each
 
 2. **Defer-push quiet window.** During the nightly job window the webhook **defers its
    pushes** so it never writes on top of an in-flight scheduler commit. The window is
-   configured in `config.json` under `persistence.quiet_window_utc` (default `02:25`–`03:10`
-   UTC, bracketing the 02:30 image and 03:00 delivery jobs). While inside the window, webhook
+   configured in `config.json` under `persistence.quiet_window_utc` (currently `04:40`–`05:20`
+   UTC, bracketing the 04:49 image and 05:00 delivery jobs). While inside the window, webhook
    writes stay on local disk and are **flushed by the first push after the window closes**;
    pulls are always allowed so the webhook keeps reading fresh state.
 

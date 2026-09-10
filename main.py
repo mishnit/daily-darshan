@@ -71,9 +71,20 @@ def health() -> Response:
     except Exception as exc:  # noqa: BLE001
         checks["subscribers_csv"] = f"error: {exc}"
         ok = False
-    # Durability posture (informational, not fatal for liveness).
-    checks["durable_persistence"] = "enabled" if getattr(c, "repo_sync", None) and c.repo_sync.enabled else "local-only"
-    checks["signature_verification"] = "enabled" if c.whatsapp_app_secret else "disabled"
+    production = c.config.get("persistence", {}).get("mode") == "github_api"
+    durable = bool(getattr(c, "repo_sync", None) and c.repo_sync.enabled)
+    signed = bool(c.whatsapp_app_secret)
+    whatsapp = bool(getattr(c.whatsapp, "is_configured", True))
+    verified = bool(_VERIFY_TOKEN)
+    checks["durable_persistence"] = "enabled" if durable else "local-only"
+    checks["signature_verification"] = "enabled" if signed else "disabled"
+    checks["whatsapp_delivery"] = "configured" if whatsapp else "missing credentials"
+    checks["webhook_verification"] = "configured" if verified else "missing token"
+    # Local development intentionally supports CSV-only/no-secret operation.
+    # A github_api deployment is production: accepting unsigned events or
+    # acknowledging writes that cannot be persisted would lose user actions.
+    if production and not all((durable, signed, whatsapp, verified)):
+        ok = False
     return _json({"status": "ok" if ok else "degraded", "checks": checks}, 200 if ok else 503)
 
 
@@ -103,7 +114,10 @@ def _signature_valid(raw_body: bytes, header: str | None) -> bool:
     c = _get_container()
     secret = c.whatsapp_app_secret if c else ""
     if not secret:
-        return True
+        # Keep local development convenient, but fail closed whenever the app
+        # is configured for its production GitHub-backed persistence mode.
+        production = bool(c and c.config.get("persistence", {}).get("mode") == "github_api")
+        return not production
     if not header or not header.startswith("sha256="):
         return False
     expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()

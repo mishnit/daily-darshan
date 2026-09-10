@@ -141,8 +141,8 @@ class Container:
             paths["logs_csv"],
         ]
         # Quiet window (UTC) during which the webhook defers pushes so it does
-        # not write on top of an in-flight scheduler job. Brackets the image
-        # (02:30) through delivery (03:00) jobs; a small margin is added.
+        # not write on top of an in-flight scheduler job. The exact bracket is
+        # configured alongside the actual Actions UTC schedules in config.json.
         window = persistence.get("quiet_window_utc", {})
         quiet_window = (window.get("start", ""), window.get("end", ""))
         return RepoSync(github, self.root, tracked, enabled, quiet_window=quiet_window)
