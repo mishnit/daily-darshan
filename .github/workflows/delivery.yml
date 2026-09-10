@@ -2,8 +2,7 @@ name: Daily Delivery
 
 on:
   schedule:
-    - cron: "47 10 * * *"
-    timezone: "Asia/Kolkata"
+    - cron: "17 5 * * *"
     
   workflow_dispatch: {}
 
