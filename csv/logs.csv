@@ -135,3 +135,4 @@ timestamp,event,mobile,details
 2026-09-10T12:53:05.850625,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-08
 2026-09-10T12:53:08.119333,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
 2026-09-10T12:53:08.126394,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-09
+2026-09-10T12:53:13.318392,IMAGE_FETCH_SUCCESS,,swaminarayan:26e6b9285719ccacb3eeb6e32e2e3191e92f4894c0ecf79947ac68a7712a34f6
