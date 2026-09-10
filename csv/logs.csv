@@ -136,3 +136,4 @@ timestamp,event,mobile,details
 2026-09-10T12:53:08.119333,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
 2026-09-10T12:53:08.126394,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-09
 2026-09-10T12:53:13.318392,IMAGE_FETCH_SUCCESS,,swaminarayan:26e6b9285719ccacb3eeb6e32e2e3191e92f4894c0ecf79947ac68a7712a34f6
+2026-09-10T13:03:25.204763,IMAGE_FETCH_SUCCESS,,iskcon_vrindavan:51f09ba06efaf644a7c07d6d5aeca6bfdd9ab68c7d834a97f5628b382d74ed3f
