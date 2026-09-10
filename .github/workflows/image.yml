@@ -2,7 +2,9 @@ name: Daily Image
 
 on:
   schedule:
-    - cron: "0 5 * * *"
+    - cron: "17 10 * * *"
+    timezone: "Asia/Kolkata"
+    
   workflow_dispatch:
     inputs:
       backfill_days:
