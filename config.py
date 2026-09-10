@@ -88,11 +88,14 @@ class Container:
             template_lang=delivery_cfg.get("template_lang", "en"),
             page_base_url=delivery_cfg.get("page_base_url", ""),
         )
+        renewal_cfg = self.config.get("renewal", {})
         self.renewal_service = RenewalReminderService(
             self.subscribers,
             self.renewals,
             self.whatsapp,
-            reminder_days=self.config.get("renewal", {}).get("reminder_days", [3, 1]),
+            reminder_days=renewal_cfg.get("reminder_days", [3, 1]),
+            template_name=renewal_cfg.get("template_name", ""),
+            template_lang=renewal_cfg.get("template_lang", "en_US"),
             logs=self.logs,
         )
 

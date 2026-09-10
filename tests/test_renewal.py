@@ -22,7 +22,8 @@ def _add(repos, mobile, days_to_expiry, status=SubscriberStatus.ACTIVE, opt_in=T
 def _service(repos, wa=None):
     return RenewalReminderService(
         repos["subscribers"], repos["renewals"], wa or FakeWhatsApp(),
-        reminder_days=[3, 1], max_retries=3, retry_sleep=0,
+        reminder_days=[3, 1], template_name="daily_darshan_renewal",
+        template_lang="en_US", max_retries=3, retry_sleep=0,
     )
 
 
@@ -107,3 +108,36 @@ def test_successful_send_is_recorded(repos):
     svc = _service(repos)
     svc.run(TODAY)
     assert repos["renewals"].already_sent("9199", "3_DAY", date(2026, 8, 20)) is True
+
+
+def test_renewal_uses_approved_utility_template(repos):
+    _add(repos, "9199", 3)
+    sub = repos["subscribers"].find("9199")
+    sub.name = "nitin mishra"
+    repos["subscribers"].update(sub)
+    wa = FakeWhatsApp()
+
+    _service(repos, wa).run(TODAY)
+
+    assert wa.sent == [{
+        "type": "template_params",
+        "mobile": "9199",
+        "template": "daily_darshan_renewal",
+        "params": ["Nitin Mishra", "2026-08-20"],
+        "lang": "en_US",
+        "ok": True,
+    }]
+
+
+def test_renewal_fails_closed_without_template_name(repos):
+    _add(repos, "9199", 3)
+    wa = FakeWhatsApp()
+    svc = RenewalReminderService(
+        repos["subscribers"], repos["renewals"], wa,
+        reminder_days=[3, 1], max_retries=3,
+    )
+
+    report = svc.run(TODAY)
+
+    assert report.failed == 1
+    assert wa.sent == []
