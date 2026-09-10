@@ -211,6 +211,19 @@ def test_page_renderer_writes_per_subscription_file(tmp_path):
     assert "9199" not in html_text
 
 
+def test_page_renderer_title_cases_greeting_and_shows_temple_source():
+    renderer = PageRenderer(image_public_base="https://u.github.io/dd")
+    sub = Subscriber(mobile="9199", plan="monthly", name="nitin mishra")
+
+    html_text = renderer.render_html(
+        sub, date(2026, 9, 10), delivered=True, source="iskcon_vrindavan"
+    )
+
+    assert "Namaste Nitin Mishra Ji" in html_text
+    assert "Namaste," not in html_text
+    assert "Temple: ISKCON Vrindavan" in html_text
+
+
 def test_page_renderer_skips_subscriber_without_subid(tmp_path):
     r = PageRenderer(image_public_base="https://u.github.io/dd")
     sub = Subscriber(mobile="9199", plan="monthly", subscription_id="")
