@@ -130,3 +130,4 @@ timestamp,event,mobile,details
 2026-09-10T12:52:53.722037,IMAGES_PRUNED,,removed=2 kept<= 7
 2026-09-10T12:52:56.344361,IMAGE_FETCH_FAILED,,mayapur:no-candidate
 2026-09-10T12:52:56.351735,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-06
+2026-09-10T12:53:00.791139,IMAGE_FETCH_SUCCESS,,mahakal:c8ca8c6e653e52f43b2d3cbe258edf080c93ad8c9071fd066b1a32cdfa9f1246
