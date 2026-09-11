@@ -51,7 +51,7 @@ _TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
   <div class="wrap">
-    <h1>🙏 Daily Darshan</h1>
+    <h1><strong>🕉&#xA0;</strong>&#x20;Daily Darshan</h1>
     <div class="greeting">{greeting}</div>
     {renewal_reminder}
     <img class="darshan" src="{image_url}" alt="Daily Darshan for {date}"
