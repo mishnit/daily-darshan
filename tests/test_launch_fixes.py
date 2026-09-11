@@ -264,7 +264,8 @@ def test_signup_to_render_to_delivery_to_stop_end_to_end(webhook, tmp_path):
     )
     html = (tmp_path / rel_page).read_text(encoding="utf-8")
     assert "Namaste Nitin Mishra Ji" in html
-    assert "Temple: ISKCON Vrindavan" in html
+    assert "<strong>Delivered date:</strong> 2026-09-10" in html
+    assert "<strong>Source:</strong> ISKCON Vrindavan" in html
 
     delivery = DeliveryService(
         main.container.subscribers, main.container.sentlog, fake,
