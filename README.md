@@ -123,9 +123,9 @@ daily-darshan/
 ├── tests/                      # pytest unit tests + fakes
 └── .github/workflows/
     ├── image.yml               # daily image fetch (08:31 IST target)
-    ├── delivery.yml            # renewal + delivery after a successful image workflow
+    ├── delivery.yml            # renewal + delivery after successful Pages publication
     ├── pages.yml               # manual page regeneration
-    └── deploy-pages.yml        # publish docs/ once after successful delivery
+    └── deploy-pages.yml        # publish docs/ once after a successful image workflow
 ```
 
 ---
@@ -178,7 +178,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `image_sources` / `image_source_config` | Legacy generic source fallback used only when no enabled named temple sources are configured. |
 | `image_validation` | `min_width`, `min_height`, `allowed_formats` for `ImageValidator`. |
 | `paths` | Relative paths to the CSV files and `images/` directory. |
-| `schedule` | Image cron hint (documentation; the actual cron lives in `image.yml`). Delivery is event-driven from a successful image workflow. |
+| `schedule` | Image cron hint (documentation; the actual cron lives in `image.yml`). Pages publication and delivery are event-driven. |
 | `renewal.reminder_days` | Days-before-expiry to send reminders, e.g. `[3, 2, 1]`. |
 | `renewal.whatsapp_number` | Digits-only WhatsApp destination used by the near-expiry page CTA. |
 | `persistence` | Webhook durability. `mode`: `github_api` (webhook syncs CSVs to the shared repo via Contents API — needs `GITHUB_TOKEN`+`GITHUB_REPO`) or `local` (no sync; dev only). `branch`: repo branch to sync against. |
@@ -204,8 +204,8 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
   - `image` — sends the image inline (Meta media upload, private-repo safe). Higher engagement,
     billed as Marketing.
 - **Adjust the schedule** — edit the `cron` in `.github/workflows/image.yml` (the source of
-  truth), and optionally mirror it in `config.json.schedule` for documentation. Delivery starts
-  automatically only after that image workflow completes successfully.
+  truth), and optionally mirror it in `config.json.schedule` for documentation. A successful
+  image run publishes Pages once; delivery starts only after that publication succeeds.
 
 After changing `config.json`, run `pytest -q` and commit. No redeploy of the scheduler is
 needed — GitHub Actions checks out the latest `config.json` on every run. The **webhook**
@@ -350,11 +350,11 @@ To enable:
 2. Add the Actions secrets listed above.
 3. Ensure workflow permissions allow writes: the scheduler YAMLs declare `permissions: contents: write`. Also confirm *Settings → Actions → General → Workflow permissions* is set to **Read and write**.
 4. The image workflow runs on its cron schedule. A successful image run automatically triggers
-   delivery; both workflows can also be triggered manually via **workflow_dispatch** (Actions tab
-   → *Run workflow*) for recovery/testing.
+   one Pages deployment, which triggers delivery only after publication succeeds. Image, Pages
+   deployment, and delivery also support **workflow_dispatch** for recovery/testing.
 5. Under *Settings → Pages → Build and deployment → Source*, select **GitHub Actions**. The
    `Deploy Daily Darshan Pages` workflow then publishes `docs/` exactly once after each successful
-   `Daily Delivery` workflow, instead of the legacy branch publisher rebuilding on every commit.
+   `Daily Image` workflow, instead of the legacy branch publisher rebuilding on every commit.
 
 ---
 
@@ -468,16 +468,17 @@ per date after its successful send has been persisted.
 
 | Workflow | Schedule (UTC) | Local time | Does |
 |----------|----------------|------------|------|
-| `image.yml` | `1 3 * * *` | 08:31 IST target | Test → verify GPG signing → prune operational logs → fetch all configured sources for the weekday → choose/store the largest valid canonical image → regenerate every subscriber page → signed commit. Manual runs support 1-, 2- or 7-day backfill. A fallback-only result fails the workflow so delivery is not triggered without today's dated image. |
-| `delivery.yml` | After successful `Daily Image` completion; manual on demand | Immediately after image success | Validate WhatsApp secrets → test → verify GPG signing → prune logs → expire lapsed subscriptions → send renewal reminders → deliver today's personalized page link → signed commits. Failed or cancelled image runs do not deliver. |
+| `image.yml` | `1 3 * * *` | 08:31 IST target | Test → verify GPG signing → prune operational logs → fetch all configured sources, store the largest valid canonical image, regenerate pages, expire lapsed subscribers, prune inactive pages and old images, then commit. Historical backfill misses warn and continue; today's image is mandatory. |
+| `deploy-pages.yml` | After successful `Daily Image` completion; manual on demand | After image preparation | Publish the current default branch's `docs/` exactly once. A failed/cancelled or non-default-branch image run fails this gate and cannot trigger delivery. |
+| `delivery.yml` | After successful `Deploy Daily Darshan Pages`; manual on demand | After publication | Validate WhatsApp secrets → test → verify GPG signing → prune logs → run an idempotent expiry safety sweep → send renewal reminders → deliver today's published personalized page link → signed commits. |
 | `pages.yml` | Manual only | On demand | Regenerate all pages from today's stored canonical image without fetching remote images. |
-| `deploy-pages.yml` | After successful `Daily Delivery` completion | After delivery | Upload and deploy `docs/` once. Runs after scheduled-image delivery, manual-image delivery, or a direct manual delivery. Failed/skipped delivery does not publish. |
 
 GitHub cron schedules are targets rather than exact start-time guarantees and may be delayed
 under runner load. Workflow YAML is authoritative; `config.json.schedule` is informational.
-Delivery has no cron of its own and follows each successful scheduled or manual image run.
-Pages deployment follows delivery only. Manual page regeneration does not deploy by itself; run
-Daily Delivery after verifying the regenerated pages when they should be published.
+Delivery has no cron of its own. The normal scheduled/manual image chain is image preparation →
+one Pages deployment → delivery. Direct manual delivery does not redeploy an unchanged site.
+Manual page regeneration does not publish by itself; after verification, manually run **Deploy
+Daily Darshan Pages**, which publishes once and then starts delivery.
 
 **Idempotency** (safe to re-run):
 - Renewal and delivery share a successful-send key of `date + mobile` in `sentlog.csv`; only
@@ -495,8 +496,9 @@ Daily Delivery after verifying the regenerated pages when they should be publish
   also runs every time, so a subscriber added later still receives a refreshed page.
 
 **Subscription expiry.** Eligibility is date-gated (an expired subscriber is excluded from
-delivery/reminders regardless of stored status), but the `delivery.yml` workflow also runs an
-**expiry sweep** (`scheduler.py expiry`) before renewal/delivery that flips the stored status
+delivery/reminders regardless of stored status). The image workflow runs the primary **expiry
+sweep** before publication, and `delivery.yml` repeats it as an idempotent manual-run safety check.
+The sweep flips the stored status
 `ACTIVE → EXPIRED` once `end_date` has passed, keeping reports and admin views truthful. A
 subscriber expiring exactly today (`end_date == today`) is still active — expiry applies from
 the day after. Renewal reactivates an `EXPIRED` subscriber (`EXPIRED → ACTIVE`, extending
@@ -506,10 +508,11 @@ dates).
 `docs/<subscription_id>/index.html` and is the target of the utility-template link. Pages are
 produced in two places so a subscriber's branded URL is never a 404 when they receive it:
 1. The daily **image job** regenerates all pages every run (even if the image already exists).
-2. **Activation** (`admin.py verify --activate`) renders that subscriber's page immediately,
-   so a mid-day signup gets a working URL without waiting for the next image job.
-> Note: GitHub Pages takes ~1 minute to publish a commit, so a page is reachable shortly
-> after the commit that creates it, not instantaneously.
+2. **Activation** (`admin.py verify --activate`) renders and optionally commits that subscriber's
+   page. A commit alone does not publish under Actions-based Pages. To make a mid-day page live,
+   manually run **Deploy Daily Darshan Pages** after activation; successful publication then
+   triggers delivery.
+> A page becomes reachable after the Pages deployment succeeds, not merely after its Git commit.
 
 **Fault tolerance:** image sources are tried in priority order; a failing source falls
 through to the next. WhatsApp sends use bounded retries; a failure for one subscriber does
@@ -526,7 +529,7 @@ and write the same CSVs there:
 - **Scheduler/admin** uses the **git CLI** on the checked-out repo (`LocalGitRepository`):
   it commits + pushes (retry once via `pull --rebase`, never force-push).
 
-Because both write CSVs on `main`, two mechanisms keep them from clobbering each other:
+Because both write CSVs on `main`, two mechanisms reduce clobbering risk:
 
 1. **Writer separation + safe expiry.** The webhook and scheduler mostly write different
    files. The one true overlap is `subscribers.csv` (webhook opt-in vs. the nightly expiry
@@ -534,14 +537,13 @@ Because both write CSVs on `main`, two mechanisms keep them from clobbering each
    flipping status** and only changes the status field, so a subscriber the webhook added or
    updated concurrently is preserved rather than overwritten by a stale snapshot. Normal
    `logs.csv` writes are append-only; scheduled cleanup atomically removes rows outside the
-   30-day window during the protected quiet window.
+   30-day window.
 
-2. **Defer-push quiet window.** During the nightly job window the webhook **defers its
-   pushes** so it never writes on top of an in-flight scheduler commit. The window is
-   configured in `config.json` under `persistence.quiet_window_utc` (currently `04:40`–`05:20`
-   UTC (10:10–10:50 IST), bracketing the 04:49 image and 05:04 delivery targets). While inside the window, webhook
-   writes stay on local disk and are **flushed by the first push after the window closes**;
-   pulls are always allowed so the webhook keeps reading fresh state.
+2. **Optimistic conflict handling.** The webhook now pushes immediately; the quiet window is
+   disabled because event-driven/manual workflows cannot be safely bracketed by a fixed clock
+   window and deferred writes on Render's ephemeral disk can be lost. GitHub API writes reject a
+   stale SHA, while scheduler pushes pull/rebase once and fail visibly rather than force-pushing.
+   This remains best-effort coordination rather than a transaction.
 
 > This is coordination by convention (staggered timing + single-writer + rebase-retry), not a
 > transactional database. It suits the low write volume of a darshan service. At higher write

@@ -106,7 +106,7 @@ def test_renewal_before_final_reminder_suppresses_old(repos):
     svc.run(TODAY)  # sends 3-day for expiry 2026-08-20
 
     # Renew: new expiry moves out to 2026-09-19. On the old 1-day date (08-19),
-    # the subscriber is no longer within [3,1] days of the NEW expiry.
+    # the subscriber is no longer within [3,2,1] days of the NEW expiry.
     sub = repos["subscribers"].find("9199")
     sub.renew(30, on_date=date(2026, 8, 18))  # 08-20 + 30 = 09-19
     repos["subscribers"].update(sub)

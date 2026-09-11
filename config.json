@@ -57,12 +57,12 @@
   "persistence": {
     "mode": "github_api",
     "branch": "main",
-    "quiet_window_utc": { "start": "04:40", "end": "05:20" }
+    "quiet_window_utc": { "start": "", "end": "" }
   },
   "delivery": {
     "mode": "utility_template",
     "template_name": "daily_darshan_delivery_update",
-    "template_lang": "en",
+    "template_lang": "en_US",
     "page_base_url": "https://vipseva.com",
     "pages_dir": "docs",
     "image_public_base": "https://vipseva.com",
@@ -77,7 +77,7 @@
   "renewal": {
     "reminder_days": [3, 2, 1],
     "whatsapp_number": "916361699109",
-    "template_name": "daily_darshan_delivery_update",
-    "template_lang": "en"
+    "template_name": "daily_darshan_renewal",
+    "template_lang": "en_US"
   }
 }
