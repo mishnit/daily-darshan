@@ -15,6 +15,7 @@ from adapters.image_sources.temples import (
     IskconTirupatiSource,
     IskconVrindavanSource,
     IskconMumbaiSource,
+    IskconHyderabadSource,
     MahakalSource,
     MayapurSource,
     SalangpurSource,
@@ -419,6 +420,68 @@ def test_mumbai_rejects_stale_festival_detail_page():
 
     assert source.fetch(date(2026, 9, 5)) is None
     assert source.last_image_url == ""
+
+
+def test_hyderabad_uses_same_day_sringar_without_festival_fallback():
+    on_date = date(2026, 9, 10)
+    sringar_url = "https://images.example.test/uploads/sringar/today.jpeg"
+    session = Session([
+        Response(
+            r'\"type\":\"sringar\",\"items\":['
+            rf'{{\"date\":\"2026-09-10\",\"image\":\"{sringar_url}\"}}]'
+            r'},{\"type\":\"festival-darshan\",\"items\":['
+            r'{\"date\":\"2026-09-10\",\"image\":\"https://images.example.test/festival.jpeg\"}]'
+        ),
+        Response(content=b"sringar-image"),
+    ])
+    source = IskconHyderabadSource("https://www.iskconattapur.com/daily-darshan-gallery", session=session)
+
+    image = source.fetch(on_date)
+
+    assert image and image.data == b"sringar-image"
+    assert source.last_image_url == sringar_url
+    assert session.calls == [
+        "https://www.iskconattapur.com/daily-darshan-gallery",
+        sringar_url,
+    ]
+
+
+def test_hyderabad_falls_back_to_same_day_festival_darshan():
+    on_date = date(2026, 9, 8)
+    festival_url = "https://images.example.test/uploads/festival-darshan/janmashtami.jpeg"
+    session = Session([
+        Response(
+            r'\"type\":\"sringar\",\"items\":['
+            r'{\"date\":\"2026-09-07\",\"image\":\"https://images.example.test/stale-sringar.jpeg\"}]'
+            r'},{\"type\":\"festival-darshan\",\"items\":['
+            rf'{{\"date\":\"2026-09-08\",\"image\":\"{festival_url}\",'
+            r'\"festivalName\":\"Sri Krishna Janmashtami\"}]'
+        ),
+        Response(content=b"festival-image"),
+    ])
+    source = IskconHyderabadSource("https://www.iskconattapur.com/daily-darshan-gallery", session=session)
+
+    image = source.fetch(on_date)
+
+    assert image and image.source == "iskcon_hyderabad"
+    assert image.data == b"festival-image"
+    assert source.last_image_url == festival_url
+
+
+def test_hyderabad_rejects_sringar_and_festival_from_other_dates():
+    session = Session([
+        Response(
+            '"type":"sringar","items":['
+            '{"date":"2026-09-07","image":"https://images.example.test/stale-sringar.jpeg"}]'
+            '},{"type":"festival-darshan","items":['
+            '{"date":"2026-09-08","image":"https://images.example.test/stale-festival.jpeg"}]'
+        ),
+    ])
+    source = IskconHyderabadSource("https://www.iskconattapur.com/daily-darshan-gallery", session=session)
+
+    assert source.fetch(date(2026, 9, 9)) is None
+    assert source.last_image_url == ""
+    assert session.calls == ["https://www.iskconattapur.com/daily-darshan-gallery"]
 
 
 def test_primary_failure_uses_secondary_and_only_fetches_chain_once():

@@ -49,6 +49,10 @@ _MUMBAI_LISTING_CARD = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _MUMBAI_DATE = re.compile(r'<span[^>]*class=["\'][^"\']*(?:s_date|change_date)[^"\']*["\'][^>]*>\s*(?P<date>[^<]+)', re.IGNORECASE)
+_ATTAPUR_IMAGE = re.compile(
+    r'\\?"image\\?"\s*:\s*\\?"(?P<image>https?://[^"\\]+)',
+    re.IGNORECASE,
+)
 _IMG_TAG = re.compile(r'<img\b(?P<attrs>[^>]*)>', re.IGNORECASE | re.DOTALL)
 _HTML_ATTR = re.compile(r'(?P<name>[\w-]+)=["\'](?P<value>.*?)["\']', re.DOTALL)
 
@@ -391,6 +395,80 @@ class IskconMumbaiSource(HttpImageSource):
         parts = urlsplit(self._page_url)
         festival_url = urlunsplit((parts.scheme, parts.netloc, "/festival-darshan", "", ""))
         return self._fetch_listing(festival_url, on_date, "/festival/")
+
+
+class IskconHyderabadSource(HttpImageSource):
+    """Read Attapur's dated Sringar image, then its same-day Festival image."""
+
+    name = "iskcon_hyderabad"
+
+    def __init__(self, page_url: str, **kwargs):
+        super().__init__(**kwargs)
+        self._page_url = page_url
+        self.last_page_url = ""
+        self.last_image_url = ""
+
+    @staticmethod
+    def _category_marker(category: str, escaped: bool) -> str:
+        quote = r'\"' if escaped else '"'
+        return f"{quote}type{quote}:{quote}{category}{quote}"
+
+    @classmethod
+    def _category_image_url(cls, html: str, on_date: date, category: str) -> str | None:
+        """Select a URL only from the requested category and exact ISO date."""
+        starts = [
+            html.find(cls._category_marker(category, escaped=False)),
+            html.find(cls._category_marker(category, escaped=True)),
+        ]
+        starts = [position for position in starts if position >= 0]
+        if not starts:
+            return None
+        start = min(starts)
+
+        # Each category is a separate object in Next.js hydration data. Bound
+        # Sringar before Festival so an absent Sringar date cannot match the
+        # corresponding Festival record during the first lookup.
+        end = len(html)
+        if category == "sringar":
+            festival_starts = [
+                html.find(cls._category_marker("festival-darshan", escaped=False), start + 1),
+                html.find(cls._category_marker("festival-darshan", escaped=True), start + 1),
+            ]
+            festival_starts = [position for position in festival_starts if position >= 0]
+            if festival_starts:
+                end = min(festival_starts)
+        section = html[start:end]
+
+        iso_date = on_date.isoformat()
+        date_positions = [
+            section.find(f'"date":"{iso_date}"'),
+            section.find(rf'\"date\":\"{iso_date}\"'),
+        ]
+        date_positions = [position for position in date_positions if position >= 0]
+        if not date_positions:
+            return None
+        date_at = min(date_positions)
+        match = _ATTAPUR_IMAGE.search(section, date_at, date_at + 1024)
+        return unescape(match.group("image")) if match else None
+
+    def resolve_url(self, on_date: date):
+        self.last_page_url = self._page_url
+        self.last_image_url = ""
+        try:
+            response = self._session.get(
+                self._page_url,
+                timeout=self._timeout,
+                headers={"User-Agent": "DailyDarshan/2.0"},
+            )
+        except Exception:
+            return None
+        if response.status_code != 200 or not response.text:
+            return None
+
+        self.last_image_url = self._category_image_url(response.text, on_date, "sringar") or ""
+        if not self.last_image_url:
+            self.last_image_url = self._category_image_url(response.text, on_date, "festival-darshan") or ""
+        return self.last_image_url or None
 
 
 class SwaminarayanSource(HttpImageSource):
