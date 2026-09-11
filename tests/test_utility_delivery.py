@@ -270,6 +270,9 @@ def test_page_renderer_shows_only_compact_delivery_details_above_image():
     assert "Subscription expiry:" not in html_text
     assert "<strong>Plan</strong>" not in html_text
     assert 'class="delivery-summary"' not in html_text
+    assert '<div class="image-frame">' in html_text
+    assert "align-items: flex-start" in html_text
+    assert "max-height: 100%" in html_text
 
 
 @pytest.mark.parametrize(("days_remaining", "message"), [
