@@ -52,6 +52,7 @@ _TEMPLATE = """<!DOCTYPE html>
     <h1>🙏 Daily Darshan</h1>
     <div class="greeting">{greeting}</div>
     <div class="status">{status_text}</div>
+    {renewal_reminder}
     <img class="darshan" src="{image_url}" alt="Daily Darshan for {date}"
          onerror="this.onerror=null; this.src='{fallback_url}';">
     <div class="meta">
@@ -60,7 +61,6 @@ _TEMPLATE = """<!DOCTYPE html>
       <div>Plan: {plan}</div>
       <div>Subscription active until: {end_date}</div>
     </div>
-    {renewal_reminder}
   </div>
 </body>
 </html>

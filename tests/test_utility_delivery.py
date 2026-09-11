@@ -281,6 +281,8 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
     assert message in html_text
     assert 'href="https://wa.me/15556757329?text=RENEW"' in html_text
     assert ">Renew on WhatsApp</a>" in html_text
+    assert html_text.index('class="status"') < html_text.index('class="renewal"')
+    assert html_text.index('class="renewal"') < html_text.index('class="darshan"')
 
 
 def test_page_renderer_hides_renewal_before_configured_window():
