@@ -1,9 +1,9 @@
 name: Daily Delivery
 
 on:
-  schedule:
-    - cron: "31 3 * * *"
-    
+  workflow_run:
+    workflows: ["Daily Image"]
+    types: [completed]
   workflow_dispatch: {}
 
 permissions:
@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   delivery:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     concurrency:
       group: daily-darshan-repository-writes

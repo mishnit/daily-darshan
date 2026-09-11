@@ -20,3 +20,14 @@ def test_renewal_and_delivery_are_serialized_with_a_gap():
     assert "Renewal recipients are protected by the daily send ledger" in workflow
     assert "if: steps.message_gap.outputs.deliver == 'true'" in workflow
     assert 'sleep "$gap_seconds"' in workflow
+
+
+def test_delivery_runs_after_successful_image_workflow_or_manual_dispatch():
+    workflow = Path(".github/workflows/delivery.yml").read_text(encoding="utf-8")
+
+    assert "schedule:" not in workflow
+    assert 'workflows: ["Daily Image"]' in workflow
+    assert "types: [completed]" in workflow
+    assert "workflow_dispatch: {}" in workflow
+    assert "github.event_name == 'workflow_dispatch'" in workflow
+    assert "github.event.workflow_run.conclusion == 'success'" in workflow
