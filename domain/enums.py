@@ -21,11 +21,12 @@ class PaymentStatus(str, Enum):
 
 class ReminderType(str, Enum):
     THREE_DAY = "3_DAY"
+    TWO_DAY = "2_DAY"
     ONE_DAY = "1_DAY"
 
     @classmethod
     def for_days_remaining(cls, days_remaining: int) -> "ReminderType":
-        mapping = {3: cls.THREE_DAY, 1: cls.ONE_DAY}
+        mapping = {3: cls.THREE_DAY, 2: cls.TWO_DAY, 1: cls.ONE_DAY}
         if days_remaining not in mapping:
             raise ValueError(f"No reminder type for days_remaining={days_remaining}")
         return mapping[days_remaining]

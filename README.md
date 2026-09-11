@@ -178,7 +178,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `image_validation` | `min_width`, `min_height`, `allowed_formats` for `ImageValidator`. |
 | `paths` | Relative paths to the CSV files and `images/` directory. |
 | `schedule` | Cron hints (documentation; actual cron lives in the workflow YAML). |
-| `renewal.reminder_days` | Days-before-expiry to send reminders, e.g. `[3, 1]`. |
+| `renewal.reminder_days` | Days-before-expiry to send reminders, e.g. `[3, 2, 1]`. |
 | `renewal.whatsapp_number` | Digits-only WhatsApp destination used by the near-expiry page CTA. |
 | `persistence` | Webhook durability. `mode`: `github_api` (webhook syncs CSVs to the shared repo via Contents API — needs `GITHUB_TOKEN`+`GITHUB_REPO`) or `local` (no sync; dev only). `branch`: repo branch to sync against. |
 | `delivery` | Delivery mode + message settings. `mode`: `utility_template` (send a parameterized utility template linking to a per-subscriber page) or `image` (send the image inline). Also controls template language, page/image URLs, retries, 30-day operational-log retention, image retention and page-retention grace. |
@@ -190,7 +190,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 - **Change the weekday rotation** — edit `daily_image_rotation.<weekday>`. When a weekday
   lists multiple sources, the job stores every valid candidate and selects the largest.
 - **Enable, disable or repoint a temple** — edit `temple_sources.<source>`.
-- **Change reminder cadence** — edit `renewal.reminder_days` (only `3` and `1` are mapped
+- **Change reminder cadence** — edit `renewal.reminder_days` (`3`, `2`, and `1` are mapped
   to reminder types today; see [Extending](#extending-the-system) to add more).
 - **Change delivery caption** — edit `delivery.caption`.
 - **Change operational-log retention** — edit `delivery.log_retention_days` (currently `30`).
