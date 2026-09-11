@@ -78,6 +78,7 @@
   },
   "renewal": {
     "reminder_days": [3, 1],
+    "whatsapp_number": "15556757329",
     "template_name": "daily_darshan_delivery_update",
     "template_lang": "en"
   }

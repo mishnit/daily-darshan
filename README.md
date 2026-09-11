@@ -179,6 +179,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `paths` | Relative paths to the CSV files and `images/` directory. |
 | `schedule` | Cron hints (documentation; actual cron lives in the workflow YAML). |
 | `renewal.reminder_days` | Days-before-expiry to send reminders, e.g. `[3, 1]`. |
+| `renewal.whatsapp_number` | Digits-only WhatsApp destination used by the near-expiry page CTA. |
 | `persistence` | Webhook durability. `mode`: `github_api` (webhook syncs CSVs to the shared repo via Contents API — needs `GITHUB_TOKEN`+`GITHUB_REPO`) or `local` (no sync; dev only). `branch`: repo branch to sync against. |
 | `delivery` | Delivery mode + message settings. `mode`: `utility_template` (send a parameterized utility template linking to a per-subscriber page) or `image` (send the image inline). Also controls template language, page/image URLs, retries, 30-day operational-log retention, image retention and page-retention grace. |
 
@@ -432,6 +433,10 @@ body `{{1}}` and the subscription ID in dynamic URL-button `{{1}}`; configure th
 URL as `https://vipseva.com/{{1}}`. Renewal reminders use `daily_darshan_renewal` (`en_US`)
 with customer name and expiry date as two body variables. Both templates must be approved
 and active in WhatsApp Manager.
+
+Subscriber pages show a **Renew on WhatsApp** CTA from the largest configured
+`renewal.reminder_days` value through the post-expiry page grace period. The link opens
+`renewal.whatsapp_number` with `RENEW` prefilled; use international digits without `+`.
 
 ---
 
