@@ -434,11 +434,14 @@ Details:
 > approved template with buttons; within the window (the normal case, since the user just
 > messaged) the free-form interactive menu is used.
 
-Scheduled delivery uses `daily_darshan_delivery_update` (`en_US`) with customer name in
-body `{{1}}` and the subscription ID in dynamic URL-button `{{1}}`; configure that button's
-URL as `https://vipseva.com/{{1}}`. Renewal reminders use `daily_darshan_renewal` (`en_US`)
-with customer name and expiry date as two body variables. Both templates must be approved
-and active in WhatsApp Manager.
+The current configuration uses `daily_darshan_delivery_update` with language `en` for both
+scheduled delivery and renewal reminders. Delivery sends the customer name as body `{{1}}`
+and the subscription ID as dynamic URL-button `{{1}}`; configure the button URL as
+`https://vipseva.com/{{1}}`. Renewal sends customer name and expiry date as body `{{1}}` and
+`{{2}}`. The approved Meta template must exactly match the component shape used by each send.
+If one approved template cannot support both shapes, configure a separate renewal template in
+`renewal.template_name`; do not change `template_lang` to `en_US` unless that is the exact
+approved locale shown in WhatsApp Manager.
 
 Subscriber pages show a **Renew on WhatsApp** CTA from the largest configured
 `renewal.reminder_days` value through the post-expiry page grace period. The link opens
@@ -479,6 +482,32 @@ Delivery has no cron of its own. The normal scheduled/manual image chain is imag
 one Pages deployment → delivery. Direct manual delivery does not redeploy an unchanged site.
 Manual page regeneration does not publish by itself; after verification, manually run **Deploy
 Daily Darshan Pages**, which publishes once and then starts delivery.
+
+### End-to-end production journey
+
+1. A customer sends **Radhe Radhe**. Render verifies and deduplicates the webhook, advances the
+   CTA/name/consent/payment conversation, and persists subscriber, payment and processed-message
+   CSV changes to `main` through the GitHub Contents API.
+2. An administrator verifies the UTR and activates or renews the subscriber. This commits the
+   subscriber page, but the commit itself does not publish Pages in Actions-based mode.
+3. At 08:31 IST (target time), **Daily Image** fetches every source configured for the weekday,
+   stores UUID-prefixed candidates, chooses the largest valid image, regenerates subscriber pages,
+   expires lapsed subscriptions and applies retention cleanup. Today's valid image is mandatory;
+   historical backfill misses only warn.
+4. A successful default-branch image run starts **Deploy Daily Darshan Pages**. Publication occurs
+   once from the current `main` checkout. A failed Pages deployment stops the automatic chain.
+5. Successful publication starts **Daily Delivery**. For each eligible subscriber it attempts a
+   renewal reminder first, otherwise the delivery-status template. A persisted successful send in
+   `sentlog.csv` blocks every later scheduled or manual contact for that subscriber on that date.
+   A failed reminder does not consume the slot, so delivery may still be attempted.
+6. Render commits, admin commits, pull-request merges and other pushes to `main` still run CI tests,
+   but they do not publish Pages. For an immediate mid-day activation, run **Deploy Daily Darshan
+   Pages** manually; for a new image plus the complete chain, run **Daily Image** manually on `main`.
+
+Direct **Daily Delivery** runs never rebuild or deploy the site and should be used only after the
+current page is public. Direct **Regenerate Daily Pages** runs only update files; follow them with a
+manual Pages deployment. Previously published pages remain viewable until a later deployment
+replaces or prunes them.
 
 **Idempotency** (safe to re-run):
 - Renewal and delivery share a successful-send key of `date + mobile` in `sentlog.csv`; only
