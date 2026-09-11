@@ -255,7 +255,7 @@ def test_page_renderer_uses_opaque_daily_image_name():
     assert f"https://vipseva.com/images/{opaque_name}" in html_text
 
 
-def test_page_renderer_title_cases_greeting_and_shows_temple_source():
+def test_page_renderer_shows_only_compact_delivery_details_above_image():
     renderer = PageRenderer(image_public_base="https://u.github.io/dd")
     sub = Subscriber(mobile="9199", plan="monthly", name="nitin mishra")
 
@@ -263,12 +263,14 @@ def test_page_renderer_title_cases_greeting_and_shows_temple_source():
         sub, date(2026, 9, 10), delivered=True, source="iskcon_vrindavan"
     )
 
-    assert "Namaste Nitin Mishra Ji" in html_text
-    assert "Namaste," not in html_text
-    assert "<span>Temple</span><strong>ISKCON Vrindavan</strong>" in html_text
+    assert "Namaste" not in html_text
+    assert "<strong>Delivered date:</strong> 2026-09-10" in html_text
+    assert "<strong>Source:</strong> ISKCON Vrindavan" in html_text
+    assert "<strong>Subscription expiry:</strong>" in html_text
+    assert "<strong>Plan</strong>" not in html_text
     assert html_text.index('class="delivery-summary"') < html_text.index('class="darshan"')
     assert html_text.index("Delivered date") < html_text.index('class="darshan"')
-    assert html_text.index("Active until") < html_text.index('class="darshan"')
+    assert html_text.index("Subscription expiry") < html_text.index('class="darshan"')
 
 
 @pytest.mark.parametrize(("days_remaining", "message"), [
@@ -296,7 +298,7 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
     assert message in html_text
     assert 'href="https://wa.me/15556757329?text=RENEW"' in html_text
     assert ">Renew on WhatsApp</a>" in html_text
-    assert html_text.index('class="status"') < html_text.index('class="renewal"')
+    assert html_text.index('class="delivery-summary"') < html_text.index('class="renewal"')
     assert html_text.index('class="renewal"') < html_text.index('class="darshan"')
 
 
