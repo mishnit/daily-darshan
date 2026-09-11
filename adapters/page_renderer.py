@@ -35,18 +35,25 @@ _TEMPLATE = """<!DOCTYPE html>
     body {{ font-family: system-ui, sans-serif; margin: 0; overflow: hidden;
             background: #faf6ef; color: #2b2b2b; }}
     .wrap {{ box-sizing: border-box; display: flex; flex-direction: column;
-             gap: 8px; width: 100%; max-width: 640px; height: 100svh;
-             margin: 0 auto; padding: 10px; text-align: center; }}
-    h1 {{ flex: 0 0 auto; margin: 0; color: #34291f; font-size: 1.05rem; line-height: 1.2; }}
-    .greeting {{ flex: 0 0 auto; color: #53483c; font-size: .86rem; font-weight: 600; }}
-    img.darshan {{ display: block; flex: 1 1 0; min-height: 0; width: 100%;
-                   border-radius: 12px; object-fit: contain;
+             width: 100%; max-width: 640px; height: 100svh;
+             margin: 0 auto; padding: 6px 0 0; text-align: center; }}
+    h1 {{ flex: 0 0 auto; margin: 0 8px 4px; color: #34291f;
+          font-size: 1.05rem; line-height: 1.2; }}
+    .greeting {{ flex: 0 0 auto; margin: 0 8px; color: #53483c;
+                 font-size: .86rem; font-weight: 600; }}
+    .image-frame {{ display: flex; flex: 1 1 auto; align-items: flex-start;
+                    justify-content: center; min-height: 0; margin: 0 8px;
+                    overflow: hidden; }}
+    img.darshan {{ display: block; width: auto; height: auto;
+                   max-width: 100%; max-height: 100%; border-radius: 12px;
                    box-shadow: 0 4px 16px rgba(0,0,0,.12); }}
-    .renewal {{ flex: 0 0 auto; margin: 0; padding: 9px 10px; border-radius: 10px;
+    .renewal {{ flex: 0 0 auto; margin: 6px 8px 0; padding: 9px 10px;
+                border-radius: 10px 10px 0 0;
                 background: #fff3cd; color: #664d03; font-size: .8rem; line-height: 1.35; }}
     .renewal p {{ margin: 0 0 7px; }}
     .renewal a {{ display: inline-block; padding: 7px 12px; border-radius: 7px;
                   background: #198754; color: #fff; text-decoration: none; font-weight: 650; }}
+    .renewal + .image-frame img {{ border-radius: 0 0 12px 12px; }}
   </style>
 </head>
 <body>
@@ -54,8 +61,10 @@ _TEMPLATE = """<!DOCTYPE html>
     <h1><strong>🕉&#xA0;</strong>&#x20;Daily Darshan</h1>
     <div class="greeting">{greeting}</div>
     {renewal_reminder}
-    <img class="darshan" src="{image_url}" alt="Daily Darshan for {date}"
-         onerror="this.onerror=null; this.src='{fallback_url}';">
+    <div class="image-frame">
+      <img class="darshan" src="{image_url}" alt="Daily Darshan for {date}"
+           onerror="this.onerror=null; this.src='{fallback_url}';">
+    </div>
   </div>
 </body>
 </html>
