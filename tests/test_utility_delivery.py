@@ -79,8 +79,8 @@ def test_template_uses_name_for_var1(repos, plans):
     wa = FakeWhatsApp()
     _template_delivery(repos, wa, plans).deliver(date(2026, 8, 19))
     params = wa.sent[0]["params"]
-    assert params[0] == "Ravi"                       # {{1}} = real name
-    assert params[1].endswith("/tok-9199")           # {{2}} = per-sub URL
+    assert params == ["Ravi"]                         # body {{1}} = real name
+    assert wa.sent[0]["url_button_param"] == "tok-9199"  # button {{1}} = URL suffix
 
 
 def test_template_var1_falls_back_when_no_name(repos, plans):
@@ -111,16 +111,25 @@ def test_meta_send_template_params_payload(monkeypatch):
         return WhatsAppResult(ok=True, message_id="m1")
 
     monkeypatch.setattr(client, "_post", fake_post)
-    client.send_template_params("9199", "daily_darshan_status",
-                                ["9199", "https://d.example/tok"], "en")
+    client.send_template_params(
+        "9199", "daily_darshan_status", ["Ravi"], "en_US",
+        url_button_param="tok-9199",
+    )
 
     assert captured["type"] == "template"
     tmpl = captured["template"]
     assert tmpl["name"] == "daily_darshan_status"
-    assert tmpl["language"]["code"] == "en"
+    assert tmpl["language"]["code"] == "en_US"
     body = tmpl["components"][0]
     assert body["type"] == "body"
-    assert [p["text"] for p in body["parameters"]] == ["9199", "https://d.example/tok"]
+    assert [p["text"] for p in body["parameters"]] == ["Ravi"]
+    button = tmpl["components"][1]
+    assert button == {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [{"type": "text", "text": "tok-9199"}],
+    }
 
 
 def test_meta_client_fails_fast_without_credentials():
@@ -178,8 +187,8 @@ def test_template_mode_sends_per_subscriber_url(repos, plans):
     call = wa.sent[0]
     assert call["type"] == "template_params"
     assert call["template"] == "daily_darshan_status"
-    # {{2}} is the per-subscriber page URL built from subscription_id.
-    assert call["params"][1] == "https://darshan.example.com/tok-9199"
+    assert call["params"] == ["devotee"]
+    assert call["url_button_param"] == "tok-9199"
 
 
 def test_template_mode_idempotent(repos, plans):

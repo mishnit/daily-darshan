@@ -275,7 +275,8 @@ def test_signup_to_render_to_delivery_to_stop_end_to_end(webhook, tmp_path):
     report = delivery.deliver(date(2026, 9, 10))
     assert report.sent == 1
     sent = [item for item in fake.sent if item["type"] == "template_params"][-1]
-    assert sent["params"] == ["nitin mishra", f"https://vipseva.com/{subscriber.subscription_id}"]
+    assert sent["params"] == ["nitin mishra"]
+    assert sent["url_button_param"] == subscriber.subscription_id
 
     post(_msg(mobile, "STOP", "e2e-stop"))
     assert main.container.subscribers.find(mobile).opt_in is False

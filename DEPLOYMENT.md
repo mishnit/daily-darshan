@@ -156,10 +156,12 @@ depends on Meta's assigned category and current country rate; verify both in Wha
    - `template_name` / `template_lang` — your approved template.
 
 3. **Submit and get the template approved** in WhatsApp Manager (see caveat below). Suggested body:
-   > "Hello {{1}} Ji, Your Darshan Delivery status has been updated. Please log into your dashboard to view your profile and delivery status. {{2}} is your personalised link."
+   > "Radhe Radhe {{1}} Ji, Your Daily Darshan delivery status has been updated. It is your personalised link. Do not share this link with others."
 
-   Use template name `daily_darshan_delivery_update`, language `en_US`, and two body
-   variables: `{{1}}` customer name and `{{2}}` personalized page URL.
+   Use template name `daily_darshan_delivery_update`, language `en_US`, body variable
+   `{{1}}` for the customer name, and a dynamic **Visit website** button labelled
+   **Daily Darshan** with URL `https://vipseva.com/{{1}}`. The button's `{{1}}` receives
+   only the subscriber's unguessable subscription ID; Meta appends it to the URL prefix.
 
 4. **Backfill subscription ids** for any existing subscribers (new signups get one automatically):
    ```bash
