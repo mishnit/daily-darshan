@@ -440,7 +440,8 @@ Subscriber pages show a **Renew on WhatsApp** CTA from the largest configured
 
 New daily and source-candidate image filenames use a random UUID prefix, and subscriber pages
 reference that persisted opaque filename. Image, page-repair, and delivery runs rediscover and
-reuse the same name for the date; legacy date-only filenames remain readable during migration.
+reuse the same name for the date. A fresh image run migrates an existing date-only canonical
+image and removes its predictable legacy canonical and candidate aliases.
 
 The delivery workflow queues overlapping runs and sends renewal reminders before the daily
 darshan message. When at least one reminder is sent, it waits five minutes before delivery by
