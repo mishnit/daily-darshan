@@ -1,9 +1,9 @@
 {
   "plans": {
-    "one-day": { "amount": 9, "days": 1 },
-    "weekly": { "amount": 49, "days": 7 },
-    "monthly": { "amount": 99, "days": 30 },
-    "yearly": { "amount": 999, "days": 365 }
+    "starter": { "amount": 9, "days": 3 },
+    "weekly": { "amount": 69, "days": 30 },
+    "monthly": { "amount": 199, "days": 90 },
+    "yearly": { "amount": 799, "days": 365 }
   },
   "upi": {
     "payee_vpa": "dailydarshan@upi",
