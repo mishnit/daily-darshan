@@ -22,7 +22,7 @@ def _add(repos, mobile, days_to_expiry, status=SubscriberStatus.ACTIVE, opt_in=T
 def _service(repos, wa=None):
     return RenewalReminderService(
         repos["subscribers"], repos["renewals"], wa or FakeWhatsApp(),
-        reminder_days=[3, 1], template_name="daily_darshan_renewal",
+        reminder_days=[3, 2, 1], template_name="daily_darshan_renewal",
         template_lang="en_US", max_retries=3, retry_sleep=0,
     )
 
@@ -37,6 +37,26 @@ def test_subscriber_exactly_1_day_selected(repos):
     _add(repos, "9199", 1)
     due = _service(repos).find_due_subscribers(TODAY)
     assert [d for _, d in due] == [1]
+
+
+def test_subscriber_exactly_2_days_selected(repos):
+    _add(repos, "9199", 2)
+    due = _service(repos).find_due_subscribers(TODAY)
+    assert [d for _, d in due] == [2]
+
+
+def test_successful_2_day_reminder_is_recorded_idempotently(repos):
+    _add(repos, "9199", 2)
+    service = _service(repos)
+
+    first = service.run(TODAY)
+    second = service.run(TODAY)
+
+    assert first.sent == 1
+    assert second.sent == 0 and second.skipped == 1
+    assert repos["renewals"].already_sent(
+        "9199", "2_DAY", date(2026, 8, 19)
+    ) is True
 
 
 def test_subscriber_4_days_not_selected(repos):
