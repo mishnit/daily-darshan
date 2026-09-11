@@ -298,7 +298,7 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
     on_date = date(2026, 9, 10)
     renderer = PageRenderer(
         image_public_base="https://vipseva.com",
-        renewal_whatsapp_number="+1 (555) 675-7329",
+        renewal_whatsapp_number="+916361699109",
         renewal_window_days=3,
     )
     sub = Subscriber(
@@ -322,7 +322,7 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
 def test_page_renderer_hides_renewal_before_configured_window():
     renderer = PageRenderer(
         image_public_base="https://vipseva.com",
-        renewal_whatsapp_number="15556757329",
+        renewal_whatsapp_number="916361699109",
         renewal_window_days=3,
     )
     sub = Subscriber(mobile="9199", plan="monthly", end_date=date(2026, 9, 14))
