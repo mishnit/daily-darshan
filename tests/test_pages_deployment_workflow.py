@@ -45,7 +45,7 @@ def test_whatsapp_templates_match_documented_meta_configuration():
     config = json.loads(Path("config.json").read_text(encoding="utf-8"))
 
     assert config["delivery"]["template_name"] == "daily_darshan_delivery_update"
-    assert config["delivery"]["template_lang"] == "en_US"
-    assert config["renewal"]["template_name"] == "daily_darshan_renewal"
-    assert config["renewal"]["template_lang"] == "en_US"
+    assert config["delivery"]["template_lang"] == "en"
+    assert config["renewal"]["template_name"] == "daily_darshan_delivery_update"
+    assert config["renewal"]["template_lang"] == "en"
     assert config["persistence"]["quiet_window_utc"] == {"start": "", "end": ""}
