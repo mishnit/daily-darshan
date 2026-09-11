@@ -64,7 +64,7 @@
   "delivery": {
     "mode": "utility_template",
     "template_name": "daily_darshan_delivery_update",
-    "template_lang": "en_US",
+    "template_lang": "en",
     "page_base_url": "https://vipseva.com",
     "pages_dir": "docs",
     "image_public_base": "https://vipseva.com",
@@ -79,7 +79,7 @@
   "renewal": {
     "reminder_days": [3, 1],
     "whatsapp_number": "15556757329",
-    "template_name": "daily_darshan_renewal",
-    "template_lang": "en_US"
+    "template_name": "daily_darshan_delivery_update",
+    "template_lang": "en"
   }
 }
