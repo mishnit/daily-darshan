@@ -56,7 +56,6 @@ _TEMPLATE = """<!DOCTYPE html>
     .renewal a, .share a {{ display: inline-block; padding: 7px 12px; border-radius: 7px;
                            background: #198754; color: #fff; text-decoration: none;
                            font-weight: 650; }}
-    .share-actions {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; }}
     .renewal + .image-frame img {{ border-radius: 0; }}
   </style>
 </head>
@@ -71,10 +70,7 @@ _TEMPLATE = """<!DOCTYPE html>
     </div>
     <div class="share">
       <p>Share this HD Daily Darshan image with friends and family on WhatsApp.</p>
-      <div class="share-actions">
-        <a href="{share_url}">Share on WhatsApp</a>
-        {request_cta}
-      </div>
+      <a href="{share_url}">Share on WhatsApp</a>
     </div>
   </div>
 </body>
@@ -137,16 +133,6 @@ class PageRenderer:
             f"Radhe Radhe 🙏\n\nToday's HD Daily Darshan:\n{image_url}"
             "\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/"
         )
-        request_cta = ""
-        if self._renewal_whatsapp_number:
-            request_url = (
-                f"https://wa.me/{self._renewal_whatsapp_number}"
-                f"?text={quote('Radhe Radhe', safe='')}"
-            )
-            request_cta = (
-                f'<a href="{html.escape(request_url, quote=True)}">'
-                "Send request for VIP Seva</a>"
-            )
         return _TEMPLATE.format(
             date=html.escape(on_date.isoformat()),
             status_text=html.escape(f"{status_text} — {on_date.isoformat()}"),
@@ -157,7 +143,6 @@ class PageRenderer:
             share_url=html.escape(
                 f"https://wa.me/?text={quote(share_text, safe='')}", quote=True
             ),
-            request_cta=request_cta,
         )
 
     def _renewal_reminder(self, subscriber: Subscriber, on_date: date) -> str:

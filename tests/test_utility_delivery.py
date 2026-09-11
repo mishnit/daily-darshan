@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 from urllib.parse import quote
 
 import pytest
@@ -312,8 +313,7 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
     assert "Subscription expiry:" not in html_text
     assert 'href="https://wa.me/15556757329?text=RENEW"' in html_text
     assert ">Renew on WhatsApp</a>" in html_text
-    assert 'href="https://wa.me/15556757329?text=Radhe%20Radhe"' in html_text
-    assert ">Send request for VIP Seva</a>" in html_text
+    assert ">Send request for VIP Seva</a>" not in html_text
     assert html_text.index('class="renewal"') < html_text.index('class="darshan"')
 
 
@@ -330,8 +330,26 @@ def test_page_renderer_hides_renewal_before_configured_window():
     assert "Renew on WhatsApp" not in html_text
     assert "https://wa.me/15556757329?text=RENEW" not in html_text
     assert ">Share on WhatsApp</a>" in html_text
+    assert ">Send request for VIP Seva</a>" not in html_text
+
+
+@pytest.mark.parametrize("page_path", [
+    "docs/index.html",
+    "docs/images/index.html",
+    "docs/404.html",
+    "docs/images/404.html",
+])
+def test_non_subscriber_page_has_vip_seva_request_button(page_path):
+    html_text = Path(page_path).read_text(encoding="utf-8")
+
     assert 'href="https://wa.me/15556757329?text=Radhe%20Radhe"' in html_text
-    assert ">Send request for VIP Seva</a>" in html_text
+
+
+@pytest.mark.parametrize("index_path", ["docs/index.html", "docs/images/index.html"])
+def test_non_subscriber_index_places_request_button_after_image(index_path):
+    html_text = Path(index_path).read_text(encoding="utf-8")
+
+    assert html_text.index("<img") < html_text.index("Send request for VIP Seva")
 
 
 def test_page_renderer_skips_subscriber_without_subid(tmp_path):
