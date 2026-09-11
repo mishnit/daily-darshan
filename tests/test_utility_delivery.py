@@ -265,7 +265,10 @@ def test_page_renderer_title_cases_greeting_and_shows_temple_source():
 
     assert "Namaste Nitin Mishra Ji" in html_text
     assert "Namaste," not in html_text
-    assert "Temple: ISKCON Vrindavan" in html_text
+    assert "<span>Temple</span><strong>ISKCON Vrindavan</strong>" in html_text
+    assert html_text.index('class="delivery-summary"') < html_text.index('class="darshan"')
+    assert html_text.index("Delivered date") < html_text.index('class="darshan"')
+    assert html_text.index("Active until") < html_text.index('class="darshan"')
 
 
 @pytest.mark.parametrize(("days_remaining", "message"), [
