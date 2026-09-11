@@ -312,6 +312,8 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
     assert "Subscription expiry:" not in html_text
     assert 'href="https://wa.me/15556757329?text=RENEW"' in html_text
     assert ">Renew on WhatsApp</a>" in html_text
+    assert 'href="https://wa.me/15556757329?text=Radhe%20Radhe"' in html_text
+    assert ">Send request for VIP Seva</a>" in html_text
     assert html_text.index('class="renewal"') < html_text.index('class="darshan"')
 
 
@@ -326,8 +328,10 @@ def test_page_renderer_hides_renewal_before_configured_window():
     html_text = renderer.render_html(sub, date(2026, 9, 10), delivered=True)
 
     assert "Renew on WhatsApp" not in html_text
-    assert "https://wa.me/15556757329" not in html_text
+    assert "https://wa.me/15556757329?text=RENEW" not in html_text
     assert ">Share on WhatsApp</a>" in html_text
+    assert 'href="https://wa.me/15556757329?text=Radhe%20Radhe"' in html_text
+    assert ">Send request for VIP Seva</a>" in html_text
 
 
 def test_page_renderer_skips_subscriber_without_subid(tmp_path):
