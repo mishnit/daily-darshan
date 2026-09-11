@@ -31,3 +31,13 @@ class CSVSentLogRepository(SentLogRepositoryPort):
             ):
                 return True
         return False
+
+    def prune_before(self, cutoff: date) -> int:
+        """Remove delivery entries older than cutoff, keeping malformed rows."""
+        def keep(row: dict) -> bool:
+            try:
+                return date.fromisoformat(row.get("date", "")) >= cutoff
+            except (TypeError, ValueError):
+                return True
+
+        return self._csv.retain(keep)

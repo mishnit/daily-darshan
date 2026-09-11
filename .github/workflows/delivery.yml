@@ -75,6 +75,11 @@ jobs:
           git config --global commit.gpgsign true
           echo "GIT_COMMIT_GPG_SIGN=true" >> "$GITHUB_ENV"
 
+      - name: Prune operational logs to 30 days
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+        run: python scheduler.py cleanup
+
       - name: Expire lapsed subscriptions
         env:
           GITHUB_REPO: ${{ github.repository }}

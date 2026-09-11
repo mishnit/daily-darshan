@@ -158,6 +158,16 @@ class CSVRepository:
             self._write_all(kept)
             return True
 
+    def retain(self, predicate) -> int:
+        """Atomically keep rows matching ``predicate`` and return removals."""
+        with self._exclusive_lock():
+            rows = self.all()
+            kept = [row for row in rows if predicate(row)]
+            removed = len(rows) - len(kept)
+            if removed:
+                self._write_all(kept)
+            return removed
+
     def _write_all(self, rows: list[dict]) -> None:
         directory = os.path.dirname(self.path) or "."
         fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
