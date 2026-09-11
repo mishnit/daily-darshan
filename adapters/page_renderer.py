@@ -35,32 +35,48 @@ _TEMPLATE = """<!DOCTYPE html>
     .wrap {{ max-width: 640px; margin: 0 auto; padding: 24px; text-align: center; }}
     h1 {{ font-size: 1.3rem; margin: 8px 0; }}
     .greeting {{ font-size: 1rem; color: #555; margin-bottom: 8px; }}
-    .status {{ display: inline-block; padding: 4px 12px; border-radius: 999px;
-               background: #e4f6e4; color: #1a7f37; font-size: 0.85rem; margin-bottom: 16px; }}
+    .delivery-summary {{ margin: 16px 0; padding: 16px; border: 1px solid #eadfce;
+                         border-radius: 14px; background: #fffdf9;
+                         box-shadow: 0 3px 12px rgba(71, 48, 24, .07); }}
+    .status {{ display: inline-block; padding: 5px 14px; border-radius: 999px;
+               background: #e4f6e4; color: #1a7f37; font-size: 0.85rem;
+               font-weight: 700; letter-spacing: .01em; }}
+    .meta {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+             gap: 10px; margin-top: 14px; text-align: left; }}
+    .detail {{ padding: 10px 12px; border-radius: 9px; background: #faf6ef; }}
+    .detail span {{ display: block; margin-bottom: 3px; color: #766957;
+                    font-size: .72rem; font-weight: 650; letter-spacing: .04em;
+                    text-transform: uppercase; }}
+    .detail strong {{ display: block; color: #34291f; font-size: .9rem;
+                      overflow-wrap: anywhere; }}
     img.darshan {{ width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); }}
-    .meta {{ margin-top: 16px; font-size: 0.9rem; color: #555; }}
-    .meta div {{ margin: 2px 0; }}
-    .renewal {{ margin: 20px 0 4px; padding: 16px; border-radius: 12px;
+    .renewal {{ margin: 16px 0; padding: 16px; border-radius: 12px;
                 background: #fff3cd; color: #664d03; }}
     .renewal p {{ margin: 0 0 12px; }}
     .renewal a {{ display: inline-block; padding: 10px 18px; border-radius: 8px;
                   background: #198754; color: #fff; text-decoration: none; font-weight: 650; }}
+    @media (max-width: 460px) {{
+      .wrap {{ padding: 16px; }}
+      .meta {{ grid-template-columns: 1fr; gap: 8px; }}
+    }}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>🙏 Daily Darshan</h1>
     <div class="greeting">{greeting}</div>
-    <div class="status">{status_text}</div>
+    <section class="delivery-summary" aria-label="Delivery and subscription details">
+      <div class="status">{status_label}</div>
+      <div class="meta">
+        <div class="detail"><span>Delivered date</span><strong>{date}</strong></div>
+        {source_row}
+        <div class="detail"><span>Plan</span><strong>{plan}</strong></div>
+        <div class="detail"><span>Active until</span><strong>{end_date}</strong></div>
+      </div>
+    </section>
     {renewal_reminder}
     <img class="darshan" src="{image_url}" alt="Daily Darshan for {date}"
          onerror="this.onerror=null; this.src='{fallback_url}';">
-    <div class="meta">
-      <div>Date: {date}</div>
-      {source_row}
-      <div>Plan: {plan}</div>
-      <div>Subscription active until: {end_date}</div>
-    </div>
   </div>
 </body>
 </html>
@@ -117,11 +133,17 @@ class PageRenderer:
         safe_name = sanitize_display_name(subscriber.name, "")
         greeting = f"Namaste {safe_name.title()} Ji" if safe_name else "Namaste Ji"
         source_name = self.source_display_name(source)
-        source_row = f"<div>Temple: {html.escape(source_name)}</div>" if source_name else ""
+        source_row = (
+            f'<div class="detail" aria-label="Temple: {html.escape(source_name, quote=True)}">'
+            '<span>Temple</span>'
+            f"<strong>{html.escape(source_name)}</strong></div>"
+            if source_name else ""
+        )
         renewal_reminder = self._renewal_reminder(subscriber, on_date)
         return _TEMPLATE.format(
             date=html.escape(on_date.isoformat()),
             status_text=html.escape(f"{status_text} — {on_date.isoformat()}"),
+            status_label=html.escape(status_text),
             image_url=html.escape(self.image_url(on_date, images_dir, image_name)),
             fallback_url=html.escape(self.fallback_url(images_dir)),
             plan=html.escape(subscriber.plan or "—"),
