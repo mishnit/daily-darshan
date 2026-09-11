@@ -124,7 +124,8 @@ daily-darshan/
 └── .github/workflows/
     ├── image.yml               # daily image fetch (08:31 IST target)
     ├── delivery.yml            # renewal + delivery after a successful image workflow
-    └── pages.yml               # manual page regeneration
+    ├── pages.yml               # manual page regeneration
+    └── deploy-pages.yml        # publish docs/ once after successful delivery
 ```
 
 ---
@@ -347,10 +348,13 @@ install deps, run tests, execute the job, and commit results back.
 To enable:
 1. Push this repository to GitHub.
 2. Add the Actions secrets listed above.
-3. Ensure workflow permissions allow writes: the YAMLs already declare `permissions: contents: write`. Also confirm *Settings → Actions → General → Workflow permissions* is set to **Read and write**.
+3. Ensure workflow permissions allow writes: the scheduler YAMLs declare `permissions: contents: write`. Also confirm *Settings → Actions → General → Workflow permissions* is set to **Read and write**.
 4. The image workflow runs on its cron schedule. A successful image run automatically triggers
    delivery; both workflows can also be triggered manually via **workflow_dispatch** (Actions tab
    → *Run workflow*) for recovery/testing.
+5. Under *Settings → Pages → Build and deployment → Source*, select **GitHub Actions**. The
+   `Deploy Daily Darshan Pages` workflow then publishes `docs/` exactly once after each successful
+   `Daily Delivery` workflow, instead of the legacy branch publisher rebuilding on every commit.
 
 ---
 
@@ -467,10 +471,13 @@ per date after its successful send has been persisted.
 | `image.yml` | `1 3 * * *` | 08:31 IST target | Test → verify GPG signing → prune operational logs → fetch all configured sources for the weekday → choose/store the largest valid canonical image → regenerate every subscriber page → signed commit. Manual runs support 1-, 2- or 7-day backfill. A fallback-only result fails the workflow so delivery is not triggered without today's dated image. |
 | `delivery.yml` | After successful `Daily Image` completion; manual on demand | Immediately after image success | Validate WhatsApp secrets → test → verify GPG signing → prune logs → expire lapsed subscriptions → send renewal reminders → deliver today's personalized page link → signed commits. Failed or cancelled image runs do not deliver. |
 | `pages.yml` | Manual only | On demand | Regenerate all pages from today's stored canonical image without fetching remote images. |
+| `deploy-pages.yml` | After successful `Daily Delivery` completion | After delivery | Upload and deploy `docs/` once. Runs after scheduled-image delivery, manual-image delivery, or a direct manual delivery. Failed/skipped delivery does not publish. |
 
 GitHub cron schedules are targets rather than exact start-time guarantees and may be delayed
 under runner load. Workflow YAML is authoritative; `config.json.schedule` is informational.
 Delivery has no cron of its own and follows each successful scheduled or manual image run.
+Pages deployment follows delivery only. Manual page regeneration does not deploy by itself; run
+Daily Delivery after verifying the regenerated pages when they should be published.
 
 **Idempotency** (safe to re-run):
 - Renewal and delivery share a successful-send key of `date + mobile` in `sentlog.csv`; only
