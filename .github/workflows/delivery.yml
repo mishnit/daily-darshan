@@ -118,8 +118,8 @@ jobs:
             exit 0
           fi
           if [ "$gap_seconds" -eq 0 ]; then
-            echo "deliver=false" >> "$GITHUB_OUTPUT"
-            echo "Renewal reminder sent in reminder-only mode; skipping Daily Darshan delivery"
+            echo "deliver=true" >> "$GITHUB_OUTPUT"
+            echo "Renewal recipients are protected by the daily send ledger; proceeding without a delay"
             exit 0
           fi
           echo "deliver=true" >> "$GITHUB_OUTPUT"

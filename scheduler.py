@@ -314,7 +314,9 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
 
 def run_renewal(container: Container, git: LocalGitRepository, on_date: date) -> int:
     report = container.renewal_service.run(on_date)
-    git.commit([container.config["paths"]["renewals_csv"], container.config["paths"]["logs_csv"]],
+    git.commit([container.config["paths"]["renewals_csv"],
+                container.config["paths"]["sentlog_csv"],
+                container.config["paths"]["logs_csv"]],
                f"Renewal reminders {on_date.isoformat()}")
     print(f"[renewal] sent={report.sent} skipped={report.skipped} failed={report.failed}")
     github_output = os.environ.get("GITHUB_OUTPUT")

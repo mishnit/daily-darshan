@@ -97,6 +97,7 @@ class Container:
             template_name=renewal_cfg.get("template_name", ""),
             template_lang=renewal_cfg.get("template_lang", "en_US"),
             logs=self.logs,
+            sentlog=self.sentlog,
         )
 
         # Image pipeline

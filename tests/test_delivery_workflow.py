@@ -16,6 +16,7 @@ def test_renewal_and_delivery_are_serialized_with_a_gap():
     assert "RENEWAL_SENT_COUNT: ${{ steps.renewal.outputs.sent_count || '0' }}" in workflow
     assert 'if [ "$renewal_sent" -eq 0 ]; then' in workflow
     assert "No renewal reminder was sent; proceeding immediately" in workflow
-    assert 'echo "deliver=false" >> "$GITHUB_OUTPUT"' in workflow
+    assert 'echo "deliver=false" >> "$GITHUB_OUTPUT"' not in workflow
+    assert "Renewal recipients are protected by the daily send ledger" in workflow
     assert "if: steps.message_gap.outputs.deliver == 'true'" in workflow
     assert 'sleep "$gap_seconds"' in workflow
