@@ -106,8 +106,8 @@ def test_delivery_aborts_when_no_url_and_no_bytes(repos, plans):
     assert report.sent == 0 and len(wa.sent) == 0
 
 
-def test_scheduler_template_delivery_refuses_missing_daily_image(capsys):
-    """Never send a live page URL when the image workflow did not complete."""
+def test_scheduler_template_delivery_does_not_require_daily_image():
+    """Page-only template delivery does not preflight a canonical image."""
     from types import SimpleNamespace
     from scheduler import run_delivery
 
@@ -116,16 +116,14 @@ def test_scheduler_template_delivery_refuses_missing_daily_image(capsys):
             return None
 
         def commit(self, files, message):
-            raise AssertionError("nothing should be committed on preflight failure")
+            return None
 
     container = SimpleNamespace(
-        config={"delivery": {"mode": "utility_template"}},
-        image_service=SimpleNamespace(canonical_path=lambda on_date: "docs/images/missing.jpg"),
-        image_validator=SimpleNamespace(validate=lambda image: True),
+        delivery_service=SimpleNamespace(deliver=lambda on_date: SimpleNamespace(sent=0, skipped=0, failed=0)),
+        config={"delivery": {"mode": "utility_template"}, "paths": {"sentlog_csv": "sentlog.csv", "logs_csv": "logs.csv"}},
     )
 
-    assert run_delivery(container, Git(), date(2026, 9, 10)) == 1
-    assert "delivery was not attempted" in capsys.readouterr().err
+    assert run_delivery(container, Git(), date(2026, 9, 10)) == 0
 
 
 def test_scheduler_reports_partial_delivery_failure():
