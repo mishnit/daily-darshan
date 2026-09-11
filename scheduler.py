@@ -208,7 +208,10 @@ def run_image(
     if committed:
         git.commit(committed, f"Daily darshan image + pages {on_date.isoformat()}")
     print(f"[image] pages={len(pages)}")
-    return 0
+    # A fallback can keep rendered pages usable, but it is not today's stored
+    # darshan. Fail the workflow so workflow_run does not start delivery until
+    # a dated canonical image has actually been collected and persisted.
+    return 0 if image is not None else 1
 
 
 def run_pages(container: Container, git: LocalGitRepository, on_date: date,
