@@ -3,7 +3,7 @@
     "starter": { "amount": 9, "days": 3 },
     "weekly": { "amount": 69, "days": 30 },
     "monthly": { "amount": 199, "days": 90 },
-    "yearly": { "amount": 799, "days": 365 }
+    "yearly": { "amount": 699, "days": 365 }
   },
   "upi": {
     "payee_vpa": "dailydarshan@upi",
