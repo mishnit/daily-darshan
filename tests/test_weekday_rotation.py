@@ -71,7 +71,7 @@ def test_canonical_image_replaces_bottom_24_percent_with_delivery_footer():
 
 def test_watermark_details_use_friendly_source_name():
     assert _watermark_details(date(2026, 9, 11), "iskcon_hyderabad") == (
-        "Delivered date: 2026-09-11 · Source: ISKCON Hyderabad"
+        "Date: 2026-09-11 · Source: ISKCON Hyderabad"
     )
 
 @pytest.mark.parametrize("on_date, expected", [

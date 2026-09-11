@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 
 from domain.enums import PaymentStatus, SubscriberStatus
-from domain.subscriber import Subscriber, sanitize_display_name
+from domain.subscriber import Subscriber, normalize_subscriber_name, sanitize_display_name
 from application.payment_service import PaymentService
 from application.subscriber_service import SubscriberService
 
@@ -30,6 +30,14 @@ def test_sanitize_falls_back_when_empty_or_only_control():
     assert sanitize_display_name("", fallback="") == ""
 
 
+def test_subscriber_names_are_normalized_before_storage():
+    assert normalize_subscriber_name("  nitin   mishra ") == "Nitin Mishra"
+    assert Subscriber(mobile="9199", plan="monthly", name="nitin").name == "Nitin"
+    assert Subscriber.from_row({
+        "mobile": "9199", "plan": "monthly", "name": "nitin mishra",
+    }).name == "Nitin Mishra"
+
+
 def test_delivery_template_param_is_sanitized(repos, plans):
     from application.delivery_service import DeliveryService
     from domain.payment import Payment
@@ -50,7 +58,7 @@ def test_delivery_template_param_is_sanitized(repos, plans):
     svc.deliver(date(2026, 8, 19))
     name_param = wa.sent[0]["params"][0]
     assert "\n" not in name_param and "\t" not in name_param and "\x00" not in name_param
-    assert name_param == "Bad Name with ctrl"
+    assert name_param == "Bad Name With Ctrl"
 
 
 # ------------------------------- #4 supersede ------------------------------- #

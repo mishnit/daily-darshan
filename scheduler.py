@@ -67,7 +67,7 @@ def _source_display_name(source: str) -> str:
 
 def _watermark_details(on_date: date, source: str) -> str:
     return (
-        f"Delivered date: {on_date.isoformat()} · "
+        f"Date: {on_date.isoformat()} · "
         f"Source: {_source_display_name(source) or 'Unknown'}"
     )
 
