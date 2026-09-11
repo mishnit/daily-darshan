@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from datetime import date
+import os
 import re
 from typing import Protocol
+from uuid import uuid4
 
 from domain.image import Image
 from application.ports.repositories import LogRepositoryPort
@@ -133,13 +135,50 @@ class ImageService:
     def select_largest(self, candidates: list[Image]) -> Image:
         return self._collector.select_largest(candidates)
 
-    def canonical_path(self, on_date: date) -> str:
-        return Image(image_date=on_date).canonical_path(self._images_dir)
+    def canonical_path(self, on_date: date, *, create: bool = True) -> str:
+        """Return the persisted canonical path, or allocate an opaque new one.
+
+        Existing UUID-prefixed names are discovered on disk so later workflow
+        jobs reuse the exact URL created by the image job. Legacy date-only
+        names remain readable during migration.
+        """
+        date_name = on_date.isoformat()
+        if os.path.isdir(self._images_dir):
+            uuid_re = re.compile(
+                rf"^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-"
+                rf"[0-9a-f]{{12}}_{re.escape(date_name)}\.jpg$",
+                re.I,
+            )
+            matches = sorted(
+                name for name in os.listdir(self._images_dir) if uuid_re.match(name)
+            )
+            if matches:
+                return os.path.join(self._images_dir, matches[0])
+            legacy = os.path.join(self._images_dir, f"{date_name}.jpg")
+            if os.path.isfile(legacy):
+                return legacy
+        if not create:
+            return os.path.join(self._images_dir, f"{date_name}.jpg")
+        return os.path.join(self._images_dir, f"{uuid4()}_{date_name}.jpg")
 
     def candidate_path(self, on_date: date, source: str) -> str:
-        """Stable, human-readable path for one source image on a given day."""
+        """Return a stable opaque path for one source image on a given day."""
         safe_source = re.sub(r"[^a-z0-9_-]+", "_", source.lower()).strip("_-") or "source"
-        return f"{self._images_dir}/{on_date.isoformat()}_{safe_source}.jpg"
+        suffix = f"{on_date.isoformat()}_{safe_source}.jpg"
+        if os.path.isdir(self._images_dir):
+            uuid_re = re.compile(
+                rf"^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-"
+                rf"[0-9a-f]{{12}}_{re.escape(suffix)}$",
+                re.I,
+            )
+            matches = sorted(
+                name for name in os.listdir(self._images_dir) if uuid_re.match(name)
+            )
+            if matches:
+                return os.path.join(self._images_dir, matches[0])
+        return os.path.join(
+            self._images_dir, f"{uuid4()}_{suffix}"
+        )
 
     def prune_images(
         self,
@@ -151,7 +190,8 @@ class ImageService:
 
         Retention policy (section 10/11 hygiene):
           - Keep the ``keep`` most recent dates, including each date's canonical
-            ``YYYY-MM-DD.jpg`` and source candidates ``YYYY-MM-DD_<source>.jpg``.
+            UUID-prefixed canonical and source-candidate images for that date.
+            Legacy ``YYYY-MM-DD...`` names are retained during migration.
           - Always keep ``fallback_name`` if present (the safety-net image).
           - Delete every other .jpg in the images dir.
 
@@ -163,7 +203,11 @@ class ImageService:
         import os
         import re
 
-        dated_re = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:_[a-z0-9][a-z0-9_-]*)?\.jpg$", re.I)
+        uuid_prefix = r"(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_)?"
+        dated_re = re.compile(
+            rf"^{uuid_prefix}(\d{{4}}-\d{{2}}-\d{{2}})(?:_[a-z0-9][a-z0-9_-]*)?\.jpg$",
+            re.I,
+        )
         abs_dir = os.path.join(root, self._images_dir)
         if not os.path.isdir(abs_dir):
             return []

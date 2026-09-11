@@ -30,12 +30,11 @@ from config import Container
 from domain.image import Image
 
 
-def _image_public_url(config: dict, on_date: date) -> str:
+def _image_public_url(config: dict, image_path: str) -> str:
     """Public raw URL for the committed image (WhatsApp needs a URL)."""
     repo = config.get("github", {}).get("repo") or __import__("os").environ.get("GITHUB_REPO", "")
     branch = config.get("github", {}).get("branch", "main")
-    images_dir = config["paths"]["images_dir"]
-    return f"https://raw.githubusercontent.com/{repo}/{branch}/{images_dir}/{on_date.isoformat()}.jpg"
+    return f"https://raw.githubusercontent.com/{repo}/{branch}/{image_path}"
 
 
 def _fallback_public_url(config: dict) -> str:
@@ -46,12 +45,14 @@ def _fallback_public_url(config: dict) -> str:
     return f"https://raw.githubusercontent.com/{repo}/{branch}/{images_dir}/{fallback}"
 
 
-def _render_pages(container: Container, on_date: date, source: str = "") -> list[str]:
+def _render_pages(container: Container, on_date: date, source: str = "",
+                  image_path: str | None = None) -> list[str]:
     """Generate per-subscriber static pages for on_date. Returns paths written."""
     return container.page_renderer.write_all(
         container.subscribers.all(), on_date, delivered=True,
         images_dir=container.config["paths"]["images_dir"], root=container.root,
         source=source,
+        image_name=__import__("os").path.basename(image_path) if image_path else None,
     )
 
 
@@ -146,7 +147,9 @@ def run_image(
     # Normal daily runs always regenerate pages. Backfill uses image-only mode
     # for historic dates, avoiding six needless rewrites of the same pages.
     page_source = image.source if image is not None else "local_fallback"
-    pages = _render_pages(container, on_date, page_source) if render_pages else []
+    pages = _render_pages(
+        container, on_date, page_source, path if image is not None else None
+    ) if render_pages else []
     committed.extend(pages)
 
     # Retention: keep only the newest N dated images plus the fallback, and
@@ -181,14 +184,17 @@ def run_pages(container: Container, git: LocalGitRepository, on_date: date) -> i
     remote source. A manual Actions run can therefore repair pages without
     changing today's selected darshan image.
     """
-    image_path = container.image_service.canonical_path(on_date)
+    try:
+        image_path = container.image_service.canonical_path(on_date, create=False)
+    except TypeError:  # Backward-compatible test/integration doubles.
+        image_path = container.image_service.canonical_path(on_date)
     image_bytes = git.read_file(image_path)
     image = Image(on_date, image_bytes or b"", source="stored_canonical")
     if not image_bytes or not container.image_validator.validate(image):
         print(f"[pages] FAILED: no valid stored image at {image_path}", file=sys.stderr)
         return 1
 
-    pages = _render_pages(container, on_date)
+    pages = _render_pages(container, on_date, image_path=image_path)
     container.logs.log("PAGES_REGENERATED", details=f"{on_date.isoformat()}:count={len(pages)}")
     committed = list(pages)
     logs_path = container.config["paths"].get("logs_csv")
@@ -206,7 +212,10 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
         # Template mode: the image lives on the per-subscriber page; the WhatsApp
         # message is a utility template carrying that page's URL. Do not send a
         # link to a stale/broken page if today's image workflow did not finish.
-        image_path = container.image_service.canonical_path(on_date)
+        try:
+            image_path = container.image_service.canonical_path(on_date, create=False)
+        except TypeError:
+            image_path = container.image_service.canonical_path(on_date)
         image_bytes = git.read_file(image_path)
         image = Image(on_date, image_bytes or b"", source="stored_canonical")
         if not image_bytes or not container.image_validator.validate(image):
@@ -218,10 +227,13 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
             return 1
         report = container.delivery_service.deliver(on_date)
     else:
-        image_url = _image_public_url(container.config, on_date)
+        try:
+            image_path = container.image_service.canonical_path(on_date, create=False)
+        except TypeError:
+            image_path = container.image_service.canonical_path(on_date)
+        image_url = _image_public_url(container.config, image_path)
         # Prefer sending the actual image bytes via Meta media upload so delivery
         # works even for a private repo (fix #6); fall back to the public URL.
-        image_path = container.image_service.canonical_path(on_date)
         image_bytes = git.read_file(image_path)
         if not image_bytes:
             fallback = container.config.get("delivery", {}).get("fallback_image", "fallback.jpg")
