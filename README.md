@@ -427,9 +427,11 @@ Details:
 > approved template with buttons; within the window (the normal case, since the user just
 > messaged) the free-form interactive menu is used.
 
-Scheduled delivery uses `daily_darshan_delivery_update` (`en_US`) with customer name and
-personalized link. Renewal reminders use `daily_darshan_renewal` (`en_US`) with customer
-name and expiry date. Both templates must be approved and active in WhatsApp Manager.
+Scheduled delivery uses `daily_darshan_delivery_update` (`en_US`) with customer name in
+body `{{1}}` and the subscription ID in dynamic URL-button `{{1}}`; configure that button's
+URL as `https://vipseva.com/{{1}}`. Renewal reminders use `daily_darshan_renewal` (`en_US`)
+with customer name and expiry date as two body variables. Both templates must be approved
+and active in WhatsApp Manager.
 
 ---
 
@@ -621,4 +623,3 @@ free-tier limits. Re-check provider free-tier limits before production.
 - When rotating WHATSAPP_ACCESS_TOKEN, update in both: Render and GitHub Actions
 - When rotating WEBHOOK_VERIFY_TOKEN, update both Render and Meta Developer Dashboard → WhatsApp webhook verification
 - When rotating GITHUB_TOKEN, update Render only. GitHub Actions uses its automatically generated per-run token.
-

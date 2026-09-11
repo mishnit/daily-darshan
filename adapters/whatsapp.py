@@ -142,16 +142,25 @@ class MetaWhatsAppClient(WhatsAppClientPort):
         template_name: str,
         body_params: list[str],
         lang: str = "en",
+        url_button_param: str | None = None,
     ) -> WhatsAppResult:
-        """Send an approved template, filling its body {{1}}..{{n}} variables.
+        """Send an approved template with body and optional dynamic URL values.
 
-        Used for the utility-template daily delivery: {{1}} = name,
-        {{2}} = per-subscriber page URL, etc.
+        Meta numbers parameters independently within each component. The first
+        body value fills body ``{{1}}``; ``url_button_param`` fills ``{{1}}``
+        in the first dynamic URL button.
         """
         components = [{
             "type": "body",
             "parameters": [{"type": "text", "text": str(p)} for p in body_params],
         }]
+        if url_button_param is not None:
+            components.append({
+                "type": "button",
+                "sub_type": "url",
+                "index": "0",
+                "parameters": [{"type": "text", "text": str(url_button_param)}],
+            })
         return self._post({
             "messaging_product": "whatsapp",
             "to": mobile,

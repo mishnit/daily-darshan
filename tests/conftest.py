@@ -65,12 +65,17 @@ class FakeWhatsApp(WhatsAppClientPort):
                           "rows": [rid for rid, *_ in rows], "ok": r.ok})
         return r
 
-    def send_template_params(self, mobile, template_name, body_params, lang="en"):
+    def send_template_params(
+        self, mobile, template_name, body_params, lang="en", url_button_param=None
+    ):
         r = self._result()
-        self.sent.append({
+        sent = {
             "type": "template_params", "mobile": mobile, "template": template_name,
             "params": list(body_params), "lang": lang, "ok": r.ok,
-        })
+        }
+        if url_button_param is not None:
+            sent["url_button_param"] = url_button_param
+        self.sent.append(sent)
         return r
 
 

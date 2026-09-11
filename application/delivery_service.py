@@ -112,7 +112,11 @@ class DeliveryService:
             # (#7) Sanitize name for the WhatsApp template param; safe fallback.
             name = sanitize_display_name(sub.name, "devotee")
             result = self._retry(lambda: self._whatsapp.send_template_params(
-                mobile, self._template_name, [name, page_url], self._template_lang,
+                mobile,
+                self._template_name,
+                [name],
+                self._template_lang,
+                url_button_param=sub.subscription_id,
             ))
             status = DeliveryStatus.SENT if result.ok else DeliveryStatus.FAILED
             self._sentlog.append({
