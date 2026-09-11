@@ -411,7 +411,7 @@ def _start_payment(c, mobile: str, plan: str, returning: bool = False) -> None:
     """
     wa = c.whatsapp
     sub = c.subscribers.find(mobile)
-    greeting = f"Namaste {sub.name}! " if sub and sub.name else ""
+    greeting = f"Radhe Radhe {sub.name} Ji! " if sub and sub.name else ""
     payment = c.payment_service.create_payment(mobile, plan)
     intent = c.payment_service.generate_upi_intent(payment)
     if returning:

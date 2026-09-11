@@ -274,7 +274,7 @@ def test_page_renderer_shows_only_compact_delivery_details_above_image():
     )
 
     assert "<h1><strong>🕉&#xA0;</strong>&#x20;Daily Darshan</h1>" in html_text
-    assert "Namaste Nitin Mishra Ji 🙏" in html_text
+    assert "Radhe Radhe Nitin Mishra Ji 🙏" in html_text
     assert "Delivered date:" not in html_text
     assert "Source:" not in html_text
     assert "Subscription expiry:" not in html_text

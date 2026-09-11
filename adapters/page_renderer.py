@@ -127,7 +127,11 @@ class PageRenderer:
         status_text = "Delivered" if delivered else "Ready"
         from domain.subscriber import sanitize_display_name
         safe_name = sanitize_display_name(subscriber.name, "")
-        greeting = f"Namaste {safe_name.title()} Ji 🙏" if safe_name else "Namaste Ji 🙏"
+        greeting = (
+            f"Radhe Radhe {safe_name.title()} Ji 🙏"
+            if safe_name
+            else "Radhe Radhe Ji 🙏"
+        )
         renewal_reminder = self._renewal_reminder(subscriber, on_date)
         image_url = self.image_url(on_date, images_dir, image_name)
         share_text = (

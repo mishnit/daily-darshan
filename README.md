@@ -382,7 +382,7 @@ Bot:  By continuing, you agree to receive daily darshan
       and occasional subscription updates. Reply STOP anytime.
       [ I agree ]  [ No thanks ]                        ← explicit consent
 User: (taps I agree)
-Bot:  Namaste Deep! Plan: monthly
+Bot:  Radhe Radhe Deep Ji! Plan: monthly
       Amount: ₹199
       Pay via UPI: upi://pay?...
       Reference: DD2608190001
@@ -396,7 +396,7 @@ Returning subscriber:
 
 ```
 User: (taps Renew)
-Bot:  Namaste Deep! Renewing your monthly plan.          ← existing plan, no name prompt
+Bot:  Radhe Radhe Deep Ji! Renewing your monthly plan.   ← existing plan, no name prompt
       Amount: ₹199
       Pay via UPI: upi://pay?...
       Reference: DD2608190002
