@@ -15,6 +15,7 @@ from __future__ import annotations
 import html
 import os
 from datetime import date
+from urllib.parse import quote
 
 from domain.subscriber import Subscriber
 
@@ -39,6 +40,11 @@ _TEMPLATE = """<!DOCTYPE html>
     img.darshan {{ width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); }}
     .meta {{ margin-top: 16px; font-size: 0.9rem; color: #555; }}
     .meta div {{ margin: 2px 0; }}
+    .renewal {{ margin: 20px 0 4px; padding: 16px; border-radius: 12px;
+                background: #fff3cd; color: #664d03; }}
+    .renewal p {{ margin: 0 0 12px; }}
+    .renewal a {{ display: inline-block; padding: 10px 18px; border-radius: 8px;
+                  background: #198754; color: #fff; text-decoration: none; font-weight: 650; }}
   </style>
 </head>
 <body>
@@ -54,6 +60,7 @@ _TEMPLATE = """<!DOCTYPE html>
       <div>Plan: {plan}</div>
       <div>Subscription active until: {end_date}</div>
     </div>
+    {renewal_reminder}
   </div>
 </body>
 </html>
@@ -62,7 +69,8 @@ _TEMPLATE = """<!DOCTYPE html>
 
 class PageRenderer:
     def __init__(self, pages_dir: str = "docs", image_public_base: str = "",
-                 image_url_path: str = "images"):
+                 image_url_path: str = "images", renewal_whatsapp_number: str = "",
+                 renewal_window_days: int = 3):
         """pages_dir: local dir committed to the repo (GitHub Pages source).
         image_public_base: absolute base URL where images are publicly served,
         e.g. https://vipseva.com . Used for the <img> src and og:image so the
@@ -76,6 +84,10 @@ class PageRenderer:
         self._pages_dir = pages_dir
         self._image_public_base = image_public_base.rstrip("/")
         self._image_url_path = image_url_path.strip("/")
+        self._renewal_whatsapp_number = "".join(
+            char for char in renewal_whatsapp_number if char.isdigit()
+        )
+        self._renewal_window_days = max(0, int(renewal_window_days))
 
     def image_url(self, on_date: date, images_dir: str | None = None) -> str:
         # images_dir is accepted for backward-compat but the public URL uses the
@@ -103,6 +115,7 @@ class PageRenderer:
         greeting = f"Namaste {safe_name.title()} Ji" if safe_name else "Namaste Ji"
         source_name = self.source_display_name(source)
         source_row = f"<div>Temple: {html.escape(source_name)}</div>" if source_name else ""
+        renewal_reminder = self._renewal_reminder(subscriber, on_date)
         return _TEMPLATE.format(
             date=html.escape(on_date.isoformat()),
             status_text=html.escape(f"{status_text} — {on_date.isoformat()}"),
@@ -112,6 +125,32 @@ class PageRenderer:
             end_date=html.escape(subscriber.end_date.isoformat() if subscriber.end_date else "—"),
             greeting=html.escape(greeting),
             source_row=source_row,
+            renewal_reminder=renewal_reminder,
+        )
+
+    def _renewal_reminder(self, subscriber: Subscriber, on_date: date) -> str:
+        if not subscriber.end_date or not self._renewal_whatsapp_number:
+            return ""
+        days_remaining = (subscriber.end_date - on_date).days
+        if days_remaining > self._renewal_window_days:
+            return ""
+        if days_remaining > 1:
+            message = f"Your subscription expires in {days_remaining} days."
+        elif days_remaining == 1:
+            message = "Your subscription expires tomorrow."
+        elif days_remaining == 0:
+            message = "Your subscription expires today."
+        else:
+            message = "Your subscription has expired."
+        renew_url = (
+            f"https://wa.me/{self._renewal_whatsapp_number}"
+            f"?text={quote('RENEW', safe='')}"
+        )
+        return (
+            '<div class="renewal" role="status">'
+            f"<p>{html.escape(message)} Renew now to continue receiving Daily Darshan.</p>"
+            f'<a href="{html.escape(renew_url, quote=True)}">Renew on WhatsApp</a>'
+            "</div>"
         )
 
     def page_path(self, subscription_id: str) -> str:
