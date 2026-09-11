@@ -161,8 +161,8 @@ class ImageService:
             return os.path.join(self._images_dir, f"{date_name}.jpg")
         return os.path.join(self._images_dir, f"{uuid4()}_{date_name}.jpg")
 
-    def candidate_path(self, on_date: date, source: str) -> str:
-        """Return a stable opaque path for one source image on a given day."""
+    def candidate_path(self, on_date: date, source: str, *, create: bool = True) -> str:
+        """Return an existing source image path, or allocate one when requested."""
         safe_source = re.sub(r"[^a-z0-9_-]+", "_", source.lower()).strip("_-") or "source"
         suffix = f"{on_date.isoformat()}_{safe_source}.jpg"
         if os.path.isdir(self._images_dir):
@@ -176,6 +176,11 @@ class ImageService:
             )
             if matches:
                 return os.path.join(self._images_dir, matches[0])
+            legacy = os.path.join(self._images_dir, suffix)
+            if not create and os.path.isfile(legacy):
+                return legacy
+        if not create:
+            return os.path.join(self._images_dir, suffix)
         return os.path.join(
             self._images_dir, f"{uuid4()}_{suffix}"
         )

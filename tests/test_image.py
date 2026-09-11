@@ -160,6 +160,20 @@ def test_image_service_candidate_path_uses_source_name(tmp_path):
 
     Path(path).write_bytes(b"candidate")
     assert service.candidate_path(date(2026, 8, 26), "ISKCON Bangalore") == path
+    assert service.candidate_path(
+        date(2026, 8, 26), "iskcon_bangalore", create=False
+    ) == path
+
+
+def test_image_service_does_not_allocate_missing_candidate_for_page_selection(tmp_path):
+    images = tmp_path / "images"
+    images.mkdir()
+    service = ImageService(None, None, str(images))
+
+    path = service.candidate_path(date(2026, 8, 26), "iskcon_mumbai", create=False)
+
+    assert path == str(images / "2026-08-26_iskcon_mumbai.jpg")
+    assert not Path(path).exists()
 
 
 def test_image_service_allocates_and_reuses_opaque_canonical_path(tmp_path):
