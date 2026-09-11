@@ -192,6 +192,16 @@ def test_webhook_captures_profile_name(webhook):
     assert sub is not None and sub.name == "Ravi Kumar"
 
 
+def test_webhook_title_cases_lowercase_profile_name(webhook):
+    main, client, _ = webhook
+    body = json.dumps(_tap("9199", "PLAN_monthly", "wamid.lower-name", name="nitin mishra")).encode()
+    resp = client.post("/webhook", content=body,
+                       headers={"X-Hub-Signature-256": _sign("s3cret", body)})
+
+    assert resp.status_code == 200
+    assert main.container.subscribers.find("9199").name == "Nitin Mishra"
+
+
 def test_webhook_subscribe_cta_then_plan_then_name(webhook):
     """Full CTA flow: tap Subscribe -> plan list; tap plan (no name) -> asked
     for name; reply name -> stored + payment created."""
@@ -277,7 +287,7 @@ def test_signup_to_render_to_delivery_to_stop_end_to_end(webhook, tmp_path):
     report = delivery.deliver(date(2026, 9, 10))
     assert report.sent == 1
     sent = [item for item in fake.sent if item["type"] == "template_params"][-1]
-    assert sent["params"] == ["nitin mishra"]
+    assert sent["params"] == ["Nitin Mishra"]
     assert sent["url_button_param"] == subscriber.subscription_id
 
     post(_msg(mobile, "STOP", "e2e-stop"))

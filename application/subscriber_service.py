@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from domain.enums import SubscriberStatus
-from domain.subscriber import Subscriber
+from domain.subscriber import Subscriber, normalize_subscriber_name
 from application.ports.repositories import (
     LogRepositoryPort,
     PaymentRepositoryPort,
@@ -54,13 +54,14 @@ class SubscriberService:
         sub = self._subscribers.find(mobile)
         if sub is None:
             sub = Subscriber(mobile=mobile, plan=plan, status=SubscriberStatus.PENDING,
-                             name=name.strip(), opt_in=False)
+                             name=normalize_subscriber_name(name), opt_in=False)
             sub.ensure_subscription_id()
             self._subscribers.append(sub)
         else:
             sub.plan = plan
-            if name.strip():
-                sub.name = name.strip()
+            normalized_name = normalize_subscriber_name(name)
+            if normalized_name:
+                sub.name = normalized_name
             sub.ensure_subscription_id()  # backfill id for pre-existing rows
             self._subscribers.update(sub)
         return sub
@@ -88,7 +89,7 @@ class SubscriberService:
     # ------------------------------------------------------------------ #
     def set_name(self, mobile: str, name: str) -> Subscriber:
         sub = self._get(mobile)
-        sub.name = name.strip()
+        sub.name = normalize_subscriber_name(name)
         self._subscribers.update(sub)
         return sub
 

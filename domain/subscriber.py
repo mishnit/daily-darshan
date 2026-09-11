@@ -41,6 +41,11 @@ def sanitize_display_name(raw: str, fallback: str = "devotee") -> str:
         cleaned = cleaned[:_MAX_NAME_LEN].rstrip()
     return cleaned or fallback
 
+
+def normalize_subscriber_name(raw: str) -> str:
+    """Return the canonical title-cased form persisted for a subscriber name."""
+    return sanitize_display_name(raw, fallback="").title()
+
 # Allowed transitions per section 7:
 #   PENDING -> ACTIVE
 #   ACTIVE -> PAUSED
@@ -103,6 +108,9 @@ class Subscriber:
     opt_in_at: str = ""        # ISO timestamp when opt-in was granted (consent proof)
     opt_in_source: str = ""    # how consent was captured, e.g. "whatsapp_cta"
 
+    def __post_init__(self) -> None:
+        self.name = normalize_subscriber_name(self.name)
+
     # ------------------------------------------------------------------ #
     # Construction / serialization
     # ------------------------------------------------------------------ #
@@ -116,7 +124,7 @@ class Subscriber:
             status=_coerce_status(row.get("status", "PENDING")),
             opt_in=str(row.get("opt_in", "true")).strip().lower() in ("1", "true", "yes"),
             subscription_id=str(row.get("subscription_id", "")).strip(),
-            name=str(row.get("name", "")).strip(),
+            name=normalize_subscriber_name(str(row.get("name", ""))),
             awaiting_name=str(row.get("awaiting_name", "false")).strip().lower() in ("1", "true", "yes"),
             opt_in_at=str(row.get("opt_in_at", "")).strip(),
             opt_in_source=str(row.get("opt_in_source", "")).strip(),
@@ -131,7 +139,7 @@ class Subscriber:
             "status": self.status.value,
             "opt_in": "true" if self.opt_in else "false",
             "subscription_id": self.subscription_id,
-            "name": self.name,
+            "name": normalize_subscriber_name(self.name),
             "awaiting_name": "true" if self.awaiting_name else "false",
             "opt_in_at": self.opt_in_at,
             "opt_in_source": self.opt_in_source,
