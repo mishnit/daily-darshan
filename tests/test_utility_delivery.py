@@ -313,6 +313,8 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
     assert "Subscription expiry:" not in html_text
     assert 'href="https://wa.me/15556757329?text=RENEW"' in html_text
     assert ">Renew on WhatsApp</a>" in html_text
+    assert ".renewal a { background: #c62828; }" in html_text
+    assert ".share a { background: #198754; }" in html_text
     assert ">Send request for VIP Seva</a>" not in html_text
     assert html_text.index('class="renewal"') < html_text.index('class="darshan"')
 
@@ -350,6 +352,17 @@ def test_non_subscriber_index_places_request_button_after_image(index_path):
     html_text = Path(index_path).read_text(encoding="utf-8")
 
     assert html_text.index("<img") < html_text.index("Send request for VIP Seva")
+
+
+def test_all_committed_renewal_ctas_are_red():
+    renewal_pages = []
+    for page_path in Path("docs").rglob("index.html"):
+        html_text = page_path.read_text(encoding="utf-8")
+        if "Renew on WhatsApp" in html_text:
+            renewal_pages.append(page_path)
+            assert ".renewal a { background: #c62828; }" in html_text
+
+    assert renewal_pages
 
 
 def test_page_renderer_skips_subscriber_without_subid(tmp_path):
