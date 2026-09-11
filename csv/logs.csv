@@ -156,3 +156,4 @@ timestamp,event,mobile,details
 2026-09-11T06:30:46.960418,IMAGES_PRUNED,,removed=3 kept<= 7
 2026-09-11T06:32:52.041652,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""(#131030) Recipient phone number not in allowed list"",""code"":131030,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""Recipient phone number not in a"
 2026-09-11T08:32:54.864696,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""(#131030) Recipient phone number not in allowed list"",""code"":131030,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""Recipient phone number not in a"
+2026-09-11T08:38:19.365820,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""(#131030) Recipient phone number not in allowed list"",""code"":131030,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""Recipient phone number not in a"
