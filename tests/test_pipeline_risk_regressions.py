@@ -74,11 +74,11 @@ def test_production_templates_and_immediate_render_persistence_are_configured():
 
     assert config["delivery"] | {
         "template_name": "daily_darshan_delivery_update",
-        "template_lang": "en_US",
+        "template_lang": "en",
     } == config["delivery"]
     assert config["renewal"] | {
-        "template_name": "daily_darshan_renewal",
-        "template_lang": "en_US",
+        "template_name": "daily_darshan_delivery_update",
+        "template_lang": "en",
     } == config["renewal"]
     assert config["persistence"]["quiet_window_utc"] == {"start": "", "end": ""}
 
