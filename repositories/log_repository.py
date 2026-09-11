@@ -1,7 +1,7 @@
 """CSV append-only event log (section 17)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from application.ports.repositories import LogRepositoryPort
 
@@ -24,3 +24,13 @@ class CSVLogRepository(LogRepositoryPort):
 
     def all(self) -> list[dict]:
         return self._csv.all()
+
+    def prune_before(self, cutoff: date) -> int:
+        """Remove entries older than cutoff, preserving malformed rows safely."""
+        def keep(row: dict) -> bool:
+            try:
+                return datetime.fromisoformat(row.get("timestamp", "")).date() >= cutoff
+            except (TypeError, ValueError):
+                return True
+
+        return self._csv.retain(keep)

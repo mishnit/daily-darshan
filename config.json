@@ -70,6 +70,7 @@
     "image_url_path": "images",
     "caption": "Daily Darshan - {date}",
     "max_send_retries": 3,
+    "log_retention_days": 30,
     "image_retention_days": 7,
     "fallback_image": "fallback.jpg",
     "page_retention_grace_days": 7

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from adapters.github import LocalGitRepository
@@ -281,6 +281,27 @@ def run_expiry_sweep(container: Container, git: LocalGitRepository, on_date: dat
     return 0
 
 
+def run_log_cleanup(container: Container, git: LocalGitRepository, on_date: date) -> int:
+    """Keep only the configured rolling window in operational delivery logs."""
+    retention_days = int(container.config.get("delivery", {}).get("log_retention_days", 30))
+    if retention_days < 1:
+        raise ValueError("delivery.log_retention_days must be at least 1")
+    cutoff = on_date - timedelta(days=retention_days - 1)
+    logs_removed = container.logs.prune_before(cutoff)
+    sent_removed = container.sentlog.prune_before(cutoff)
+    paths = container.config["paths"]
+    if logs_removed or sent_removed:
+        git.commit(
+            [paths["logs_csv"], paths["sentlog_csv"]],
+            f"Prune delivery logs before {cutoff.isoformat()}",
+        )
+    print(
+        f"[cleanup] cutoff={cutoff.isoformat()} "
+        f"logs_removed={logs_removed} sentlog_removed={sent_removed}"
+    )
+    return 0
+
+
 def run_keepalive(container: Container, interval_seconds: int = 300) -> int:
     """Self-ping the public health endpoint to prevent free-plan spin-down.
 
@@ -316,7 +337,7 @@ def run_keepalive(container: Container, interval_seconds: int = 300) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Daily Darshan scheduler")
-    parser.add_argument("job", choices=["image", "image-only", "pages", "delivery", "renewal", "expiry", "keepalive", "all"])
+    parser.add_argument("job", choices=["image", "image-only", "pages", "delivery", "renewal", "expiry", "cleanup", "keepalive", "all"])
     parser.add_argument("--date", help="ISO date override (YYYY-MM-DD)", default=None)
     args = parser.parse_args(argv)
 
@@ -329,6 +350,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_keepalive(container)
 
     rc = 0
+    if args.job in ("cleanup", "all"):
+        rc |= run_log_cleanup(container, git, on_date)
     if args.job in ("image", "all"):
         rc |= run_image(container, git, on_date)
     if args.job == "image-only":

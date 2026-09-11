@@ -75,6 +75,11 @@ jobs:
           # set only after a usable secret key has been imported.
           echo "GIT_COMMIT_GPG_SIGN=true" >> "$GITHUB_ENV"
 
+      - name: Prune operational logs to 30 days
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+        run: python scheduler.py cleanup
+
       - name: Fetch and store daily images
         env:
           GITHUB_REPO: ${{ github.repository }}
