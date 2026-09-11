@@ -14,10 +14,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -r requirements.txt pytest httpx
+      - name: Alert on removed tests
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          deleted_files="$(git diff --name-status "$BASE_SHA"...HEAD -- tests/ | awk '$1 == "D"')"
+          removed_tests="$(git diff -U0 "$BASE_SHA"...HEAD -- tests/ | grep -E '^-.*def test_|^-.*class Test' || true)"
+          if [ -n "$deleted_files" ] || [ -n "$removed_tests" ]; then
+            echo "::error title=Tests removed::This pull request deletes test files or test definitions"
+            [ -z "$deleted_files" ] || echo "$deleted_files"
+            [ -z "$removed_tests" ] || echo "$removed_tests"
+            exit 1
+          fi
+          echo "No test files or test definitions were removed."
       - name: Run tests
         run: pytest -q
