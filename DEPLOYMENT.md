@@ -113,8 +113,19 @@ The image, Pages-deployment and delivery workflows support `workflow_dispatch`:
 
 1. **Actions** tab → pick **Daily Image** (or a recovery workflow) → **Run workflow** →
    select `main` → **Run workflow**.
-2. Watch the run: it checks out the repo, installs deps, runs `pytest`, executes the job,
-   verifies the signing key/passphrase, executes the job, and commits results back to the repository.
+2. Watch the run: it checks out the repo, installs dependencies, runs `pytest`, verifies the
+   signing key/passphrase, executes the job, and commits results back to the repository.
+
+Choose the recovery entry point deliberately:
+
+- **Daily Image** on `main` performs image preparation and automatically continues through one
+  Pages deployment and Daily Delivery. Historical backfill misses warn; today's image must exist.
+- **Deploy Daily Darshan Pages** publishes the current `main` `docs/` tree once and then starts
+  Daily Delivery. Use this after a mid-day activation or manual page regeneration.
+- **Daily Delivery** sends against the already-published site. It does not build or deploy Pages.
+- **Regenerate Daily Pages** updates page files only. It does not publish or start delivery.
+- A failed/cancelled image run, a non-default-branch image run, or a failed Pages deployment stops
+  the automatic chain before WhatsApp delivery.
 
 For an end-to-end signing test, run **Daily Image** manually and verify both that the run
 succeeds and that its generated `Daily darshan image + pages ...` commit is marked
@@ -123,6 +134,31 @@ succeeds and that its generated `Daily darshan image + pages ...` commit is mark
 > **Notes on scheduled runs:** GitHub disables scheduled workflows in a repo with **no
 > activity for 60 days**, and cron start times can be delayed under load. For a personal
 > MVP this is usually acceptable.
+
+### F. Verify the complete production journey
+
+Use this sequence when validating a release end to end:
+
+1. Send **Radhe Radhe** to the WhatsApp number and complete every CTA, name, consent, payment and
+   UTR step. Confirm Render returns 2xx responses, deduplicates the inbound message ID and commits
+   the updated subscriber/payment/processed CSVs to `main` through the GitHub Contents API.
+2. Verify the payment and activate or renew the subscriber. Confirm the signed commit includes the
+   CSV state and subscriber page. This commit runs **Tests**, but does not itself publish Pages.
+3. For the normal daily path, wait for or manually run **Daily Image** on `main`. Confirm today's
+   UUID-prefixed canonical image and pages are committed and the run succeeds.
+4. Confirm exactly one **Deploy Daily Darshan Pages** run follows and completes before delivery.
+5. Confirm exactly one automatic **Daily Delivery** run follows publication. A successful renewal
+   reminder or delivery creates that subscriber's `date + mobile` success entry in `sentlog.csv`.
+6. Rerun delivery manually on the same date and confirm that subscriber is skipped. If a renewal
+   send failed, confirm the delivery send was still eligible; only a successful persisted contact
+   consumes the daily slot.
+
+Pull-request merges, Render persistence commits and other pushes to `main` trigger the **Tests** CI
+workflow. They intentionally do not trigger Pages CD, because the repository uses the custom
+Actions publisher rather than the legacy branch publisher. A previously published subscriber page
+stays reachable until a later successful deployment replaces or removes it. To publish an urgent
+mid-day activation, manually run **Deploy Daily Darshan Pages**; it will start delivery only after
+publication succeeds.
 
 ---
 
@@ -161,10 +197,16 @@ depends on Meta's assigned category and current country rate; verify both in Wha
 3. **Submit and get the template approved** in WhatsApp Manager (see caveat below). Suggested body:
    > "Radhe Radhe {{1}} Ji, Your Daily Darshan delivery status has been updated. It is your personalised link. Do not share this link with others."
 
-   Use template name `daily_darshan_delivery_update`, language `en_US`, body variable
+   Use template name `daily_darshan_delivery_update`, language `en`, body variable
    `{{1}}` for the customer name, and a dynamic **Visit website** button labelled
    **Daily Darshan** with URL `https://vipseva.com/{{1}}`. The button's `{{1}}` receives
    only the subscriber's unguessable subscription ID; Meta appends it to the URL prefix.
+
+   The current `renewal` config also names `daily_darshan_delivery_update` with language `en`,
+   while the renewal service sends two body values: customer name and expiry date. Meta requires
+   the submitted components to match the approved template exactly. If the delivery template's
+   one-body-variable plus URL-button definition cannot also satisfy the renewal payload, approve a
+   separate renewal Utility template and set `renewal.template_name` to it.
 
 4. **Backfill subscription ids** for any existing subscribers (new signups get one automatically):
    ```bash
