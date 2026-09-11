@@ -359,7 +359,7 @@ never guesses intent from free text. **Free text is accepted only for the user's
 12-digit UTR; the phone number is implicit (the message sender).**
 
 ```
-User: (any message, e.g. "hi")
+User: Radhe Radhe                                       ← inbound greeting
 Bot:  🙏 Welcome to Daily Darshan! What would you like to do?
       [ Subscribe ]  [ Renew ]  [ Stop messages ]      ← reply buttons (CTA ids)
 User: (taps Subscribe)
