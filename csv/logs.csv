@@ -211,3 +211,5 @@ timestamp,event,mobile,details
 2026-09-11T18:43:45.356690,IMAGES_PRUNED,,removed=2 kept<= 7
 2026-09-11T18:43:58.443825,IMAGE_FETCH_SUCCESS,,salangpur:fbe6e34354478e6b4b8a9b76bcc5b1137e72555ffadce0af6026fb841a24ba27
 2026-09-11T18:43:58.909429,IMAGES_PRUNED,,removed=2 kept<= 7
+2026-09-11T18:44:04.185544,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
+2026-09-11T18:44:04.192813,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-09
