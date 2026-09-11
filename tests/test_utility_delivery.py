@@ -315,7 +315,7 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
     assert ">Renew on WhatsApp</a>" in html_text
     assert ".renewal a { background: #c62828; }" in html_text
     assert ".share a { background: #198754; }" in html_text
-    assert ">Send request for VIP Seva</a>" not in html_text
+    assert ">Join Vip Seva on Whatsapp</a>" not in html_text
     assert html_text.index('class="renewal"') < html_text.index('class="darshan"')
 
 
@@ -332,7 +332,7 @@ def test_page_renderer_hides_renewal_before_configured_window():
     assert "Renew on WhatsApp" not in html_text
     assert "https://wa.me/15556757329?text=RENEW" not in html_text
     assert ">Share on WhatsApp</a>" in html_text
-    assert ">Send request for VIP Seva</a>" not in html_text
+    assert ">Join Vip Seva on Whatsapp</a>" not in html_text
 
 
 @pytest.mark.parametrize("page_path", [
@@ -351,7 +351,7 @@ def test_non_subscriber_page_has_vip_seva_request_button(page_path):
 def test_non_subscriber_index_places_request_button_after_image(index_path):
     html_text = Path(index_path).read_text(encoding="utf-8")
 
-    assert html_text.index("<img") < html_text.index("Send request for VIP Seva")
+    assert html_text.index("<img") < html_text.index("Join Vip Seva on Whatsapp")
 
 
 def test_all_committed_renewal_ctas_are_red():
