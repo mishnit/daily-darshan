@@ -37,12 +37,8 @@ _TEMPLATE = """<!DOCTYPE html>
     .wrap {{ box-sizing: border-box; display: flex; flex-direction: column;
              gap: 8px; width: 100%; max-width: 640px; height: 100svh;
              margin: 0 auto; padding: 10px; text-align: center; }}
+    h1 {{ flex: 0 0 auto; margin: 0; color: #34291f; font-size: 1.05rem; line-height: 1.2; }}
     .greeting {{ flex: 0 0 auto; color: #53483c; font-size: .86rem; font-weight: 600; }}
-    .delivery-summary {{ flex: 0 0 auto; padding: 8px 10px; border: 1px solid #eadfce;
-                         border-radius: 10px; background: #fffdf9; color: #53483c;
-                         font-size: .78rem; line-height: 1.4; }}
-    .delivery-summary strong {{ color: #34291f; }}
-    .separator {{ padding: 0 3px; color: #b09c85; }}
     img.darshan {{ display: block; flex: 1 1 0; min-height: 0; width: 100%;
                    border-radius: 12px; object-fit: contain;
                    box-shadow: 0 4px 16px rgba(0,0,0,.12); }}
@@ -55,12 +51,8 @@ _TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
   <div class="wrap">
+    <h1><strong>🕉&#xA0;</strong>&#x20;Daily Darshan</h1>
     <div class="greeting">{greeting}</div>
-    <section class="delivery-summary" aria-label="Delivery and subscription details">
-      <strong>Delivered date:</strong> {date}<span class="separator">·</span>
-      <strong>Source:</strong> {source_name}<span class="separator">·</span>
-      <strong>Subscription expiry:</strong> {end_date}
-    </section>
     {renewal_reminder}
     <img class="darshan" src="{image_url}" alt="Daily Darshan for {date}"
          onerror="this.onerror=null; this.src='{fallback_url}';">
@@ -118,8 +110,7 @@ class PageRenderer:
         status_text = "Delivered" if delivered else "Ready"
         from domain.subscriber import sanitize_display_name
         safe_name = sanitize_display_name(subscriber.name, "")
-        greeting = f"Namaste {safe_name.title()} Ji" if safe_name else "Namaste Ji"
-        source_name = self.source_display_name(source)
+        greeting = f"Namaste {safe_name.title()} Ji 🙏" if safe_name else "Namaste Ji 🙏"
         renewal_reminder = self._renewal_reminder(subscriber, on_date)
         return _TEMPLATE.format(
             date=html.escape(on_date.isoformat()),
@@ -127,8 +118,6 @@ class PageRenderer:
             greeting=html.escape(greeting),
             image_url=html.escape(self.image_url(on_date, images_dir, image_name)),
             fallback_url=html.escape(self.fallback_url(images_dir)),
-            end_date=html.escape(subscriber.end_date.isoformat() if subscriber.end_date else "—"),
-            source_name=html.escape(source_name or "—"),
             renewal_reminder=renewal_reminder,
         )
 
@@ -139,13 +128,13 @@ class PageRenderer:
         if days_remaining > self._renewal_window_days:
             return ""
         if days_remaining > 1:
-            message = f"Your subscription expires in {days_remaining} days."
+            message = f"Your subscription expires in {days_remaining} days on {subscriber.end_date.isoformat()}."
         elif days_remaining == 1:
-            message = "Your subscription expires tomorrow."
+            message = f"Your subscription expires tomorrow, on {subscriber.end_date.isoformat()}."
         elif days_remaining == 0:
-            message = "Your subscription expires today."
+            message = f"Your subscription expires today, on {subscriber.end_date.isoformat()}."
         else:
-            message = "Your subscription has expired."
+            message = f"Your subscription expired on {subscriber.end_date.isoformat()}."
         renew_url = (
             f"https://wa.me/{self._renewal_whatsapp_number}"
             f"?text={quote('RENEW', safe='')}"
