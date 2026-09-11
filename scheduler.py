@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -261,6 +262,10 @@ def run_renewal(container: Container, git: LocalGitRepository, on_date: date) ->
     git.commit([container.config["paths"]["renewals_csv"], container.config["paths"]["logs_csv"]],
                f"Renewal reminders {on_date.isoformat()}")
     print(f"[renewal] sent={report.sent} skipped={report.skipped} failed={report.failed}")
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if github_output:
+        with open(github_output, "a", encoding="utf-8") as output:
+            output.write(f"sent_count={report.sent}\n")
     return 0
 
 

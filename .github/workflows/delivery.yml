@@ -85,6 +85,7 @@ jobs:
         run: python scheduler.py expiry
 
       - name: Send renewal reminders
+        id: renewal
         env:
           GITHUB_REPO: ${{ github.repository }}
           WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
@@ -95,17 +96,30 @@ jobs:
         id: message_gap
         env:
           WHATSAPP_MESSAGE_GAP_SECONDS: ${{ vars.WHATSAPP_MESSAGE_GAP_SECONDS || '300' }}
+          RENEWAL_SENT_COUNT: ${{ steps.renewal.outputs.sent_count || '0' }}
         run: |
           gap_seconds="${WHATSAPP_MESSAGE_GAP_SECONDS:-300}"
+          renewal_sent="${RENEWAL_SENT_COUNT:-0}"
           case "$gap_seconds" in
             ''|*[!0-9]*)
               echo "::error title=Invalid message gap::WHATSAPP_MESSAGE_GAP_SECONDS must be a non-negative whole number"
               exit 1
               ;;
           esac
+          case "$renewal_sent" in
+            ''|*[!0-9]*)
+              echo "::error title=Invalid renewal result::Renewal sent count must be a non-negative whole number"
+              exit 1
+              ;;
+          esac
+          if [ "$renewal_sent" -eq 0 ]; then
+            echo "deliver=true" >> "$GITHUB_OUTPUT"
+            echo "No renewal reminder was sent; proceeding immediately with Daily Darshan delivery"
+            exit 0
+          fi
           if [ "$gap_seconds" -eq 0 ]; then
             echo "deliver=false" >> "$GITHUB_OUTPUT"
-            echo "Reminder-only mode enabled; skipping Daily Darshan delivery"
+            echo "Renewal reminder sent in reminder-only mode; skipping Daily Darshan delivery"
             exit 0
           fi
           echo "deliver=true" >> "$GITHUB_OUTPUT"

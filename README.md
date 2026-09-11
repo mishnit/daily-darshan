@@ -443,11 +443,11 @@ reference that persisted opaque filename. Image, page-repair, and delivery runs 
 reuse the same name for the date; legacy date-only filenames remain readable during migration.
 
 The delivery workflow queues overlapping runs and sends renewal reminders before the daily
-darshan message. It waits five minutes between those stages by default, so a subscriber who
-receives both messages on the same day is not contacted twice at once. Set the GitHub Actions
-repository variable `WHATSAPP_MESSAGE_GAP_SECONDS` to another non-negative whole number to
-change the gap. Set it to `0` for reminder-only mode; the daily darshan delivery step is then
-skipped.
+darshan message. When at least one reminder is sent, it waits five minutes before delivery by
+default, so a subscriber is not contacted twice at once. If no reminder is sent, delivery starts
+immediately. Set the GitHub Actions repository variable `WHATSAPP_MESSAGE_GAP_SECONDS` to
+another non-negative whole number to change the gap. With `0`, delivery is skipped only when a
+renewal reminder was actually sent; otherwise delivery still proceeds.
 
 ---
 
