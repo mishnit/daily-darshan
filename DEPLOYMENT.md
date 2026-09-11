@@ -76,10 +76,13 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 |--------|-----------|
 | `WHATSAPP_ACCESS_TOKEN` | delivery + renewal jobs |
 | `WHATSAPP_PHONE_NUMBER_ID` | delivery + renewal jobs |
+| `GPG_PRIVATE_KEY` | signed scheduler commits (ASCII-armored private key) |
+| `GPG_PASSPHRASE` | non-interactive unlock and signing check for that private key |
 
 `GITHUB_REPO` is auto-provided in Actions via `${{ github.repository }}`, and the built-in
-`GITHUB_TOKEN` covers the commit/push — you do **not** add those manually. The image job
-needs no secrets.
+`GITHUB_TOKEN` covers the commit/push — you do **not** add those manually. Add the matching
+GPG public key to the GitHub account; a successful scheduler commit should display
+**Verified**. The image job needs the two GPG secrets but no WhatsApp secrets.
 
 > **Webhook host secrets are separate.** The serverless webhook (`main.py`) needs its own
 > environment variables set on its host (Render/Fly), not as GitHub Actions secrets:
@@ -100,8 +103,8 @@ under the **Actions** tab automatically. They run on schedule:
 
 | Workflow | Cron (UTC) | Local time | Action |
 |----------|-----------|------------|--------|
-| **Daily Image** (`image.yml`) | `49 4 * * *` | 10:19 IST | Fetch → validate → store `docs/images/YYYY-MM-DD.jpg` and subscriber pages → commit |
-| **Daily Delivery** (`delivery.yml`) | `0 5 * * *` | 10:30 IST | Expire lapsed subscriptions (`ACTIVE`→`EXPIRED`), renewal reminders, then deliver today's page link → update CSVs → commit |
+| **Daily Image** (`image.yml`) | `49 4 * * *` | 10:19 IST | Prune 30-day logs, fetch all weekday sources, store source candidates plus the largest canonical `docs/images/YYYY-MM-DD.jpg`, regenerate pages → signed commit |
+| **Daily Delivery** (`delivery.yml`) | `4 5 * * *` | 10:34 IST | Prune 30-day logs, expire lapsed subscriptions (`ACTIVE`→`EXPIRED`), send renewal reminders, deliver today's page link → signed commits |
 
 ### E. Test without waiting for the cron (manual run)
 
@@ -110,7 +113,11 @@ Both workflows support `workflow_dispatch`:
 1. **Actions** tab → pick **Daily Image** (or **Daily Delivery**) → **Run workflow** →
    select `main` → **Run workflow**.
 2. Watch the run: it checks out the repo, installs deps, runs `pytest`, executes the job,
-   and commits results back to the repository.
+   verifies the signing key/passphrase, executes the job, and commits results back to the repository.
+
+For an end-to-end signing test, run **Daily Image** manually and verify both that the run
+succeeds and that its generated `Daily darshan image + pages ...` commit is marked
+**Verified**. Import success alone does not prove that the passphrase can sign.
 
 > **Notes on scheduled runs:** GitHub disables scheduled workflows in a repo with **no
 > activity for 60 days**, and cron start times can be delayed under load. For a personal
@@ -121,10 +128,9 @@ Both workflows support `workflow_dispatch`:
 ## Part 1b — Utility-Template Delivery Mode (optional, cost optimization)
 
 By default `config.json` ships with `delivery.mode = "utility_template"`. Instead of sending
-the darshan image inline (billed as **Marketing**, ~₹0.88/msg), this mode sends an approved
-**utility template** whose `{{2}}` links to a per-subscriber **GitHub Pages** page that renders
-today's image + delivery status. Utility is ~7× cheaper (~₹0.125/msg) — **if** Meta classifies
-the template as Utility.
+the darshan image inline, this mode sends an approved template whose `{{2}}` links to a
+per-subscriber **GitHub Pages** page containing today's image and delivery status. Billing
+depends on Meta's assigned category and current country rate; verify both in WhatsApp Manager.
 
 ### One-time setup
 
@@ -150,7 +156,10 @@ the template as Utility.
    - `template_name` / `template_lang` — your approved template.
 
 3. **Submit and get the template approved** in WhatsApp Manager (see caveat below). Suggested body:
-   > "Hello {{1}}, your Daily Darshan Delivery status has been updated. Please log into your dashboard to view your profile and delivery status {{2}}
+   > "Hello {{1}} Ji, Your Darshan Delivery status has been updated. Please log into your dashboard to view your profile and delivery status. {{2}} is your personalised link."
+
+   Use template name `daily_darshan_delivery_update`, language `en_US`, and two body
+   variables: `{{1}}` customer name and `{{2}}` personalized page URL.
 
 4. **Backfill subscription ids** for any existing subscribers (new signups get one automatically):
    ```bash
@@ -159,11 +168,10 @@ the template as Utility.
 
 ### ⚠️ Utility-approval caveat
 
-Meta assigns the template category from **content and intent**, and **continuously
-re-evaluates** it. A daily template can be **reclassified to Marketing** (₹0.88) if it looks
-like recurring content delivery rather than a genuine account/status update — the transport
-(link vs image vs PDF) does **not** change the category. Treat the ₹0.125 utility rate as
-**best-case, not guaranteed**:
+Meta assigns the template category from **content and intent**, and can continuously
+re-evaluate it. A daily template can be **reclassified to Marketing** if it looks like
+recurring content delivery rather than a genuine account/status update; transport type
+(link, image or PDF) does not determine category. Never hard-code a cost assumption:
 
 1. Submit the template as Utility and confirm the **assigned category** in WhatsApp Manager.
 2. Send daily for a week and verify it **stays** Utility.
@@ -195,7 +203,7 @@ Columns: `reference_id,mobile,plan,amount,status,utr,created_at,verified_at`
 
 ```
 reference_id,mobile,plan,amount,status,utr,created_at,verified_at
-DD2608190001,919999999999,monthly,49,PENDING,123456789012,2026-08-19T14:05:00,
+DD2608190001,919999999999,monthly,199,PENDING,123456789012,2026-08-19T14:05:00,
 ```
 
 - `status`: `PENDING` → `SUCCESS` (or `FAILED` if fraudulent/unmatched).
@@ -238,7 +246,7 @@ happens — approval is a deliberate human trust gate (Tech Doc §6).
 
 3. **Edit the row** — set `status` to `SUCCESS` and fill `verified_at`:
    ```
-   DD2608190001,919999999999,monthly,49,SUCCESS,123456789012,2026-08-19T14:05:00,2026-08-19T14:40:00
+   DD2608190001,919999999999,monthly,199,SUCCESS,123456789012,2026-08-19T14:05:00,2026-08-19T14:40:00
    ```
    If it does not match, set `status` to `FAILED` and leave `verified_at` blank.
 
@@ -297,7 +305,9 @@ happens — approval is a deliberate human trust gate (Tech Doc §6).
      mobile,plan,start_date,end_date,status,opt_in
      919999999999,monthly,2026-08-19,2026-09-18,ACTIVE,true
      ```
-     `end_date = start_date + plan days` (monthly = 30, quarterly = 90, yearly = 365).
+     `end_date = start_date + plan days`. Current catalog: starter = 3 days,
+     weekly = 30 days, monthly = 90 days, yearly = 365 days. These are configuration keys
+     shown to users, so rename them in `config.json` if the labels should describe cadence.
      Commit as above.
 
 Once the payment is `SUCCESS` **and** the subscriber is `ACTIVE` / opted-in / unexpired,
