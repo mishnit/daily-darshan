@@ -464,7 +464,7 @@ per date after its successful send has been persisted.
 
 | Workflow | Schedule (UTC) | Local time | Does |
 |----------|----------------|------------|------|
-| `image.yml` | `1 3 * * *` | 08:31 IST target | Test → verify GPG signing → prune operational logs → fetch all configured sources for the weekday → choose/store the largest valid canonical image → regenerate every subscriber page → signed commit. Manual runs support 1-, 2- or 7-day backfill. |
+| `image.yml` | `1 3 * * *` | 08:31 IST target | Test → verify GPG signing → prune operational logs → fetch all configured sources for the weekday → choose/store the largest valid canonical image → regenerate every subscriber page → signed commit. Manual runs support 1-, 2- or 7-day backfill. A fallback-only result fails the workflow so delivery is not triggered without today's dated image. |
 | `delivery.yml` | After successful `Daily Image` completion; manual on demand | Immediately after image success | Validate WhatsApp secrets → test → verify GPG signing → prune logs → expire lapsed subscriptions → send renewal reminders → deliver today's personalized page link → signed commits. Failed or cancelled image runs do not deliver. |
 | `pages.yml` | Manual only | On demand | Regenerate all pages from today's stored canonical image without fetching remote images. |
 

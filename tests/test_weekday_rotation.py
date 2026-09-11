@@ -517,8 +517,8 @@ def test_one_canonical_image_is_reused_for_many_subscribers():
     assert subscriber_references == ["docs/images/2026-08-24.jpg"] * 100
 
 
-def test_e2e_remote_failure_keeps_fallback_separate_from_dated_image():
-    """Scheduler integration: failed chain keeps fallback out of dated assets."""
+def test_e2e_remote_failure_keeps_fallback_separate_and_fails_image_job():
+    """A fallback remains usable but must not trigger downstream delivery."""
     on_date = date(2026, 8, 24)
     class Images:
         def canonical_path(self, day): return f"docs/images/{day}.jpg"
@@ -544,7 +544,7 @@ def test_e2e_remote_failure_keeps_fallback_separate_from_dated_image():
         def write_file(self, path, data, *_): self.writes.append((path, data))
         def commit(self, *_): pass
     git = Git()
-    assert run_image(Container(), git, on_date) == 0
+    assert run_image(Container(), git, on_date) == 1
     assert git.writes == []
 
 
