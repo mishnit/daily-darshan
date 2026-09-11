@@ -37,6 +37,7 @@ _TEMPLATE = """<!DOCTYPE html>
     .wrap {{ box-sizing: border-box; display: flex; flex-direction: column;
              gap: 8px; width: 100%; max-width: 640px; height: 100svh;
              margin: 0 auto; padding: 10px; text-align: center; }}
+    .greeting {{ flex: 0 0 auto; color: #53483c; font-size: .86rem; font-weight: 600; }}
     .delivery-summary {{ flex: 0 0 auto; padding: 8px 10px; border: 1px solid #eadfce;
                          border-radius: 10px; background: #fffdf9; color: #53483c;
                          font-size: .78rem; line-height: 1.4; }}
@@ -54,6 +55,7 @@ _TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
   <div class="wrap">
+    <div class="greeting">{greeting}</div>
     <section class="delivery-summary" aria-label="Delivery and subscription details">
       <strong>Delivered date:</strong> {date}<span class="separator">·</span>
       <strong>Source:</strong> {source_name}<span class="separator">·</span>
@@ -114,11 +116,15 @@ class PageRenderer:
                     images_dir: str | None = None, source: str = "",
                     image_name: str | None = None) -> str:
         status_text = "Delivered" if delivered else "Ready"
+        from domain.subscriber import sanitize_display_name
+        safe_name = sanitize_display_name(subscriber.name, "")
+        greeting = f"Namaste {safe_name.title()} Ji" if safe_name else "Namaste Ji"
         source_name = self.source_display_name(source)
         renewal_reminder = self._renewal_reminder(subscriber, on_date)
         return _TEMPLATE.format(
             date=html.escape(on_date.isoformat()),
             status_text=html.escape(f"{status_text} — {on_date.isoformat()}"),
+            greeting=html.escape(greeting),
             image_url=html.escape(self.image_url(on_date, images_dir, image_name)),
             fallback_url=html.escape(self.fallback_url(images_dir)),
             end_date=html.escape(subscriber.end_date.isoformat() if subscriber.end_date else "—"),

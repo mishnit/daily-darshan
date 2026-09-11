@@ -263,7 +263,7 @@ def test_page_renderer_shows_only_compact_delivery_details_above_image():
         sub, date(2026, 9, 10), delivered=True, source="iskcon_vrindavan"
     )
 
-    assert "Namaste" not in html_text
+    assert "Namaste Nitin Mishra Ji" in html_text
     assert "<strong>Delivered date:</strong> 2026-09-10" in html_text
     assert "<strong>Source:</strong> ISKCON Vrindavan" in html_text
     assert "<strong>Subscription expiry:</strong>" in html_text
