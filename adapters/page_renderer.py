@@ -41,19 +41,22 @@ _TEMPLATE = """<!DOCTYPE html>
           font-size: 1.05rem; line-height: 1.2; }}
     .greeting {{ flex: 0 0 auto; margin: 0 8px; color: #53483c;
                  font-size: .86rem; font-weight: 600; }}
-    .image-frame {{ display: flex; flex: 1 1 auto; align-items: flex-start;
+    .image-frame {{ display: flex; flex: 0 1 auto; align-items: flex-start;
                     justify-content: center; min-height: 0; margin: 0 8px;
                     overflow: hidden; }}
     img.darshan {{ display: block; width: auto; height: auto;
-                   max-width: 100%; max-height: 100%; border-radius: 12px;
+                   max-width: 100%; max-height: 100%; border-radius: 12px 12px 0 0;
                    box-shadow: 0 4px 16px rgba(0,0,0,.12); }}
-    .renewal {{ flex: 0 0 auto; margin: 6px 8px 0; padding: 9px 10px;
-                border-radius: 10px 10px 0 0;
-                background: #fff3cd; color: #664d03; font-size: .8rem; line-height: 1.35; }}
-    .renewal p {{ margin: 0 0 7px; }}
-    .renewal a {{ display: inline-block; padding: 7px 12px; border-radius: 7px;
-                  background: #198754; color: #fff; text-decoration: none; font-weight: 650; }}
-    .renewal + .image-frame img {{ border-radius: 0 0 12px 12px; }}
+    .renewal, .share {{ flex: 0 0 auto; padding: 9px 10px;
+                       background: #fff3cd; color: #664d03;
+                       font-size: .8rem; line-height: 1.35; }}
+    .renewal {{ margin: 6px 8px 0; border-radius: 10px 10px 0 0; }}
+    .share {{ margin: 0 8px 6px; border-radius: 0 0 10px 10px; }}
+    .renewal p, .share p {{ margin: 0 0 7px; }}
+    .renewal a, .share a {{ display: inline-block; padding: 7px 12px; border-radius: 7px;
+                           background: #198754; color: #fff; text-decoration: none;
+                           font-weight: 650; }}
+    .renewal + .image-frame img {{ border-radius: 0; }}
   </style>
 </head>
 <body>
@@ -64,6 +67,10 @@ _TEMPLATE = """<!DOCTYPE html>
     <div class="image-frame">
       <img class="darshan" src="{image_url}" alt="Daily Darshan for {date}"
            onerror="this.onerror=null; this.src='{fallback_url}';">
+    </div>
+    <div class="share">
+      <p>Share this HD Daily Darshan image with friends and family on WhatsApp.</p>
+      <a href="{share_url}">Share on WhatsApp</a>
     </div>
   </div>
 </body>
@@ -121,13 +128,21 @@ class PageRenderer:
         safe_name = sanitize_display_name(subscriber.name, "")
         greeting = f"Namaste {safe_name.title()} Ji 🙏" if safe_name else "Namaste Ji 🙏"
         renewal_reminder = self._renewal_reminder(subscriber, on_date)
+        image_url = self.image_url(on_date, images_dir, image_name)
+        share_text = (
+            f"Radhe Radhe 🙏\n\nToday's HD Daily Darshan:\n{image_url}"
+            "\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/"
+        )
         return _TEMPLATE.format(
             date=html.escape(on_date.isoformat()),
             status_text=html.escape(f"{status_text} — {on_date.isoformat()}"),
             greeting=html.escape(greeting),
-            image_url=html.escape(self.image_url(on_date, images_dir, image_name)),
+            image_url=html.escape(image_url),
             fallback_url=html.escape(self.fallback_url(images_dir)),
             renewal_reminder=renewal_reminder,
+            share_url=html.escape(
+                f"https://wa.me/?text={quote(share_text, safe='')}", quote=True
+            ),
         )
 
     def _renewal_reminder(self, subscriber: Subscriber, on_date: date) -> str:
