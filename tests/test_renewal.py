@@ -17,14 +17,15 @@ def _add(repos, mobile, days_to_expiry, status=SubscriberStatus.ACTIVE, opt_in=T
     repos["subscribers"].append(Subscriber(
         mobile=mobile, plan="monthly", status=status,
         start_date=date(2026, 1, 1), end_date=end, opt_in=opt_in,
+        subscription_id=f"sub-{mobile}",
     ))
 
 
 def _service(repos, wa=None):
     return RenewalReminderService(
         repos["subscribers"], repos["renewals"], wa or FakeWhatsApp(),
-        reminder_days=[3, 2, 1], template_name="daily_darshan_renewal",
-        template_lang="en_US", max_retries=3, retry_sleep=0,
+        reminder_days=[3, 2, 1], template_name="daily_darshan_delivery_update",
+        template_lang="en", max_retries=3, retry_sleep=0,
         sentlog=repos["sentlog"],
     )
 
@@ -210,9 +211,10 @@ def test_renewal_uses_approved_utility_template(repos):
     assert wa.sent == [{
         "type": "template_params",
         "mobile": "9199",
-        "template": "daily_darshan_renewal",
-        "params": ["Nitin Mishra", "2026-08-20"],
-        "lang": "en_US",
+        "template": "daily_darshan_delivery_update",
+        "params": ["Nitin Mishra"],
+        "lang": "en",
+        "url_button_param": "sub-9199",
         "ok": True,
     }]
 
@@ -229,3 +231,15 @@ def test_renewal_fails_closed_without_template_name(repos):
 
     assert report.failed == 1
     assert wa.sent == []
+
+
+def test_renewal_fails_closed_without_subscription_id(repos):
+    _add(repos, "9299", 2)
+    sub = repos["subscribers"].find("9299")
+    sub.subscription_id = ""
+    repos["subscribers"].update(sub)
+
+    report = _service(repos).run(TODAY)
+
+    assert report.failed == 1
+    assert repos["sentlog"].was_sent(TODAY, "9299") is False

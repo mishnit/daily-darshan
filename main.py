@@ -173,8 +173,10 @@ def _process_payload(c, payload: dict) -> None:
     for message, ctx in _iter_messages(payload):
         message_id = message.get("id", "")
         mobile = message.get("from", "")
+        snapshot = {}
         # Isolate each message: a failure must not abort the batch.
         try:
+            snapshot = _snapshot_webhook_state(c)
             # Dedupe on WhatsApp message id: skip a re-delivered message.
             if not c.processed.mark_if_new(message_id, mobile):
                 continue
@@ -187,8 +189,24 @@ def _process_payload(c, payload: dict) -> None:
         except Exception:  # noqa: BLE001 - log + continue
             # The id is claimed first to prevent concurrent duplicate sends.
             # Release it after a failure so Meta can retry the user action.
-            c.processed.unmark(message_id)
+            _restore_webhook_state(snapshot)
             log.exception("Failed handling message id=%s from=%s", message_id, mobile)
+
+    for status in _iter_statuses(payload):
+        if status.get("status") != "failed":
+            continue
+        message_id = str(status.get("id", ""))
+        if not message_id:
+            continue
+        sent_updates = c.sentlog.mark_failed(message_id)
+        renewal_updates = c.renewals.mark_failed(message_id)
+        if sent_updates or renewal_updates:
+            c.logs.log(
+                "WHATSAPP_ASYNC_FAILED",
+                str(status.get("recipient_id", "")),
+                f"{message_id}:sentlog={sent_updates}:renewals={renewal_updates}",
+            )
+            processed_any = True
 
     # Push any local CSV changes back to the shared repo (P0 fix #6).
     if processed_any:
@@ -209,6 +227,51 @@ def _iter_messages(payload: dict):
             value = change.get("value", {})
             for message in value.get("messages", []):
                 yield message, value
+
+
+def _iter_statuses(payload: dict):
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            yield from change.get("value", {}).get("statuses", [])
+
+
+def _webhook_paths(c) -> list[str]:
+    paths = c.config["paths"]
+    return [
+        paths["subscribers_csv"], paths["payments_csv"],
+        paths.get("processed_csv", "csv/processed.csv"), paths["logs_csv"],
+        paths["sentlog_csv"], paths["renewals_csv"],
+    ]
+
+
+def _snapshot_webhook_state(c) -> dict[str, tuple[str, bytes | None]]:
+    snapshot = {}
+    for configured in _webhook_paths(c):
+        full = configured if os.path.isabs(configured) else os.path.join(c.root, configured)
+        try:
+            with open(full, "rb") as source:
+                content = source.read()
+        except FileNotFoundError:
+            content = None
+        snapshot[configured] = (full, content)
+    return snapshot
+
+
+def _restore_webhook_state(snapshot: dict[str, tuple[str, bytes | None]]) -> None:
+    for full, content in snapshot.values():
+        if content is None:
+            try:
+                os.remove(full)
+            except FileNotFoundError:
+                pass
+        else:
+            with open(full, "wb") as output:
+                output.write(content)
+
+
+def _require_send(result, purpose: str) -> None:
+    if not result.ok:
+        raise RuntimeError(f"WhatsApp {purpose} failed: {result.error}")
 
 
 def _profile_name(value: dict, wa_id: str) -> str:
@@ -246,11 +309,12 @@ def _extract_input(message: dict) -> tuple[str, str]:
 
 def _send_menu(c, mobile: str) -> None:
     """Entry CTA menu: Subscribe / Renew / Stop (buttons)."""
-    c.whatsapp.send_buttons(
+    result = c.whatsapp.send_buttons(
         mobile,
         "🙏 Welcome to Daily Darshan! What would you like to do?",
         [("CTA_SUBSCRIBE", "Subscribe"), ("CTA_RENEW", "Renew"), ("CTA_STOP", "Stop messages")],
     )
+    _require_send(result, "menu")
 
 
 def _send_plan_list(c, mobile: str) -> None:
@@ -260,18 +324,20 @@ def _send_plan_list(c, mobile: str) -> None:
         amount = meta.get("amount")
         days = meta.get("days")
         rows.append((f"PLAN_{plan}", plan.capitalize(), f"₹{amount} · {days} days"))
-    c.whatsapp.send_list(mobile, "Choose your Daily Darshan plan:", "View plans", rows)
+    result = c.whatsapp.send_list(mobile, "Choose your Daily Darshan plan:", "View plans", rows)
+    _require_send(result, "plan list")
 
 
 def _request_opt_in(c, mobile: str) -> None:
     """Show the consent disclosure and an explicit Agree button (#9)."""
-    c.whatsapp.send_buttons(
+    result = c.whatsapp.send_buttons(
         mobile,
         "By continuing, you agree to receive a *daily darshan* image on WhatsApp "
         "and occasional subscription updates from Daily Darshan. You can stop "
         "anytime by replying STOP. Do you agree?",
         [("CTA_OPTIN_AGREE", "I agree"), ("CTA_STOP", "No thanks")],
     )
+    _require_send(result, "consent request")
 
 
 def _after_name_or_optin(c, mobile: str, returning: bool) -> None:
@@ -327,7 +393,7 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
             sub = c.subscribers.find(mobile)
             if not sub.name:
                 svc.set_awaiting_name(mobile, True)
-                wa.send_text(mobile, "🙏 What name should we greet you by?")
+                _require_send(wa.send_text(mobile, "🙏 What name should we greet you by?"), "name request")
                 return
             _after_name_or_optin(c, mobile, returning=False)
             return
@@ -350,7 +416,7 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
             svc.set_awaiting_name(mobile, False)
             _after_name_or_optin(c, mobile, returning=False)
         else:
-            wa.send_text(mobile, "Please reply with the name we should greet you by 🙏")
+            _require_send(wa.send_text(mobile, "Please reply with the name we should greet you by 🙏"), "name request")
         return
 
     # (b) UTR submission.
@@ -360,11 +426,12 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
             _send_menu(c, mobile)
             return
         c.payment_service.record_utr(payment.reference_id, text)
-        wa.send_text(
+        result = wa.send_text(
             mobile,
             "Thanks! We received your UTR. Your subscription activates once an "
             "admin verifies the payment.",
         )
+        _require_send(result, "UTR confirmation")
         return
 
     # (c) Anything else typed -> present the CTA menu (no free-text commands).
@@ -375,13 +442,17 @@ def _handle_opt_out(c, mobile: str) -> None:
     """Honor STOP: revoke consent, confirm, stop business-initiated sends (#9)."""
     sub = c.subscriber_service.revoke_opt_in(mobile)
     if sub is None:
-        c.whatsapp.send_text(mobile, "You're not subscribed. Reply to start anytime. 🙏")
+        _require_send(
+            c.whatsapp.send_text(mobile, "You're not subscribed. Send Radhe Radhe anytime to see the menu. 🙏"),
+            "opt-out confirmation",
+        )
         return
-    c.whatsapp.send_text(
+    result = c.whatsapp.send_text(
         mobile,
         "You've been opted out — you won't receive further Daily Darshan messages. "
-        "Reply SUBSCRIBE anytime to resume. 🙏",
+        "Send Radhe Radhe anytime, then choose Subscribe to opt in again. 🙏",
     )
+    _require_send(result, "opt-out confirmation")
 
 
 def _handle_renew(c, mobile: str, name: str = "") -> None:
@@ -398,7 +469,7 @@ def _handle_renew(c, mobile: str, name: str = "") -> None:
     if not existing.name:
         svc.upsert_pending(mobile, renew_plan, name)
         svc.set_awaiting_name(mobile, True)
-        c.whatsapp.send_text(mobile, "🙏 What name should we greet you by?")
+        _require_send(c.whatsapp.send_text(mobile, "🙏 What name should we greet you by?"), "name request")
         return
     # Returning subscriber: opt-in gate still applies if they'd previously opted out.
     _after_name_or_optin(c, mobile, returning=True)
@@ -418,13 +489,14 @@ def _start_payment(c, mobile: str, plan: str, returning: bool = False) -> None:
         header = f"{greeting}Renewing your {plan} plan.\nAmount: ₹{payment.amount:g}\n"
     else:
         header = f"{greeting}Plan: {plan}\nAmount: ₹{payment.amount:g}\n"
-    wa.send_text(
+    result = wa.send_text(
         mobile,
         f"{header}"
         f"Pay via UPI:\n{intent}\n\n"
         f"Reference: {payment.reference_id}\n"
         f"After paying, reply with your 12-digit UTR.",
     )
+    _require_send(result, "payment instruction")
 
 
 def _default_plan(c) -> str:

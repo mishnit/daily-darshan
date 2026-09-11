@@ -165,7 +165,7 @@ publication succeeds.
 ## Part 1b — Utility-Template Delivery Mode (optional, cost optimization)
 
 By default `config.json` ships with `delivery.mode = "utility_template"`. Instead of sending
-the darshan image inline, this mode sends an approved template whose `{{2}}` links to a
+the darshan image inline, this mode sends an approved template whose dynamic URL button links to a
 per-subscriber **GitHub Pages** page containing today's image and delivery status. Billing
 depends on Meta's assigned category and current country rate; verify both in WhatsApp Manager.
 
@@ -202,11 +202,8 @@ depends on Meta's assigned category and current country rate; verify both in Wha
    **Daily Darshan** with URL `https://vipseva.com/{{1}}`. The button's `{{1}}` receives
    only the subscriber's unguessable subscription ID; Meta appends it to the URL prefix.
 
-   The current `renewal` config also names `daily_darshan_delivery_update` with language `en`,
-   while the renewal service sends two body values: customer name and expiry date. Meta requires
-   the submitted components to match the approved template exactly. If the delivery template's
-   one-body-variable plus URL-button definition cannot also satisfy the renewal payload, approve a
-   separate renewal Utility template and set `renewal.template_name` to it.
+   Renewal uses this same template and language with the same customer-name and URL-button
+   parameters. It intentionally does not submit the expiry date as another body variable.
 
 4. **Backfill subscription ids** for any existing subscribers (new signups get one automatically):
    ```bash
@@ -369,7 +366,7 @@ Do **not** hand-edit CSVs while a scheduler job might be committing:
 - Always `git pull --rebase` **before** editing, and push promptly after.
 - The scheduler retries once on push conflict via `pull --rebase` and never force-pushes,
   but an in-progress manual edit can still collide.
-- The webhook also commits `csv/payments.csv`, `csv/subscribers.csv`, and
-  `csv/processed.csv` (a message-dedup log) as users subscribe — so pull before editing to
-  pick up any rows it added.
+- The webhook commits `csv/payments.csv`, `csv/subscribers.csv`, `csv/processed.csv` and logs as
+  users subscribe. Meta failure-status callbacks also reconcile `csv/sentlog.csv` and
+  `csv/renewals.csv`, so pull before editing to pick up any rows it changed.
 - Git history is the audit trail — every verification/activation is a traceable commit.
