@@ -171,3 +171,6 @@ timestamp,event,mobile,details
 2026-09-11T11:01:09.412725,WHATSAPP_SEND_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (daily_darsh"
 2026-09-11T11:09:03.373286,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
 2026-09-11T11:09:17.361113,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T11:14:41.013834,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T11:14:52.695606,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T11:14:52.809528,IMAGES_PRUNED,,removed=3 kept<= 7
