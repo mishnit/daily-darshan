@@ -445,10 +445,16 @@ image and removes its predictable legacy canonical and candidate aliases.
 
 The delivery workflow queues overlapping runs and sends renewal reminders before the daily
 darshan message. When at least one reminder is sent, it waits five minutes before delivery by
-default, so a subscriber is not contacted twice at once. If no reminder is sent, delivery starts
-immediately. Set the GitHub Actions repository variable `WHATSAPP_MESSAGE_GAP_SECONDS` to
-another non-negative whole number to change the gap. With `0`, delivery is skipped only when a
-renewal reminder was actually sent; otherwise delivery still proceeds.
+default. If no reminder is sent, delivery starts immediately. Set the GitHub Actions repository
+variable `WHATSAPP_MESSAGE_GAP_SECONDS` to another non-negative whole number to change the
+workflow-wide pause; `0` proceeds directly to delivery.
+
+Renewal and delivery share the `sentlog.csv` daily contact ledger. A successful renewal reminder
+uses that subscriber's one WhatsApp contact slot for the date, so the later delivery phase skips
+only that subscriber while continuing for other eligible subscribers. A failed reminder does not
+consume the slot, allowing delivery to proceed. This per-subscriber rule applies across scheduled
+and manual reruns: at most one successful renewal-or-delivery message is attempted per subscriber
+per date after its successful send has been persisted.
 
 ---
 
@@ -464,8 +470,11 @@ GitHub cron schedules are targets rather than exact start-time guarantees and ma
 under runner load. Workflow YAML is authoritative; `config.json.schedule` is informational.
 
 **Idempotency** (safe to re-run):
-- Delivery keys on `date + mobile` in `sentlog.csv` (only `SENT` rows block re-send).
-- Renewal reminders key on `mobile + reminder_type + expiry_date` in `renewals.csv`.
+- Renewal and delivery share a successful-send key of `date + mobile` in `sentlog.csv`; only
+  `SENT` rows block another WhatsApp contact for that subscriber on the same date.
+- Renewal reminder history additionally keys on `mobile + reminder_type + expiry_date` in
+  `renewals.csv`. Existing successful renewal history is backfilled into the daily ledger on a
+  rerun so rollout-day duplicates remain blocked.
 - `logs.csv` and `sentlog.csv` retain the inclusive latest 30 calendar days. Cleanup is
   idempotent and creates no commit when nothing is old enough to remove.
 - The **expiry sweep** only transitions `ACTIVE` subscribers whose `end_date` has passed; an

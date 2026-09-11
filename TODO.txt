@@ -21,3 +21,13 @@ Admin verification on local machine: git pull --rebase -> python admin.py list-p
 opt-out
 
 product UAT and tech issues tracking
+------------
+remote test failing
+debug and fix delivery
+remove schedule frm delivery , delivery to get auto triggerred once images gets stored succesfully for the day
+
+verify all webook and end to end journey ensuring all correct templates are being used, like delivery, renewal, welcome/menu response, plan list, name request, consent opt-in, payment instruction, utr confirmation and consent optout
+
+replace "15556757329" with "916361699109"
+
+make image and delivery jobs more manual verifiable on whatsapp - verify daily image and all subscriber pages being updated once image workflow runs. once verified it runs delivery a sometimes job may fail due to github runner issue. if not verfied admin runs manual job to regenerate webpages first and verify later to start delivery

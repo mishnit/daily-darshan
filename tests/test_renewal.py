@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from domain.enums import SubscriberStatus
 from domain.subscriber import Subscriber
+from application.delivery_service import DeliveryService
 from application.renewal_reminder_service import RenewalReminderService
 from tests.conftest import FakeWhatsApp
 
@@ -24,6 +25,7 @@ def _service(repos, wa=None):
         repos["subscribers"], repos["renewals"], wa or FakeWhatsApp(),
         reminder_days=[3, 2, 1], template_name="daily_darshan_renewal",
         template_lang="en_US", max_retries=3, retry_sleep=0,
+        sentlog=repos["sentlog"],
     )
 
 
@@ -57,6 +59,7 @@ def test_successful_2_day_reminder_is_recorded_idempotently(repos):
     assert repos["renewals"].already_sent(
         "9199", "2_DAY", date(2026, 8, 19)
     ) is True
+    assert repos["sentlog"].was_sent(TODAY, "9199") is True
 
 
 def test_subscriber_4_days_not_selected(repos):
@@ -121,6 +124,71 @@ def test_failed_send_is_recorded_and_retryable(repos):
     assert len(wa.sent) == 3  # retried up to max_retries
     # Recorded as FAILED, so a later run can retry (already_sent only matches SENT).
     assert repos["renewals"].already_sent("9199", "3_DAY", date(2026, 8, 20)) is False
+    assert repos["sentlog"].was_sent(TODAY, "9199") is False
+
+
+def test_failed_renewal_does_not_block_same_day_delivery(repos):
+    _add(repos, "9199", 2)
+    reminder = _service(repos, FakeWhatsApp(always_fail=True)).run(TODAY)
+    delivery = DeliveryService(
+        repos["subscribers"], repos["sentlog"], FakeWhatsApp(),
+        eligibility=type("Eligible", (), {"is_eligible": lambda self, mobile, day: True})(),
+        max_retries=1,
+    ).deliver(TODAY, image_url="https://vipseva.com/image.jpg")
+
+    assert reminder.failed == 1
+    assert delivery.sent == 1
+
+
+def test_successful_renewal_blocks_delivery_for_same_subscriber_and_day(repos):
+    _add(repos, "9199", 2)
+    wa = FakeWhatsApp()
+
+    reminder = _service(repos, wa).run(TODAY)
+    delivery = DeliveryService(
+        repos["subscribers"], repos["sentlog"], wa,
+        eligibility=type("Eligible", (), {"is_eligible": lambda self, mobile, day: True})(),
+        max_retries=1,
+    ).deliver(TODAY, image_url="https://vipseva.com/image.jpg")
+
+    assert reminder.sent == 1
+    assert delivery.sent == 0 and delivery.skipped == 1
+    assert sum(1 for item in wa.sent if item["ok"]) == 1
+
+
+def test_successful_delivery_blocks_renewal_for_same_subscriber_and_day(repos):
+    _add(repos, "9199", 2)
+    wa = FakeWhatsApp()
+    delivery = DeliveryService(
+        repos["subscribers"], repos["sentlog"], wa,
+        eligibility=type("Eligible", (), {"is_eligible": lambda self, mobile, day: True})(),
+        max_retries=1,
+    ).deliver(TODAY, image_url="https://vipseva.com/image.jpg")
+
+    reminder = _service(repos, wa).run(TODAY)
+
+    assert delivery.sent == 1
+    assert reminder.sent == 0 and reminder.skipped == 1
+    assert sum(1 for item in wa.sent if item["ok"]) == 1
+
+
+def test_existing_successful_reminder_backfills_daily_ledger(repos):
+    _add(repos, "9199", 2)
+    repos["renewals"].append({
+        "mobile": "9199",
+        "reminder_type": "2_DAY",
+        "expiry_date": "2026-08-19",
+        "sent_at": "2026-08-17T08:00:00",
+        "whatsapp_message_id": "old-message",
+        "status": "SENT",
+    })
+    wa = FakeWhatsApp()
+
+    reminder = _service(repos, wa).run(TODAY)
+
+    assert reminder.sent == 0 and reminder.skipped == 1
+    assert wa.sent == []
+    assert repos["sentlog"].was_sent(TODAY, "9199") is True
 
 
 def test_successful_send_is_recorded(repos):

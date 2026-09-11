@@ -5,11 +5,12 @@ import time
 from dataclasses import dataclass, field
 from datetime import date
 
-from domain.enums import ReminderType, SubscriberStatus
+from domain.enums import DeliveryStatus, ReminderType, SubscriberStatus
 from domain.subscriber import Subscriber, sanitize_display_name
 from application.ports.repositories import (
     LogRepositoryPort,
     RenewalRepositoryPort,
+    SentLogRepositoryPort,
     SubscriberRepositoryPort,
 )
 from application.ports.whatsapp import WhatsAppClientPort, WhatsAppResult
@@ -35,6 +36,7 @@ class RenewalReminderService:
         max_retries: int = 3,
         retry_sleep: float = 0.0,
         logs: LogRepositoryPort | None = None,
+        sentlog: SentLogRepositoryPort | None = None,
     ):
         self._subscribers = subscribers
         self._renewals = renewals
@@ -45,6 +47,7 @@ class RenewalReminderService:
         self._max_retries = max_retries
         self._retry_sleep = retry_sleep
         self._logs = logs
+        self._sentlog = sentlog
 
     def find_due_subscribers(self, today: date | None = None) -> list[tuple[Subscriber, int]]:
         """Return (subscriber, days_remaining) for ACTIVE+opt_in subscribers
@@ -129,13 +132,36 @@ class RenewalReminderService:
         for sub, remaining in self.find_due_subscribers(today):
             reminder_type = ReminderType.for_days_remaining(remaining)
             expiry = sub.end_date
+            # Renewal and Daily Darshan delivery share one daily contact slot.
+            # This protects scheduled/manual reruns and either execution order.
+            if self._sentlog and self._sentlog.was_sent(today, sub.mobile):
+                report.skipped += 1
+                continue
             # Idempotency: mobile + reminder_type + expiry_date (section 28).
             if self.already_sent(sub, reminder_type, expiry):
+                # Backfill successful reminders written before the shared daily
+                # ledger was introduced, so rollout-day reruns stay deduplicated.
+                if self._sentlog:
+                    self._sentlog.append({
+                        "date": today.isoformat(),
+                        "mobile": sub.mobile,
+                        "image": f"renewal:{reminder_type.value}",
+                        "whatsapp_message_id": "",
+                        "status": DeliveryStatus.SENT.value,
+                    })
                 report.skipped += 1
                 continue
             result = self.send_reminder(sub, remaining)
             self.record_reminder(sub, reminder_type, expiry, result)
             if result.ok:
+                if self._sentlog:
+                    self._sentlog.append({
+                        "date": today.isoformat(),
+                        "mobile": sub.mobile,
+                        "image": f"renewal:{reminder_type.value}",
+                        "whatsapp_message_id": result.message_id,
+                        "status": DeliveryStatus.SENT.value,
+                    })
                 report.sent += 1
                 self._log("RENEWAL_REMINDER_SENT", sub.mobile, reminder_type.value)
             else:

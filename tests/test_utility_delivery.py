@@ -311,7 +311,7 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
     assert message in html_text
     assert sub.end_date.isoformat() in html_text
     assert "Subscription expiry:" not in html_text
-        assert 'href="https://wa.me/916361699109?text=RENEW"' in html_text
+    assert 'href="https://wa.me/916361699109?text=RENEW"' in html_text
     assert ">Renew on WhatsApp</a>" in html_text
     assert ".renewal a { background: #c62828; }" in html_text
     assert ".share a { background: #198754; }" in html_text
