@@ -12,4 +12,6 @@ def test_renewal_and_delivery_are_serialized_with_a_gap():
     assert "group: daily-darshan-repository-writes" in workflow
     assert "cancel-in-progress: false" in workflow
     assert "WHATSAPP_MESSAGE_GAP_SECONDS" in workflow
+    assert 'echo "deliver=false" >> "$GITHUB_OUTPUT"' in workflow
+    assert "if: steps.message_gap.outputs.deliver == 'true'" in workflow
     assert 'sleep "$gap_seconds"' in workflow

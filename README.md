@@ -442,7 +442,8 @@ The delivery workflow queues overlapping runs and sends renewal reminders before
 darshan message. It waits five minutes between those stages by default, so a subscriber who
 receives both messages on the same day is not contacted twice at once. Set the GitHub Actions
 repository variable `WHATSAPP_MESSAGE_GAP_SECONDS` to another non-negative whole number to
-change the gap (`0` disables it).
+change the gap. Set it to `0` for reminder-only mode; the daily darshan delivery step is then
+skipped.
 
 ---
 

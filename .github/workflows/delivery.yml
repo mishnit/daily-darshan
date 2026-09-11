@@ -92,6 +92,7 @@ jobs:
         run: python scheduler.py renewal
 
       - name: Keep renewal and delivery messages apart
+        id: message_gap
         env:
           WHATSAPP_MESSAGE_GAP_SECONDS: ${{ vars.WHATSAPP_MESSAGE_GAP_SECONDS || '300' }}
         run: |
@@ -102,12 +103,17 @@ jobs:
               exit 1
               ;;
           esac
-          if [ "$gap_seconds" -gt 0 ]; then
-            echo "Waiting ${gap_seconds} seconds before Daily Darshan delivery"
-            sleep "$gap_seconds"
+          if [ "$gap_seconds" -eq 0 ]; then
+            echo "deliver=false" >> "$GITHUB_OUTPUT"
+            echo "Reminder-only mode enabled; skipping Daily Darshan delivery"
+            exit 0
           fi
+          echo "deliver=true" >> "$GITHUB_OUTPUT"
+          echo "Waiting ${gap_seconds} seconds before Daily Darshan delivery"
+          sleep "$gap_seconds"
 
       - name: Deliver today's image
+        if: steps.message_gap.outputs.deliver == 'true'
         env:
           GITHUB_REPO: ${{ github.repository }}
           WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
