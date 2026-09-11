@@ -189,3 +189,4 @@ timestamp,event,mobile,details
 2026-09-11T12:24:06.276898,PAGES_REGENERATED,,2026-09-11:count=1:source=iskcon_mumbai
 2026-09-11T12:36:06.073674,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
 2026-09-11T12:36:19.029481,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T12:41:04.549290,PAGES_REGENERATED,,2026-09-11:count=1:source=canonical
