@@ -122,8 +122,8 @@ daily-darshan/
 │
 ├── tests/                      # pytest unit tests + fakes
 └── .github/workflows/
-    ├── image.yml               # daily image fetch (10:19 IST target)
-    ├── delivery.yml            # cleanup + expiry + renewal + delivery (10:34 IST target)
+    ├── image.yml               # daily image fetch (08:31 IST target)
+    ├── delivery.yml            # renewal + delivery after a successful image workflow
     └── pages.yml               # manual page regeneration
 ```
 
@@ -177,7 +177,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `image_sources` / `image_source_config` | Legacy generic source fallback used only when no enabled named temple sources are configured. |
 | `image_validation` | `min_width`, `min_height`, `allowed_formats` for `ImageValidator`. |
 | `paths` | Relative paths to the CSV files and `images/` directory. |
-| `schedule` | Cron hints (documentation; actual cron lives in the workflow YAML). |
+| `schedule` | Image cron hint (documentation; the actual cron lives in `image.yml`). Delivery is event-driven from a successful image workflow. |
 | `renewal.reminder_days` | Days-before-expiry to send reminders, e.g. `[3, 2, 1]`. |
 | `renewal.whatsapp_number` | Digits-only WhatsApp destination used by the near-expiry page CTA. |
 | `persistence` | Webhook durability. `mode`: `github_api` (webhook syncs CSVs to the shared repo via Contents API — needs `GITHUB_TOKEN`+`GITHUB_REPO`) or `local` (no sync; dev only). `branch`: repo branch to sync against. |
@@ -202,8 +202,9 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
     `template_name`, `page_base_url`, `pages_dir`, `image_public_base` and GitHub Pages enabled.
   - `image` — sends the image inline (Meta media upload, private-repo safe). Higher engagement,
     billed as Marketing.
-- **Adjust the schedule** — edit the `cron` in `.github/workflows/*.yml` (the source of
-  truth), and optionally mirror it in `config.json.schedule` for documentation.
+- **Adjust the schedule** — edit the `cron` in `.github/workflows/image.yml` (the source of
+  truth), and optionally mirror it in `config.json.schedule` for documentation. Delivery starts
+  automatically only after that image workflow completes successfully.
 
 After changing `config.json`, run `pytest -q` and commit. No redeploy of the scheduler is
 needed — GitHub Actions checks out the latest `config.json` on every run. The **webhook**
@@ -347,8 +348,9 @@ To enable:
 1. Push this repository to GitHub.
 2. Add the Actions secrets listed above.
 3. Ensure workflow permissions allow writes: the YAMLs already declare `permissions: contents: write`. Also confirm *Settings → Actions → General → Workflow permissions* is set to **Read and write**.
-4. The workflows run on their cron schedules and can be triggered manually via
-   **workflow_dispatch** (Actions tab → *Run workflow*) for recovery/testing.
+4. The image workflow runs on its cron schedule. A successful image run automatically triggers
+   delivery; both workflows can also be triggered manually via **workflow_dispatch** (Actions tab
+   → *Run workflow*) for recovery/testing.
 
 ---
 
@@ -462,12 +464,13 @@ per date after its successful send has been persisted.
 
 | Workflow | Schedule (UTC) | Local time | Does |
 |----------|----------------|------------|------|
-| `image.yml` | `49 4 * * *` | 10:19 IST target | Test → verify GPG signing → prune operational logs → fetch all configured sources for the weekday → choose/store the largest valid canonical image → regenerate every subscriber page → signed commit. Manual runs support 1-, 2- or 7-day backfill. |
-| `delivery.yml` | `4 5 * * *` | 10:34 IST target | Validate WhatsApp secrets → test → verify GPG signing → prune logs → expire lapsed subscriptions → send renewal reminders → deliver today's personalized page link → signed commits. |
+| `image.yml` | `1 3 * * *` | 08:31 IST target | Test → verify GPG signing → prune operational logs → fetch all configured sources for the weekday → choose/store the largest valid canonical image → regenerate every subscriber page → signed commit. Manual runs support 1-, 2- or 7-day backfill. |
+| `delivery.yml` | After successful `Daily Image` completion; manual on demand | Immediately after image success | Validate WhatsApp secrets → test → verify GPG signing → prune logs → expire lapsed subscriptions → send renewal reminders → deliver today's personalized page link → signed commits. Failed or cancelled image runs do not deliver. |
 | `pages.yml` | Manual only | On demand | Regenerate all pages from today's stored canonical image without fetching remote images. |
 
 GitHub cron schedules are targets rather than exact start-time guarantees and may be delayed
 under runner load. Workflow YAML is authoritative; `config.json.schedule` is informational.
+Delivery has no cron of its own and follows each successful scheduled or manual image run.
 
 **Idempotency** (safe to re-run):
 - Renewal and delivery share a successful-send key of `date + mobile` in `sentlog.csv`; only
