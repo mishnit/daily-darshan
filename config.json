@@ -78,7 +78,7 @@
   },
   "renewal": {
     "reminder_days": [3, 1],
-    "template_name": "daily_darshan_renewal",
+    "template_name": "daily_darshan_delivery_update",
     "template_lang": "en"
   }
 }
