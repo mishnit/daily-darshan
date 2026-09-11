@@ -9,14 +9,15 @@ Two kinds of flows:
   **git CLI** (`LocalGitRepository`): local file write, then `git commit` + `git push`.
 - **Event-driven (untimed)** — the webhook on Render, triggered by WhatsApp/Meta. Writes via
   the **Contents API** (`GitHubApiRepository` through `RepoSync`): `pull` before, `push` after
-  (deferred during the 02:25–03:10 UTC quiet window).
+  (deferred during the 04:40–05:20 UTC quiet window).
 
 | Operation | Trigger | Time (UTC / IST) | Writes to repo? |
 |-----------|---------|------------------|-----------------|
-| Fetch and store today's image | `image.yml` cron | 02:30 / 08:00 | Yes — `git commit` image + pages |
-| Expire lapsed subscriptions | `delivery.yml` cron (step 1) | 03:00 / 08:30 | Yes — `git commit` subscribers, logs |
-| Send renewal reminders | `delivery.yml` cron (step 2) | 03:00 / 08:30 | Yes — `git commit` renewals, logs |
-| Deliver today's image | `delivery.yml` cron (step 3) | 03:00 / 08:30 | Yes — `git commit` sentlog, logs |
+| Prune `logs.csv` + `sentlog.csv` | both scheduled workflows | 04:49 / 10:19 and 05:04 / 10:34 | Only when rows older than the inclusive 30-day window exist |
+| Fetch and store today's image | `image.yml` cron | 04:49 / 10:19 | Yes — signed commit of candidates, canonical image + pages |
+| Expire lapsed subscriptions | `delivery.yml` cron | 05:04 / 10:34 | Yes — signed commit of subscribers, logs |
+| Send renewal reminders | `delivery.yml` cron | 05:04 / 10:34 | Yes — signed commit of renewals, logs |
+| Deliver today's page link | `delivery.yml` cron | 05:04 / 10:34 | Yes — signed commit of sentlog, logs |
 | GET `/webhook` (verify) | Meta handshake | any (setup) | No — read-only |
 | POST `/webhook` (inbound) | user message | any | Yes — `RepoSync` pull then push* |
 | opt-in / name / subscribe / plan | inside POST | any | Yes (via the POST push) |
@@ -24,7 +25,7 @@ Two kinds of flows:
 | Admin verification | `admin.py` (manual) | any | Only with `--commit` |
 | renewal reminder opt-out (STOP) | inside POST | any | Yes (via the POST push) |
 
-\* Webhook push is **deferred** while inside the quiet window (02:25–03:10 UTC) and flushed
+\* Webhook push is **deferred** while inside the quiet window (04:40–05:20 UTC) and flushed
 on the next push after it closes.
 
 ---
@@ -45,15 +46,15 @@ Every write in this system is one of two kinds, and the **push timing** differs 
 
 | Machine | Mechanism | Push timing |
 |---------|-----------|-------------|
-| **Scheduler** (GitHub Actions) | git CLI `commit` + `push` | **After the job completes** — one commit at the end of each job (image / expiry / renewal / delivery). Not per-subscriber. |
+| **Scheduler** (GitHub Actions) | signed git CLI `commit` + `push` | **After each scheduler command** — cleanup (only if needed), image, expiry, renewal and delivery. Not per-subscriber. |
 | **Admin** (`admin.py`) | git CLI `commit` + `push` | **Only if `--commit` is passed**, at the end of the command. Otherwise the write stays 📝 LOCAL and must be pushed **manually**. |
-| **Webhook** (Render) | Contents API via `RepoSync` | **After request handling**, unless inside the **02:25–03:10 UTC quiet window** → **deferred** and flushed on the next push after the window closes. |
+| **Webhook** (Render) | Contents API via `RepoSync` | **After background request handling**, unless inside the **04:40–05:20 UTC quiet window** → **deferred** and flushed on the next push after the window closes. |
 
 So there are effectively three push timings: **after job completion** (scheduler), **manual/optional** (admin without `--commit`), and **immediate-after-request-or-deferred** (webhook).
 
 ---
 
-## 1. Scheduled jobs timeline (the nightly window)
+## 1. Scheduled jobs timeline (the daily write window)
 
 ```mermaid
 sequenceDiagram
@@ -64,16 +65,18 @@ sequenceDiagram
     participant WA as WhatsApp (Meta)
     participant Repo as GitHub repo (main)
 
-    Note over Cron,Repo: 02:30 UTC / 08:00 IST — image.yml
+    Note over Cron,Repo: 04:49 UTC / 10:19 IST target — image.yml
     Cron->>Runner: checkout main (local == latest repo)
+    Runner->>Sched: python scheduler.py cleanup (signed commit only if rows expire)
     Runner->>Sched: python scheduler.py image
-    Sched->>Sched: fetch + validate image (sources in priority order)
-    Sched->>Runner: write images/[date].jpg  📝 LOCAL
+    Sched->>Sched: fetch + validate all configured weekday sources; select largest
+    Sched->>Runner: write docs/images/[date]-[source].jpg + canonical [date].jpg  📝 LOCAL
     Sched->>Runner: render ALL per-subscriber pages (write_all)  📝 LOCAL
     Sched->>Repo: git commit + push (image + pages)  ✅ REMOTE (after job)
 
-    Note over Cron,Repo: 03:00 UTC / 08:30 IST — delivery.yml (3 steps, same checkout)
+    Note over Cron,Repo: 05:04 UTC / 10:34 IST target — delivery.yml
     Cron->>Runner: checkout main (sees webhook pushes since last run)
+    Runner->>Sched: python scheduler.py cleanup (signed commit only if rows expire)
 
     rect rgb(235,245,255)
     Note over Sched,Repo: Step 1 — Expire lapsed subscriptions
@@ -107,7 +110,7 @@ checkout first (📝 LOCAL), then does a **single `git commit` + `push` at the e
 job. The runner's local disk is discarded when the job ends, so anything **not** committed is
 lost; that's why every job commits before finishing.
 
-**Page rendering here (image job):** step in the 02:30 image job. `write_all()` writes
+**Page rendering here (image job):** step in the 04:49 UTC image job. `write_all()` writes
 `docs/<subscription_id>/index.html` for **every** subscriber to the runner's local disk
 (📝 LOCAL), and they are pushed with the image in the same end-of-job commit (✅ REMOTE).
 Pages are regenerated **every run** so a subscriber who signed up since the last run gets a
@@ -181,7 +184,7 @@ sequenceDiagram
     end
 
     Note over Web,Repo: after handling all messages in the payload
-    alt inside quiet window 02:25–03:10 UTC
+    alt inside quiet window 04:40–05:20 UTC
         Web->>Local: keep writes on disk — push ⏸️ DEFERRED until after window
     else outside window
         Web->>Repo: RepoSync.push() — write CSVs back  ✅ REMOTE (after request)
@@ -266,7 +269,7 @@ reads the repo) never sees the activation.
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Sched as scheduler.py (03:00 UTC)
+    participant Sched as scheduler.py (05:04 UTC target)
     participant WA as WhatsApp (Meta)
     participant User
     participant Web as Webhook (main.py)
@@ -302,7 +305,7 @@ utility-template link points to). It is rendered in **two** places:
 
 | Trigger | Machine | What renders | Scope | Pushed to remote? |
 |---------|---------|--------------|-------|-------------------|
-| **Daily image job** (02:30 UTC) | GitHub Actions | `PageRenderer.write_all()` | **All** subscribers | ✅ Yes — automatically, in the same end-of-job commit as the image |
+| **Daily image job** (04:49 UTC target) | GitHub Actions | `PageRenderer.write_all()` | **All** subscribers | ✅ Yes — automatically, in the same end-of-job commit as the image |
 | **Admin verification** with `--activate` | The machine running `admin.py` (e.g. your laptop) | `PageRenderer.write_page()` | **Only that one** subscriber | ⚠️ Only if you also pass `--commit`; otherwise **manual** push |
 
 **Does payment verification render pages?** Yes — but only when you run `verify` with
@@ -315,7 +318,7 @@ manually. (The daily image job's render, by contrast, is always auto-committed.)
 
 **Why render on verification at all, instead of waiting for the next image job?**
 
-Because the gap between activation and the next 02:30 UTC image job can be up to ~24 hours,
+Because the gap between activation and the next 04:49 UTC image job can be up to ~24 hours,
 and during that gap the subscriber's link would be broken. Concretely:
 
 1. **Immediate working link.** When you activate a subscriber mid-day, they may receive (or
@@ -337,11 +340,11 @@ one person" case; the **daily image job** is the catch-all that (re)builds **eve
 ## Timing summary
 
 - **Only the scheduled jobs are mapped to specific times** (UTC):
-  - `02:30` image (+ pages)
-  - `03:00` expiry → renewal → delivery (sequential, one workflow)
+  - `04:49` cleanup → image candidates/canonical image → pages
+  - `05:04` cleanup → expiry → renewal → delivery (sequential, one workflow)
 - **All webhook operations are event-driven** (no fixed time): verification, subscribe, plan,
   name, opt-in, UTR, opt-out. They write locally immediately and push to the repo at the end
-  of request handling — **deferred** during the `02:25–03:10` UTC quiet window so they don't
+  of background request handling — **deferred** during the `04:40–05:20` UTC quiet window so they don't
   collide with the nightly jobs.
 - **Admin verification is manual** (run whenever a real payment is confirmed) and only writes
   to the repo when `--commit` is passed.

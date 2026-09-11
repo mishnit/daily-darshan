@@ -118,12 +118,13 @@ daily-darshan/
 │   ├── sentlog.csv
 │   ├── renewals.csv
 │   └── logs.csv
-├── images/                     # images/YYYY-MM-DD.jpg (committed to Git)
+├── docs/images/                # canonical + source images (committed to Git/Pages)
 │
 ├── tests/                      # pytest unit tests + fakes
 └── .github/workflows/
-    ├── image.yml               # daily image fetch (08:00 IST)
-    └── delivery.yml            # renewal reminders + daily delivery
+    ├── image.yml               # daily image fetch (10:19 IST target)
+    ├── delivery.yml            # cleanup + expiry + renewal + delivery (10:34 IST target)
+    └── pages.yml               # manual page regeneration
 ```
 
 ---
@@ -152,7 +153,8 @@ uvicorn main:app --reload --port 8000
 python scheduler.py image        # fetch & store today's image
 python scheduler.py delivery     # deliver to eligible subscribers
 python scheduler.py renewal      # send renewal reminders
-python scheduler.py all          # renewal + image + delivery
+python scheduler.py cleanup      # retain the latest 30 days of operational logs
+python scheduler.py all          # cleanup + image + expiry + renewal + delivery
 python scheduler.py delivery --date 2026-08-19   # override the date
 ```
 
@@ -170,30 +172,32 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 |-----|---------|
 | `plans` | Plan catalog: `{ "<plan>": { "amount": <int>, "days": <int> } }`. Drives pricing, UPI amount, and subscription length. |
 | `upi` | `payee_vpa`, `payee_name`, `currency` used to build the UPI intent string. |
-| `image_sources` | Ordered list of source keys defining **fallback priority** (e.g. `["temple","rss","website"]`). |
-| `image_source_config` | Per-source settings (URLs). Only sources present here **and** listed in `image_sources` are wired. |
+| `daily_image_rotation` | Weekday-to-source mapping. Multiple sources on a day are all downloaded; the largest valid result becomes canonical. |
+| `temple_sources` | Named temple page URLs and `enabled` flags used by the weekday rotation. |
+| `image_sources` / `image_source_config` | Legacy generic source fallback used only when no enabled named temple sources are configured. |
 | `image_validation` | `min_width`, `min_height`, `allowed_formats` for `ImageValidator`. |
 | `paths` | Relative paths to the CSV files and `images/` directory. |
 | `schedule` | Cron hints (documentation; actual cron lives in the workflow YAML). |
 | `renewal.reminder_days` | Days-before-expiry to send reminders, e.g. `[3, 1]`. |
 | `persistence` | Webhook durability. `mode`: `github_api` (webhook syncs CSVs to the shared repo via Contents API — needs `GITHUB_TOKEN`+`GITHUB_REPO`) or `local` (no sync; dev only). `branch`: repo branch to sync against. |
-| `delivery` | Delivery mode + message settings. `mode`: `utility_template` (send a parameterized utility template linking to a per-subscriber page) or `image` (send the image inline). `template_name`, `template_lang`, `page_base_url` (base for the per-subscriber URL), `pages_dir` (GitHub Pages source dir), `image_public_base` (public base URL for images), `caption` (`{date}` placeholder, image mode), `max_send_retries`. |
+| `delivery` | Delivery mode + message settings. `mode`: `utility_template` (send a parameterized utility template linking to a per-subscriber page) or `image` (send the image inline). Also controls template language, page/image URLs, retries, 30-day operational-log retention, image retention and page-retention grace. |
 
 ### Common config changes
 
 - **Change a price or plan length** — edit `plans.<plan>.amount` / `.days`. No code change.
 - **Add a new plan** — add a `plans` entry; it becomes selectable in the webhook automatically.
-- **Reorder / disable image sources** — edit the `image_sources` array. Remove a key to
-  disable it; reorder to change fallback priority.
-- **Point a source at a real site** — edit `image_source_config.<source>.*` URLs.
+- **Change the weekday rotation** — edit `daily_image_rotation.<weekday>`. When a weekday
+  lists multiple sources, the job stores every valid candidate and selects the largest.
+- **Enable, disable or repoint a temple** — edit `temple_sources.<source>`.
 - **Change reminder cadence** — edit `renewal.reminder_days` (only `3` and `1` are mapped
   to reminder types today; see [Extending](#extending-the-system) to add more).
 - **Change delivery caption** — edit `delivery.caption`.
+- **Change operational-log retention** — edit `delivery.log_retention_days` (currently `30`).
 - **Switch delivery mode** — set `delivery.mode`:
   - `utility_template` — sends an approved WhatsApp **utility template** whose `{{2}}` is a
     per-subscriber page URL (`page_base_url/<subscription_id>`); the darshan image lives on a
-    static GitHub Pages page. ~7× cheaper than marketing **if Meta classifies the template as
-    Utility** (not guaranteed — see the caveat in [DEPLOYMENT.md](./DEPLOYMENT.md)). Requires
+    static GitHub Pages page. Billing depends on Meta's assigned category and current rate;
+    verify both in WhatsApp Manager (see [DEPLOYMENT.md](./DEPLOYMENT.md)). Requires
     `template_name`, `page_base_url`, `pages_dir`, `image_public_base` and GitHub Pages enabled.
   - `image` — sends the image inline (Meta media upload, private-repo safe). Higher engagement,
     billed as Marketing.
@@ -220,6 +224,7 @@ environment variables (Tech Doc §19).
 | `GITHUB_TOKEN` | webhook durable persistence + `GitHubApiRepository` | Contents-API reads/writes so the webhook shares state with the scheduler (**required in production** with `persistence.mode=github_api`). In Actions, the built-in token + `contents: write` suffices. |
 | `GITHUB_REPO` | webhook persistence + scheduler | `owner/repo`. Used for the webhook's Contents-API sync and to build the public raw image URL. Auto-set in Actions via `${{ github.repository }}`; **set explicitly on the webhook host**. |
 | `GPG_PRIVATE_KEY` | GitHub Actions scheduler | **Required GitHub Actions secret** containing the ASCII-armored private key used to sign scheduler commits. Workflows fail rather than create unsigned commits if it is unavailable. Add the matching public key to the GitHub account so commits are marked Verified. |
+| `GPG_PASSPHRASE` | GitHub Actions scheduler | **Required GitHub Actions secret** that unlocks `GPG_PRIVATE_KEY` through non-interactive loopback/preset pinentry. The workflow performs a signing check before scheduled work. |
 | `DAILY_DARSHAN_CONFIG` | `config.py` | Optional path override for `config.json`. |
 
 - **GitHub Actions:** add secrets under *Settings → Secrets and variables → Actions*.
@@ -356,17 +361,22 @@ never guesses intent from free text. **Free text is accepted only for the user's
 ```
 User: (any message, e.g. "hi")
 Bot:  🙏 Welcome to Daily Darshan! What would you like to do?
-      [ Subscribe ]  [ Renew ]                         ← reply buttons (CTA ids)
+      [ Subscribe ]  [ Renew ]  [ Stop messages ]      ← reply buttons (CTA ids)
 User: (taps Subscribe)
 Bot:  Choose your Daily Darshan plan:                   ← list message
-      • Monthly   — ₹49 · 30 days
-      • Quarterly — ₹129 · 90 days
-      • Yearly    — ₹449 · 365 days
-User: (taps Quarterly)
+      • Starter — ₹9 · 3 days
+      • Weekly  — ₹69 · 30 days
+      • Monthly — ₹199 · 90 days
+      • Yearly  — ₹699 · 365 days
+User: (taps Monthly)
 Bot:  🙏 What name should we greet you by?               ← asked only if no name yet
 User: Deep                                              ← free text (name)
-Bot:  Namaste Deep! Plan: quarterly
-      Amount: ₹129
+Bot:  By continuing, you agree to receive daily darshan
+      and occasional subscription updates. Reply STOP anytime.
+      [ I agree ]  [ No thanks ]                        ← explicit consent
+User: (taps I agree)
+Bot:  Namaste Deep! Plan: monthly
+      Amount: ₹199
       Pay via UPI: upi://pay?...
       Reference: DD2608190001
       After paying, reply with your 12-digit UTR.
@@ -379,8 +389,8 @@ Returning subscriber:
 
 ```
 User: (taps Renew)
-Bot:  Namaste Deep! Renewing your quarterly plan.        ← existing plan, no name prompt
-      Amount: ₹129
+Bot:  Namaste Deep! Renewing your monthly plan.          ← existing plan, no name prompt
+      Amount: ₹199
       Pay via UPI: upi://pay?...
       Reference: DD2608190002
       After paying, reply with your 12-digit UTR.
@@ -402,6 +412,9 @@ Details:
   (not the default), greets by stored name, no name prompt. On admin verification, renewal
   **extends from the current expiry date** (not from today) so remaining days are never lost
   (Tech Doc §29). Renew from an unknown mobile falls back to the plan list.
+- **Consent gates payment.** A new or previously opted-out customer must tap `I agree`
+  before the UPI instruction is created. `No thanks`, `STOP`, `UNSUBSCRIBE`, or `CANCEL`
+  revokes delivery consent and confirms the opt-out.
 - The awaiting-name state is a flag on the subscriber row (`subscribers.csv`), so it survives
   across webhook calls without server-side session state.
 - Duplicate/re-delivered webhooks are deduped on the WhatsApp `message.id`, so re-taps/re-sends
@@ -414,24 +427,34 @@ Details:
 > approved template with buttons; within the window (the normal case, since the user just
 > messaged) the free-form interactive menu is used.
 
+Scheduled delivery uses `daily_darshan_delivery_update` (`en_US`) with customer name and
+personalized link. Renewal reminders use `daily_darshan_renewal` (`en_US`) with customer
+name and expiry date. Both templates must be approved and active in WhatsApp Manager.
+
 ---
 
 ## Scheduled Jobs
 
 | Workflow | Schedule (UTC) | Local time | Does |
 |----------|----------------|------------|------|
-| `image.yml` | `30 2 * * *` | 08:00 IST | Fetch → validate → store `images/YYYY-MM-DD.jpg`, then **(re)generate every subscriber's page** → commit. Image storage is idempotent (skips if a valid image already exists), but pages are regenerated **every run** so newly-signed-up subscribers get a page. |
-| `delivery.yml` | `0 3 * * *` | 08:30 IST | **Expire lapsed subscriptions** (ACTIVE past `end_date` → `EXPIRED`), send renewal reminders, then deliver today's darshan to eligible subscribers → update CSVs → commit. |
+| `image.yml` | `49 4 * * *` | 10:19 IST target | Test → verify GPG signing → prune operational logs → fetch all configured sources for the weekday → choose/store the largest valid canonical image → regenerate every subscriber page → signed commit. Manual runs support 1-, 2- or 7-day backfill. |
+| `delivery.yml` | `4 5 * * *` | 10:34 IST target | Validate WhatsApp secrets → test → verify GPG signing → prune logs → expire lapsed subscriptions → send renewal reminders → deliver today's personalized page link → signed commits. |
+| `pages.yml` | Manual only | On demand | Regenerate all pages from today's stored canonical image without fetching remote images. |
+
+GitHub cron schedules are targets rather than exact start-time guarantees and may be delayed
+under runner load. Workflow YAML is authoritative; `config.json.schedule` is informational.
 
 **Idempotency** (safe to re-run):
 - Delivery keys on `date + mobile` in `sentlog.csv` (only `SENT` rows block re-send).
 - Renewal reminders key on `mobile + reminder_type + expiry_date` in `renewals.csv`.
+- `logs.csv` and `sentlog.csv` retain the inclusive latest 30 calendar days. Cleanup is
+  idempotent and creates no commit when nothing is old enough to remove.
 - The **expiry sweep** only transitions `ACTIVE` subscribers whose `end_date` has passed; an
   already-`EXPIRED` subscriber is skipped, so re-runs are safe. `PAUSED` (intentional hold)
   and `CANCELLED` (terminal) are never auto-expired.
-- Image collection skips replacement when a valid dated image already exists — **but page
-  generation still runs**, so a subscriber who joined after the image was stored still gets
-  their page on the next image run.
+- Image collection fetches the configured weekday sources on every run, stores every valid
+  source candidate, and selects the largest as the canonical dated image. Page generation
+  also runs every time, so a subscriber added later still receives a refreshed page.
 
 **Subscription expiry.** Eligibility is date-gated (an expired subscriber is excluded from
 delivery/reminders regardless of stored status), but the `delivery.yml` workflow also runs an
@@ -471,13 +494,14 @@ Because both write CSVs on `main`, two mechanisms keep them from clobbering each
    files. The one true overlap is `subscribers.csv` (webhook opt-in vs. the nightly expiry
    sweep). `sweep_expired` therefore **re-reads each subscriber row fresh right before
    flipping status** and only changes the status field, so a subscriber the webhook added or
-   updated concurrently is preserved rather than overwritten by a stale snapshot. `logs.csv`
-   is **append-only**, so log rows from both sides merge without row-level conflicts.
+   updated concurrently is preserved rather than overwritten by a stale snapshot. Normal
+   `logs.csv` writes are append-only; scheduled cleanup atomically removes rows outside the
+   30-day window during the protected quiet window.
 
 2. **Defer-push quiet window.** During the nightly job window the webhook **defers its
    pushes** so it never writes on top of an in-flight scheduler commit. The window is
    configured in `config.json` under `persistence.quiet_window_utc` (currently `04:40`–`05:20`
-   UTC, bracketing the 04:49 image and 05:00 delivery jobs). While inside the window, webhook
+   UTC (10:10–10:50 IST), bracketing the 04:49 image and 05:04 delivery targets). While inside the window, webhook
    writes stay on local disk and are **flushed by the first push after the window closes**;
    pulls are always allowed so the webhook keeps reading fresh state.
 
@@ -504,7 +528,7 @@ payment (Tech Doc §6/§15).
 - **Verify a payment (manual):** open `csv/payments.csv`, find the row by
   `reference_id`/`utr`, confirm the actual UPI transaction, set `status` to `SUCCESS`,
   commit. Then activate the subscriber via the subscriber service.
-- **Override the daily image:** replace `images/YYYY-MM-DD.jpg` and commit.
+- **Override the daily image:** replace `docs/images/YYYY-MM-DD.jpg` and commit.
 - Git history serves as the audit trail for all of the above.
 
 ---
