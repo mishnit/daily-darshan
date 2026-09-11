@@ -129,7 +129,10 @@ class PageRenderer:
         greeting = f"Namaste {safe_name.title()} Ji 🙏" if safe_name else "Namaste Ji 🙏"
         renewal_reminder = self._renewal_reminder(subscriber, on_date)
         image_url = self.image_url(on_date, images_dir, image_name)
-        share_text = f"Radhe Radhe 🙏\n\nToday's HD Daily Darshan:\n{image_url}"
+        share_text = (
+            f"Radhe Radhe 🙏\n\nToday's HD Daily Darshan:\n{image_url}"
+            "\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/"
+        )
         return _TEMPLATE.format(
             date=html.escape(on_date.isoformat()),
             status_text=html.escape(f"{status_text} — {on_date.isoformat()}"),

@@ -257,6 +257,7 @@ def test_page_renderer_uses_opaque_daily_image_name():
     share_text = (
         "Radhe Radhe 🙏\n\nToday's HD Daily Darshan:\n"
         f"https://vipseva.com/images/{opaque_name}"
+        "\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/"
     )
     assert f"https://wa.me/?text={quote(share_text, safe='')}" in html_text
     assert "Share this HD Daily Darshan image with friends and family on WhatsApp." in html_text
