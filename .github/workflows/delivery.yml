@@ -2,7 +2,6 @@ name: Daily Delivery
 
 on:
   schedule:
-    # 10:34 AM IST (GitHub cron is UTC).
     - cron: "34 5 * * *"
     
   workflow_dispatch: {}
