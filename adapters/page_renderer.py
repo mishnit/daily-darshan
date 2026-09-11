@@ -89,11 +89,13 @@ class PageRenderer:
         )
         self._renewal_window_days = max(0, int(renewal_window_days))
 
-    def image_url(self, on_date: date, images_dir: str | None = None) -> str:
+    def image_url(self, on_date: date, images_dir: str | None = None,
+                  image_name: str | None = None) -> str:
         # images_dir is accepted for backward-compat but the public URL uses the
         # configured public path segment, not the on-disk directory.
         seg = self._image_url_path
-        return f"{self._image_public_base}/{seg}/{on_date.isoformat()}.jpg"
+        name = image_name or f"{on_date.isoformat()}.jpg"
+        return f"{self._image_public_base}/{seg}/{name}"
 
     def fallback_url(self, images_dir: str | None = None, fallback_name: str = "fallback.jpg") -> str:
         """Public URL of the safety-net image used when a dated image is gone
@@ -108,7 +110,8 @@ class PageRenderer:
         return " ".join(word.upper() if word.lower() == "iskcon" else word.title() for word in words if word)
 
     def render_html(self, subscriber: Subscriber, on_date: date, delivered: bool,
-                    images_dir: str | None = None, source: str = "") -> str:
+                    images_dir: str | None = None, source: str = "",
+                    image_name: str | None = None) -> str:
         status_text = "Delivered" if delivered else "Ready"
         from domain.subscriber import sanitize_display_name
         safe_name = sanitize_display_name(subscriber.name, "")
@@ -119,7 +122,7 @@ class PageRenderer:
         return _TEMPLATE.format(
             date=html.escape(on_date.isoformat()),
             status_text=html.escape(f"{status_text} — {on_date.isoformat()}"),
-            image_url=html.escape(self.image_url(on_date, images_dir)),
+            image_url=html.escape(self.image_url(on_date, images_dir, image_name)),
             fallback_url=html.escape(self.fallback_url(images_dir)),
             plan=html.escape(subscriber.plan or "—"),
             end_date=html.escape(subscriber.end_date.isoformat() if subscriber.end_date else "—"),
@@ -157,7 +160,8 @@ class PageRenderer:
         return os.path.join(self._pages_dir, subscription_id, "index.html")
 
     def write_page(self, subscriber: Subscriber, on_date: date, delivered: bool = True,
-                   images_dir: str = "images", root: str = ".", source: str = "") -> str | None:
+                   images_dir: str = "images", root: str = ".", source: str = "",
+                   image_name: str | None = None) -> str | None:
         """Write the per-subscriber page. Returns the relative path written,
         or None if the subscriber has no subscription_id."""
         if not subscriber.subscription_id:
@@ -166,15 +170,20 @@ class PageRenderer:
         full = os.path.join(root, rel_path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "w", encoding="utf-8") as fh:
-            fh.write(self.render_html(subscriber, on_date, delivered, images_dir, source))
+            fh.write(self.render_html(
+                subscriber, on_date, delivered, images_dir, source, image_name
+            ))
         return rel_path
 
     def write_all(self, subscribers: list[Subscriber], on_date: date,
                   delivered: bool = True, images_dir: str = "images",
-                  root: str = ".", source: str = "") -> list[str]:
+                  root: str = ".", source: str = "",
+                  image_name: str | None = None) -> list[str]:
         written = []
         for sub in subscribers:
-            path = self.write_page(sub, on_date, delivered, images_dir, root, source)
+            path = self.write_page(
+                sub, on_date, delivered, images_dir, root, source, image_name
+            )
             if path:
                 written.append(path)
         return written

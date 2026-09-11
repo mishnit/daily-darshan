@@ -438,6 +438,10 @@ Subscriber pages show a **Renew on WhatsApp** CTA from the largest configured
 `renewal.reminder_days` value through the post-expiry page grace period. The link opens
 `renewal.whatsapp_number` with `RENEW` prefilled; use international digits without `+`.
 
+New daily and source-candidate image filenames use a random UUID prefix, and subscriber pages
+reference that persisted opaque filename. Image, page-repair, and delivery runs rediscover and
+reuse the same name for the date; legacy date-only filenames remain readable during migration.
+
 The delivery workflow queues overlapping runs and sends renewal reminders before the daily
 darshan message. It waits five minutes between those stages by default, so a subscriber who
 receives both messages on the same day is not contacted twice at once. Set the GitHub Actions

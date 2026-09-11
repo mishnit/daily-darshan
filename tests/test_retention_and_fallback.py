@@ -74,6 +74,22 @@ def test_prune_images_removes_all_candidates_for_old_dates(tmp_path):
     assert not any(name.startswith("2026-08-18") for name in os.listdir(imgs))
 
 
+def test_prune_images_understands_uuid_prefixed_daily_images(tmp_path):
+    imgs = tmp_path / "images"
+    old_uuid = "11111111-1111-4111-8111-111111111111"
+    new_uuid = "22222222-2222-4222-8222-222222222222"
+    _touch(str(imgs / f"{old_uuid}_2026-08-19.jpg"))
+    _touch(str(imgs / f"{old_uuid}_2026-08-19_mayapur.jpg"))
+    _touch(str(imgs / f"{new_uuid}_2026-08-20.jpg"))
+
+    removed = _image_service().prune_images(keep=1, root=str(tmp_path))
+
+    assert removed == [
+        os.path.join("images", f"{old_uuid}_2026-08-19.jpg"),
+        os.path.join("images", f"{old_uuid}_2026-08-19_mayapur.jpg"),
+    ]
+
+
 def test_prune_images_is_idempotent(tmp_path):
     imgs = tmp_path / "images"
     for d in ["2026-08-01", "2026-08-02", "2026-08-03"]:

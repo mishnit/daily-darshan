@@ -243,6 +243,18 @@ def test_page_renderer_writes_per_subscription_file(tmp_path):
     assert "9199" not in html_text
 
 
+def test_page_renderer_uses_opaque_daily_image_name():
+    renderer = PageRenderer(image_public_base="https://vipseva.com")
+    opaque_name = "12345678-1234-4234-8234-123456789abc_2026-08-19.jpg"
+    sub = Subscriber(mobile="9199", plan="monthly")
+
+    html_text = renderer.render_html(
+        sub, date(2026, 8, 19), delivered=True, image_name=opaque_name
+    )
+
+    assert f"https://vipseva.com/images/{opaque_name}" in html_text
+
+
 def test_page_renderer_title_cases_greeting_and_shows_temple_source():
     renderer = PageRenderer(image_public_base="https://u.github.io/dd")
     sub = Subscriber(mobile="9199", plan="monthly", name="nitin mishra")

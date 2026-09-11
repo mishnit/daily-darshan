@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import io
+import os
 from datetime import date
+from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -146,8 +149,38 @@ def test_image_service_force_refreshes_existing_valid_image():
     assert result is replacement
 
 
-def test_image_service_candidate_path_uses_source_name():
-    service = ImageService(None, None, "docs/images")
-    assert service.candidate_path(date(2026, 8, 26), "ISKCON Bangalore") == (
-        "docs/images/2026-08-26_iskcon_bangalore.jpg"
-    )
+def test_image_service_candidate_path_uses_source_name(tmp_path):
+    images = tmp_path / "images"
+    images.mkdir()
+    service = ImageService(None, None, str(images))
+    path = service.candidate_path(date(2026, 8, 26), "ISKCON Bangalore")
+    prefix, suffix = os.path.basename(path).split("_", 1)
+    assert UUID(prefix).version == 4
+    assert suffix == "2026-08-26_iskcon_bangalore.jpg"
+
+    Path(path).write_bytes(b"candidate")
+    assert service.candidate_path(date(2026, 8, 26), "ISKCON Bangalore") == path
+
+
+def test_image_service_allocates_and_reuses_opaque_canonical_path(tmp_path):
+    images = tmp_path / "images"
+    images.mkdir()
+    service = ImageService(None, None, str(images))
+
+    allocated = service.canonical_path(date(2026, 8, 26))
+    prefix, suffix = os.path.basename(allocated).split("_", 1)
+    assert UUID(prefix).version == 4
+    assert suffix == "2026-08-26.jpg"
+
+    Path(allocated).write_bytes(b"daily-image")
+    assert service.canonical_path(date(2026, 8, 26), create=False) == allocated
+
+
+def test_image_service_keeps_legacy_canonical_path_readable(tmp_path):
+    images = tmp_path / "images"
+    images.mkdir()
+    legacy = images / "2026-08-26.jpg"
+    legacy.write_bytes(b"legacy")
+    service = ImageService(None, None, str(images))
+
+    assert service.canonical_path(date(2026, 8, 26), create=False) == str(legacy)
