@@ -97,7 +97,14 @@ jobs:
           for offset in $(seq $((BACKFILL_DAYS - 1)) -1 1); do
             image_date="$(TZ=Asia/Kolkata date -d "today - ${offset} days" +%F)"
             echo "Fetching image for ${image_date}"
-            python scheduler.py image-only --date "$image_date"
+            if ! python scheduler.py image-only --date "$image_date"; then
+              echo "::warning title=Historical image unavailable::Could not store an image for ${image_date}; continuing to today's required image"
+            fi
           done
           # Today's normal job stores the image and refreshes subscriber pages.
           python scheduler.py image
+
+      - name: Expire subscriptions and prune inactive pages before publication
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+        run: python scheduler.py expiry

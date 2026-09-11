@@ -2,7 +2,7 @@ name: Daily Delivery
 
 on:
   workflow_run:
-    workflows: ["Daily Image"]
+    workflows: ["Deploy Daily Darshan Pages"]
     types: [completed]
   workflow_dispatch: {}
 

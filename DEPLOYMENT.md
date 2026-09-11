@@ -98,19 +98,20 @@ GPG public key to the GitHub account; a successful scheduler commit should displ
 
 ### D. Confirm the workflows are registered
 
-Once pushed, `.github/workflows/image.yml` and `.github/workflows/delivery.yml` appear
-under the **Actions** tab automatically. They run on schedule:
+Once pushed, the image, Pages-deployment and delivery workflows appear under **Actions**.
+Only Daily Image has a cron; successful completion advances through the gated chain:
 
 | Workflow | Cron (UTC) | Local time | Action |
 |----------|-----------|------------|--------|
-| **Daily Image** (`image.yml`) | `49 4 * * *` | 10:19 IST | Prune 30-day logs, fetch all weekday sources, store source candidates plus the largest canonical `docs/images/YYYY-MM-DD.jpg`, regenerate pages → signed commit |
-| **Daily Delivery** (`delivery.yml`) | `4 5 * * *` | 10:34 IST | Prune 30-day logs, expire lapsed subscriptions (`ACTIVE`→`EXPIRED`), send renewal reminders, deliver today's page link → signed commits |
+| **Daily Image** (`image.yml`) | `1 3 * * *` | 08:31 IST target | Prune logs, store UUID-prefixed candidates/canonical image, regenerate pages, expire subscribers and prune inactive pages/old images → signed commits |
+| **Deploy Daily Darshan Pages** (`deploy-pages.yml`) | Event-driven | After successful image | Publish `docs/` once through GitHub Actions |
+| **Daily Delivery** (`delivery.yml`) | Event-driven | After successful Pages deployment | Renewal reminder or today's published page link, at most one successful contact per subscriber/date |
 
 ### E. Test without waiting for the cron (manual run)
 
-Both workflows support `workflow_dispatch`:
+The image, Pages-deployment and delivery workflows support `workflow_dispatch`:
 
-1. **Actions** tab → pick **Daily Image** (or **Daily Delivery**) → **Run workflow** →
+1. **Actions** tab → pick **Daily Image** (or a recovery workflow) → **Run workflow** →
    select `main` → **Run workflow**.
 2. Watch the run: it checks out the repo, installs deps, runs `pytest`, executes the job,
    verifies the signing key/passphrase, executes the job, and commits results back to the repository.
@@ -134,8 +135,9 @@ depends on Meta's assigned category and current country rate; verify both in Wha
 
 ### One-time setup
 
-1. **Enable GitHub Pages** — repo → **Settings → Pages** → *Deploy from a branch* → branch
-   `main`, folder **`/docs`**. Pages are written to `docs/<subscription_id>/index.html`.
+1. **Enable GitHub Pages** — repo → **Settings → Pages** → *Build and deployment* → source
+   **GitHub Actions**. Pages are written to `docs/<subscription_id>/index.html` and published
+   by `Deploy Daily Darshan Pages` before WhatsApp delivery begins.
    > Pages is public. Pages carry no PII (no mobile number) and use an unguessable
    > `subscription_id` in the path, plus `noindex`. Confirm you're comfortable with per-subscriber
    > status pages being publicly reachable by URL.
@@ -144,10 +146,11 @@ depends on Meta's assigned category and current country rate; verify both in Wha
    - The daily **image job** (`scheduler.py image`) regenerates *all* subscriber pages on
      every run — even when today's image already exists — so anyone who signed up since the
      last run gets a page.
-   - **Activation** (`admin.py verify --activate`) renders that one subscriber's page
-     immediately, so a mid-day signup has a working URL without waiting for the next image job.
-   - GitHub Pages publishes a commit in ~1 minute, so a page is reachable shortly after the
-     commit that creates it (not instantaneously).
+   - **Activation** (`admin.py verify --activate`) renders that one subscriber's page locally
+     and `--commit` pushes it. A commit is not a deployment: for a mid-day publication, manually
+     run **Deploy Daily Darshan Pages** after reviewing the page. A successful manual deployment
+     then starts Daily Delivery.
+   - A page becomes reachable only after the Pages deployment succeeds.
 
 2. **Set the config URLs** in `config.json` → `delivery`:
    - `page_base_url` — the base users are sent to, e.g. `https://<user>.github.io/daily-darshan/docs`
@@ -274,8 +277,9 @@ happens — approval is a deliberate human trust gate (Tech Doc §6).
      ```
      This marks the payment `SUCCESS` (sets `verified_at`), transitions the subscriber
      `PENDING -> ACTIVE` with `start_date`/`end_date` computed from the plan, **renders that
-     subscriber's GitHub Pages page immediately** (so their utility-template URL works right
-     away in `utility_template` mode), and commits the changed CSVs + `docs/` page. Omit
+     subscriber's GitHub Pages page**, and commits the changed CSVs + `docs/` page. It is not
+     public until the next Pages deployment; run **Deploy Daily Darshan Pages** manually when
+     immediate publication/delivery is required. Omit
      `--commit` to review before committing yourself; omit `--activate` to only verify the
      payment.
 
