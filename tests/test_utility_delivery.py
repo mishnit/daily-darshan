@@ -267,17 +267,17 @@ def test_page_renderer_shows_only_compact_delivery_details_above_image():
     assert "Namaste Nitin Mishra Ji 🙏" in html_text
     assert "Delivered date:" not in html_text
     assert "Source:" not in html_text
-    assert "<strong>Subscription expiry:</strong>" in html_text
+    assert "Subscription expiry:" not in html_text
     assert "<strong>Plan</strong>" not in html_text
-    assert html_text.index('class="delivery-summary"') < html_text.index('class="darshan"')
-    assert html_text.index("Subscription expiry") < html_text.index('class="darshan"')
+    assert 'class="delivery-summary"' not in html_text
 
 
 @pytest.mark.parametrize(("days_remaining", "message"), [
     (3, "expires in 3 days"),
+    (2, "expires in 2 days"),
     (1, "expires tomorrow"),
     (0, "expires today"),
-    (-1, "has expired"),
+    (-1, "expired on"),
 ])
 def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, message):
     from datetime import timedelta
@@ -296,9 +296,10 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
     html_text = renderer.render_html(sub, on_date, delivered=True)
 
     assert message in html_text
+    assert sub.end_date.isoformat() in html_text
+    assert "Subscription expiry:" not in html_text
     assert 'href="https://wa.me/15556757329?text=RENEW"' in html_text
     assert ">Renew on WhatsApp</a>" in html_text
-    assert html_text.index('class="delivery-summary"') < html_text.index('class="renewal"')
     assert html_text.index('class="renewal"') < html_text.index('class="darshan"')
 
 

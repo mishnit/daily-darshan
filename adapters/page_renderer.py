@@ -39,11 +39,6 @@ _TEMPLATE = """<!DOCTYPE html>
              margin: 0 auto; padding: 10px; text-align: center; }}
     h1 {{ flex: 0 0 auto; margin: 0; color: #34291f; font-size: 1.05rem; line-height: 1.2; }}
     .greeting {{ flex: 0 0 auto; color: #53483c; font-size: .86rem; font-weight: 600; }}
-    .delivery-summary {{ flex: 0 0 auto; padding: 8px 10px; border: 1px solid #eadfce;
-                         border-radius: 10px; background: #fffdf9; color: #53483c;
-                         font-size: .78rem; line-height: 1.4; }}
-    .delivery-summary strong {{ color: #34291f; }}
-    .separator {{ padding: 0 3px; color: #b09c85; }}
     img.darshan {{ display: block; flex: 1 1 0; min-height: 0; width: 100%;
                    border-radius: 12px; object-fit: contain;
                    box-shadow: 0 4px 16px rgba(0,0,0,.12); }}
@@ -58,9 +53,6 @@ _TEMPLATE = """<!DOCTYPE html>
   <div class="wrap">
     <h1>🙏 Daily Darshan</h1>
     <div class="greeting">{greeting}</div>
-    <section class="delivery-summary" aria-label="Delivery and subscription details">
-      <strong>Subscription expiry:</strong> {end_date}
-    </section>
     {renewal_reminder}
     <img class="darshan" src="{image_url}" alt="Daily Darshan for {date}"
          onerror="this.onerror=null; this.src='{fallback_url}';">
@@ -126,7 +118,6 @@ class PageRenderer:
             greeting=html.escape(greeting),
             image_url=html.escape(self.image_url(on_date, images_dir, image_name)),
             fallback_url=html.escape(self.fallback_url(images_dir)),
-            end_date=html.escape(subscriber.end_date.isoformat() if subscriber.end_date else "—"),
             renewal_reminder=renewal_reminder,
         )
 
@@ -137,13 +128,13 @@ class PageRenderer:
         if days_remaining > self._renewal_window_days:
             return ""
         if days_remaining > 1:
-            message = f"Your subscription expires in {days_remaining} days."
+            message = f"Your subscription expires in {days_remaining} days on {subscriber.end_date.isoformat()}."
         elif days_remaining == 1:
-            message = "Your subscription expires tomorrow."
+            message = f"Your subscription expires tomorrow, on {subscriber.end_date.isoformat()}."
         elif days_remaining == 0:
-            message = "Your subscription expires today."
+            message = f"Your subscription expires today, on {subscriber.end_date.isoformat()}."
         else:
-            message = "Your subscription has expired."
+            message = f"Your subscription expired on {subscriber.end_date.isoformat()}."
         renew_url = (
             f"https://wa.me/{self._renewal_whatsapp_number}"
             f"?text={quote('RENEW', safe='')}"
