@@ -91,7 +91,29 @@ jobs:
           WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
         run: python scheduler.py renewal
 
+      - name: Keep renewal and delivery messages apart
+        id: message_gap
+        env:
+          WHATSAPP_MESSAGE_GAP_SECONDS: ${{ vars.WHATSAPP_MESSAGE_GAP_SECONDS || '300' }}
+        run: |
+          gap_seconds="${WHATSAPP_MESSAGE_GAP_SECONDS:-300}"
+          case "$gap_seconds" in
+            ''|*[!0-9]*)
+              echo "::error title=Invalid message gap::WHATSAPP_MESSAGE_GAP_SECONDS must be a non-negative whole number"
+              exit 1
+              ;;
+          esac
+          if [ "$gap_seconds" -eq 0 ]; then
+            echo "deliver=false" >> "$GITHUB_OUTPUT"
+            echo "Reminder-only mode enabled; skipping Daily Darshan delivery"
+            exit 0
+          fi
+          echo "deliver=true" >> "$GITHUB_OUTPUT"
+          echo "Waiting ${gap_seconds} seconds before Daily Darshan delivery"
+          sleep "$gap_seconds"
+
       - name: Deliver today's image
+        if: steps.message_gap.outputs.deliver == 'true'
         env:
           GITHUB_REPO: ${{ github.repository }}
           WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}

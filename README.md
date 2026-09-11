@@ -438,6 +438,13 @@ Subscriber pages show a **Renew on WhatsApp** CTA from the largest configured
 `renewal.reminder_days` value through the post-expiry page grace period. The link opens
 `renewal.whatsapp_number` with `RENEW` prefilled; use international digits without `+`.
 
+The delivery workflow queues overlapping runs and sends renewal reminders before the daily
+darshan message. It waits five minutes between those stages by default, so a subscriber who
+receives both messages on the same day is not contacted twice at once. Set the GitHub Actions
+repository variable `WHATSAPP_MESSAGE_GAP_SECONDS` to another non-negative whole number to
+change the gap. Set it to `0` for reminder-only mode; the daily darshan delivery step is then
+skipped.
+
 ---
 
 ## Scheduled Jobs
