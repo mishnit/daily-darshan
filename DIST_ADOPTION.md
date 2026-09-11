@@ -38,7 +38,7 @@ Primary audiences:
 Use inbound-first acquisition through temple/community QR codes, `wa.me` links, referrals,
 organic devotional posts and measured Click-to-WhatsApp campaigns. The ideal first session is:
 
-1. Customer sends “Hi”.
+1. Customer sends “Radhe Radhe”.
 2. Welcome menu offers Subscribe, Renew and Stop messages.
 3. Subscribe opens the complete plan list with price and exact duration.
 4. The service captures a greeting name when needed.
@@ -91,7 +91,7 @@ Review the funnel weekly:
 
 | Stage | Primary metric |
 |---|---|
-| Reach | QR/wa.me/advert click → inbound “Hi” |
+| Reach | QR/wa.me/advert click → inbound “Radhe Radhe” |
 | Intent | Welcome → Subscribe or Renew CTA rate |
 | Choice | Plan-list view → plan selection |
 | Consent | Plan selection → opt-in acceptance |

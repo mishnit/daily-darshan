@@ -136,7 +136,7 @@ def test_webhook_rejects_bad_signature(webhook):
 def test_webhook_accepts_valid_signature(webhook):
     _, client, fake = webhook
     # Any typed text now yields the CTA menu (buttons), not a subscription.
-    body = json.dumps(_msg(text="hi")).encode()
+    body = json.dumps(_msg(text="Radhe Radhe")).encode()
     resp = client.post("/webhook", content=body,
                        headers={"X-Hub-Signature-256": _sign("s3cret", body)})
     assert resp.status_code == 200
