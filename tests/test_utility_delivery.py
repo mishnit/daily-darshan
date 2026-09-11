@@ -298,7 +298,7 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
     on_date = date(2026, 9, 10)
     renderer = PageRenderer(
         image_public_base="https://vipseva.com",
-        renewal_whatsapp_number="+1 (555) 675-7329",
+        renewal_whatsapp_number="+91 (636) 169-9109",
         renewal_window_days=3,
     )
     sub = Subscriber(
@@ -311,7 +311,7 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
     assert message in html_text
     assert sub.end_date.isoformat() in html_text
     assert "Subscription expiry:" not in html_text
-    assert 'href="https://wa.me/15556757329?text=RENEW"' in html_text
+    assert 'href="https://wa.me/916361699109?text=RENEW"' in html_text
     assert ">Renew on WhatsApp</a>" in html_text
     assert ".renewal a { background: #c62828; }" in html_text
     assert ".share a { background: #198754; }" in html_text
@@ -322,7 +322,7 @@ def test_page_renderer_shows_whatsapp_renewal_near_expiry(days_remaining, messag
 def test_page_renderer_hides_renewal_before_configured_window():
     renderer = PageRenderer(
         image_public_base="https://vipseva.com",
-        renewal_whatsapp_number="15556757329",
+        renewal_whatsapp_number="916361699109",
         renewal_window_days=3,
     )
     sub = Subscriber(mobile="9199", plan="monthly", end_date=date(2026, 9, 14))
@@ -330,7 +330,7 @@ def test_page_renderer_hides_renewal_before_configured_window():
     html_text = renderer.render_html(sub, date(2026, 9, 10), delivered=True)
 
     assert "Renew on WhatsApp" not in html_text
-    assert "https://wa.me/15556757329?text=RENEW" not in html_text
+    assert "https://wa.me/916361699109?text=RENEW" not in html_text
     assert ">Share on WhatsApp</a>" in html_text
     assert ">Join Vip Seva on Whatsapp</a>" not in html_text
 
@@ -344,7 +344,7 @@ def test_page_renderer_hides_renewal_before_configured_window():
 def test_non_subscriber_page_has_vip_seva_request_button(page_path):
     html_text = Path(page_path).read_text(encoding="utf-8")
 
-    assert 'href="https://wa.me/15556757329?text=Radhe%20Radhe"' in html_text
+    assert 'href="https://wa.me/916361699109?text=Radhe%20Radhe"' in html_text
 
 
 @pytest.mark.parametrize("index_path", ["docs/index.html", "docs/images/index.html"])
