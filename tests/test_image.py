@@ -184,3 +184,8 @@ def test_image_service_keeps_legacy_canonical_path_readable(tmp_path):
     service = ImageService(None, None, str(images))
 
     assert service.canonical_path(date(2026, 8, 26), create=False) == str(legacy)
+    migrated = service.canonical_path(date(2026, 8, 26), create=True)
+    prefix, suffix = os.path.basename(migrated).split("_", 1)
+    assert UUID(prefix).version == 4
+    assert suffix == "2026-08-26.jpg"
+    assert migrated != str(legacy)

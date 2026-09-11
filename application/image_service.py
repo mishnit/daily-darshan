@@ -155,7 +155,7 @@ class ImageService:
             if matches:
                 return os.path.join(self._images_dir, matches[0])
             legacy = os.path.join(self._images_dir, f"{date_name}.jpg")
-            if os.path.isfile(legacy):
+            if not create and os.path.isfile(legacy):
                 return legacy
         if not create:
             return os.path.join(self._images_dir, f"{date_name}.jpg")
@@ -191,7 +191,8 @@ class ImageService:
         Retention policy (section 10/11 hygiene):
           - Keep the ``keep`` most recent dates, including each date's canonical
             UUID-prefixed canonical and source-candidate images for that date.
-            Legacy ``YYYY-MM-DD...`` names are retained during migration.
+            Legacy ``YYYY-MM-DD...`` names are removed once a UUID-prefixed
+            canonical image exists for the same date.
           - Always keep ``fallback_name`` if present (the safety-net image).
           - Delete every other .jpg in the images dir.
 
@@ -208,6 +209,15 @@ class ImageService:
             rf"^{uuid_prefix}(\d{{4}}-\d{{2}}-\d{{2}})(?:_[a-z0-9][a-z0-9_-]*)?\.jpg$",
             re.I,
         )
+        uuid_canonical_re = re.compile(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-"
+            r"[0-9a-f]{12}_(\d{4}-\d{2}-\d{2})\.jpg$",
+            re.I,
+        )
+        legacy_re = re.compile(
+            r"^(\d{4}-\d{2}-\d{2})(?:_[a-z0-9][a-z0-9_-]*)?\.jpg$",
+            re.I,
+        )
         abs_dir = os.path.join(root, self._images_dir)
         if not os.path.isdir(abs_dir):
             return []
@@ -222,15 +232,28 @@ class ImageService:
         dates = sorted(dated, reverse=True)
         dates_to_delete = dates[keep:] if keep >= 0 else []
 
+        names_to_delete = {
+            name
+            for date_str in dates_to_delete
+            for name in dated[date_str]
+        }
+        # A successful UUID canonical write completes migration for that date.
+        # Remove all predictable legacy aliases, including source candidates.
+        for date_str, names in dated.items():
+            if any(uuid_canonical_re.match(name) for name in names):
+                names_to_delete.update(
+                    name for name in names
+                    if (match := legacy_re.match(name)) and match.group(1) == date_str
+                )
+
         removed: list[str] = []
-        for date_str in dates_to_delete:
-            for name in sorted(dated[date_str]):
-                if name == fallback_name:
-                    continue
-                full = os.path.join(abs_dir, name)
-                try:
-                    os.remove(full)
-                except FileNotFoundError:
-                    continue
-                removed.append(os.path.join(self._images_dir, name))
+        for name in sorted(names_to_delete):
+            if name == fallback_name:
+                continue
+            full = os.path.join(abs_dir, name)
+            try:
+                os.remove(full)
+            except FileNotFoundError:
+                continue
+            removed.append(os.path.join(self._images_dir, name))
         return removed

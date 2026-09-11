@@ -90,6 +90,26 @@ def test_prune_images_understands_uuid_prefixed_daily_images(tmp_path):
     ]
 
 
+def test_prune_images_removes_legacy_aliases_after_uuid_migration(tmp_path):
+    imgs = tmp_path / "images"
+    image_uuid = "22222222-2222-4222-8222-222222222222"
+    _touch(str(imgs / "2026-08-20.jpg"))
+    _touch(str(imgs / "2026-08-20_mayapur.jpg"))
+    _touch(str(imgs / f"{image_uuid}_2026-08-20.jpg"))
+    _touch(str(imgs / f"{image_uuid}_2026-08-20_mayapur.jpg"))
+
+    removed = _image_service().prune_images(keep=7, root=str(tmp_path))
+
+    assert removed == [
+        os.path.join("images", "2026-08-20.jpg"),
+        os.path.join("images", "2026-08-20_mayapur.jpg"),
+    ]
+    assert sorted(os.listdir(imgs)) == [
+        f"{image_uuid}_2026-08-20.jpg",
+        f"{image_uuid}_2026-08-20_mayapur.jpg",
+    ]
+
+
 def test_prune_images_is_idempotent(tmp_path):
     imgs = tmp_path / "images"
     for d in ["2026-08-01", "2026-08-02", "2026-08-03"]:
