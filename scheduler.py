@@ -57,7 +57,22 @@ def _render_pages(container: Container, on_date: date, source: str = "",
     )
 
 
-def _canonical_jpeg(data: bytes) -> bytes:
+def _source_display_name(source: str) -> str:
+    words = source.strip().replace("-", "_").split("_")
+    return " ".join(
+        word.upper() if word.lower() == "iskcon" else word.title()
+        for word in words if word
+    )
+
+
+def _watermark_details(on_date: date, source: str) -> str:
+    return (
+        f"Delivered date: {on_date.isoformat()} · "
+        f"Source: {_source_display_name(source) or 'Unknown'}"
+    )
+
+
+def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str = "") -> bytes:
     """Normalize and brand decoded remote images before storage/page rendering."""
     try:
         import io
@@ -65,7 +80,7 @@ def _canonical_jpeg(data: bytes) -> bytes:
         with PILImage.open(io.BytesIO(data)) as source:
             image = source.convert("RGB")
             width, height = image.size
-            footer_top = height - max(1, round(height * 0.18))
+            footer_top = height - max(1, round(height * 0.24))
             draw = ImageDraw.Draw(image)
             draw.rectangle((0, footer_top, width, height), fill=(96, 96, 96))
 
@@ -90,13 +105,26 @@ def _canonical_jpeg(data: bytes) -> bytes:
 
             title_font = font(max(12, round(height * 0.06)), bold=True)
             site_font = font(max(10, round(height * 0.035)))
+            details_font = font(max(9, round(height * 0.022)))
             title_box = draw.textbbox((0, 0), "VIP Seva", font=title_font)
             site_box = draw.textbbox((0, 0), "www.vipseva.com", font=site_font)
+            details = _watermark_details(on_date, source_name) if on_date else ""
+            details_box = draw.textbbox((0, 0), details, font=details_font)
+            gap = max(4, height // 100)
             footer_height = height - footer_top
-            content_height = (title_box[3] - title_box[1]) + (site_box[3] - site_box[1]) + max(4, height // 100)
+            content_height = (
+                (title_box[3] - title_box[1])
+                + (site_box[3] - site_box[1])
+                + (details_box[3] - details_box[1] if details else 0)
+                + gap * (2 if details else 1)
+            )
             first_y = footer_top + max(0, (footer_height - content_height) // 2)
             centered("VIP Seva", first_y, title_font)
-            centered("www.vipseva.com", first_y + (title_box[3] - title_box[1]) + max(4, height // 100), site_font)
+            site_y = first_y + (title_box[3] - title_box[1]) + gap
+            centered("www.vipseva.com", site_y, site_font)
+            if details:
+                details_y = site_y + (site_box[3] - site_box[1]) + gap
+                centered(details, details_y, details_font)
 
             out = io.BytesIO()
             image.save(out, format="JPEG", quality=90, optimize=True)
@@ -135,10 +163,15 @@ def run_image(
     if image is not None:
         for candidate in candidates:
             candidate_path = container.image_service.candidate_path(on_date, candidate.source)
-            git.write_file(candidate_path, _canonical_jpeg(candidate.data),
+            git.write_file(candidate_path, _canonical_jpeg(
+                candidate.data, on_date, candidate.source
+            ),
                            f"Add {candidate.source} darshan image {on_date.isoformat()}")
             committed.append(candidate_path)
-        git.write_file(path, _canonical_jpeg(image.data), f"Add daily darshan image {on_date.isoformat()}")
+        git.write_file(
+            path, _canonical_jpeg(image.data, on_date, image.source),
+            f"Add daily darshan image {on_date.isoformat()}"
+        )
         committed.append(path)
         print(f"[image] stored {len(candidates)} candidate(s); {path} uses source={image.source}")
     else:

@@ -37,6 +37,7 @@ _TEMPLATE = """<!DOCTYPE html>
     .wrap {{ box-sizing: border-box; display: flex; flex-direction: column;
              gap: 8px; width: 100%; max-width: 640px; height: 100svh;
              margin: 0 auto; padding: 10px; text-align: center; }}
+    h1 {{ flex: 0 0 auto; margin: 0; color: #34291f; font-size: 1.05rem; line-height: 1.2; }}
     .greeting {{ flex: 0 0 auto; color: #53483c; font-size: .86rem; font-weight: 600; }}
     .delivery-summary {{ flex: 0 0 auto; padding: 8px 10px; border: 1px solid #eadfce;
                          border-radius: 10px; background: #fffdf9; color: #53483c;
@@ -55,10 +56,9 @@ _TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
   <div class="wrap">
+    <h1>🙏 Daily Darshan</h1>
     <div class="greeting">{greeting}</div>
     <section class="delivery-summary" aria-label="Delivery and subscription details">
-      <strong>Delivered date:</strong> {date}<span class="separator">·</span>
-      <strong>Source:</strong> {source_name}<span class="separator">·</span>
       <strong>Subscription expiry:</strong> {end_date}
     </section>
     {renewal_reminder}
@@ -118,8 +118,7 @@ class PageRenderer:
         status_text = "Delivered" if delivered else "Ready"
         from domain.subscriber import sanitize_display_name
         safe_name = sanitize_display_name(subscriber.name, "")
-        greeting = f"Namaste {safe_name.title()} Ji" if safe_name else "Namaste Ji"
-        source_name = self.source_display_name(source)
+        greeting = f"Namaste {safe_name.title()} Ji 🙏" if safe_name else "Namaste Ji 🙏"
         renewal_reminder = self._renewal_reminder(subscriber, on_date)
         return _TEMPLATE.format(
             date=html.escape(on_date.isoformat()),
@@ -128,7 +127,6 @@ class PageRenderer:
             image_url=html.escape(self.image_url(on_date, images_dir, image_name)),
             fallback_url=html.escape(self.fallback_url(images_dir)),
             end_date=html.escape(subscriber.end_date.isoformat() if subscriber.end_date else "—"),
-            source_name=html.escape(source_name or "—"),
             renewal_reminder=renewal_reminder,
         )
 

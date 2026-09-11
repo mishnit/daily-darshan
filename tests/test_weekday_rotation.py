@@ -24,7 +24,7 @@ from adapters.image_sources.temples import (
 from application.image_service import ImageCollector, ImageService
 from application.image_service import AllSourcesFailed
 from domain.image import Image
-from scheduler import _canonical_jpeg, run_image, run_pages
+from scheduler import _canonical_jpeg, _watermark_details, run_image, run_pages
 from config import Container
 from tests.conftest import FakeSource
 
@@ -52,19 +52,27 @@ ROTATION = {
 }
 
 
-def test_canonical_image_replaces_bottom_18_percent_with_vip_seva_footer():
+def test_canonical_image_replaces_bottom_24_percent_with_delivery_footer():
     source = io.BytesIO()
     PILImage.new("RGB", (1000, 1000), "navy").save(source, format="JPEG")
 
-    branded = PILImage.open(io.BytesIO(_canonical_jpeg(source.getvalue()))).convert("RGB")
+    branded = PILImage.open(io.BytesIO(_canonical_jpeg(
+        source.getvalue(), date(2026, 9, 11), "iskcon_hyderabad"
+    ))).convert("RGB")
 
     assert branded.size == (1000, 1000)
-    assert branded.getpixel((10, 819))[2] - branded.getpixel((10, 819))[0] > 50  # source pixels remain above the footer
+    assert branded.getpixel((10, 759))[2] - branded.getpixel((10, 759))[0] > 50  # source pixels remain above the footer
     footer_pixel = branded.getpixel((10, 900))
     assert max(footer_pixel) - min(footer_pixel) < 8
     assert 80 <= footer_pixel[0] <= 110
     # Text makes white pixels visible inside the otherwise grey footer.
-    assert any(max(pixel) > 220 for pixel in branded.crop((0, 820, 1000, 1000)).get_flattened_data())
+    assert any(max(pixel) > 220 for pixel in branded.crop((0, 760, 1000, 1000)).get_flattened_data())
+
+
+def test_watermark_details_use_friendly_source_name():
+    assert _watermark_details(date(2026, 9, 11), "iskcon_hyderabad") == (
+        "Delivered date: 2026-09-11 · Source: ISKCON Hyderabad"
+    )
 
 @pytest.mark.parametrize("on_date, expected", [
     (date(2026, 8, 24), ROTATION["monday"]), (date(2026, 8, 25), ROTATION["tuesday"]),
