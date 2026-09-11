@@ -237,6 +237,7 @@ def test_webhook_subscribe_cta_then_plan_then_name(webhook):
     sub = main.container.subscribers.find("9111")
     assert sub.opt_in is True and sub.opt_in_at        # consent proof recorded
     assert len(main.container.payments.all()) == 1
+    assert fake.sent[-1]["message"].startswith("Radhe Radhe Sita Devi Ji! Plan: monthly")
 
 
 def test_signup_to_render_to_delivery_to_stop_end_to_end(webhook, tmp_path):
@@ -274,7 +275,7 @@ def test_signup_to_render_to_delivery_to_stop_end_to_end(webhook, tmp_path):
     )
     html = (tmp_path / rel_page).read_text(encoding="utf-8")
     assert "<h1><strong>🕉&#xA0;</strong>&#x20;Daily Darshan</h1>" in html
-    assert "Namaste Nitin Mishra Ji 🙏" in html
+    assert "Radhe Radhe Nitin Mishra Ji 🙏" in html
     assert "Delivered date:" not in html
     assert "Source:" not in html
 
@@ -315,4 +316,4 @@ def test_webhook_renew_cta_existing_subscriber_uses_plan_no_prompt(webhook):
     pays = main.container.payments.all()
     assert len(pays) == 1 and pays[0].plan == "yearly"  # existing plan, not default
     reply = fake.sent[-1]["message"]
-    assert "Meera" in reply and "Renewing" in reply
+    assert reply.startswith("Radhe Radhe Meera Ji! Renewing your yearly plan.")
