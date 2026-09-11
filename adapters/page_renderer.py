@@ -54,8 +54,9 @@ _TEMPLATE = """<!DOCTYPE html>
     .share {{ margin: 0 8px 6px; border-radius: 0 0 10px 10px; }}
     .renewal p, .share p {{ margin: 0 0 7px; }}
     .renewal a, .share a {{ display: inline-block; padding: 7px 12px; border-radius: 7px;
-                           background: #198754; color: #fff; text-decoration: none;
-                           font-weight: 650; }}
+                           color: #fff; text-decoration: none; font-weight: 650; }}
+    .renewal a {{ background: #c62828; }}
+    .share a {{ background: #198754; }}
     .renewal + .image-frame img {{ border-radius: 0; }}
   </style>
 </head>
