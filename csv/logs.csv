@@ -148,3 +148,6 @@ timestamp,event,mobile,details
 2026-09-10T13:03:48.534706,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-09
 2026-09-10T13:03:54.119365,IMAGE_FETCH_SUCCESS,,swaminarayan:26e6b9285719ccacb3eeb6e32e2e3191e92f4894c0ecf79947ac68a7712a34f6
 2026-09-10T18:23:14.325826,IMAGE_FETCH_SUCCESS,,swaminarayan:26e6b9285719ccacb3eeb6e32e2e3191e92f4894c0ecf79947ac68a7712a34f6
+2026-09-11T05:11:26.756271,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T05:11:32.280103,IMAGE_FETCH_FAILED,,iskcon_mumbai:no-candidate
+2026-09-11T05:11:32.287194,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-11
