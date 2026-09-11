@@ -342,8 +342,14 @@ def test_page_renderer_hides_renewal_before_configured_window():
 def test_non_subscriber_page_has_vip_seva_request_button(page_path):
     html_text = Path(page_path).read_text(encoding="utf-8")
 
-    assert html_text.index("<img") < html_text.index("Send request for VIP Seva")
     assert 'href="https://wa.me/15556757329?text=Radhe%20Radhe"' in html_text
+
+
+@pytest.mark.parametrize("index_path", ["docs/index.html", "docs/images/index.html"])
+def test_non_subscriber_index_places_request_button_after_image(index_path):
+    html_text = Path(index_path).read_text(encoding="utf-8")
+
+    assert html_text.index("<img") < html_text.index("Send request for VIP Seva")
 
 
 def test_page_renderer_skips_subscriber_without_subid(tmp_path):
