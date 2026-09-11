@@ -621,3 +621,7 @@ free-tier limits. Re-check provider free-tier limits before production.
 - When rotating WHATSAPP_ACCESS_TOKEN, update in both: Render and GitHub Actions
 - When rotating WEBHOOK_VERIFY_TOKEN, update both Render and Meta Developer Dashboard → WhatsApp webhook verification
 - When rotating GITHUB_TOKEN, update Render only. GitHub Actions uses its automatically generated per-run token.
+
+## Manual Triggers
+[![Trigger Image](https://shields.io)](https://github.com/mishnit/daily-darshan/actions/workflows/image.yml)
+[![Trigger Delivery](https://shields.io)](https://github.com/mishnit/daily-darshan/actions/workflows/delivery.yml)
