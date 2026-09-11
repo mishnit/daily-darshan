@@ -1,7 +1,13 @@
 name: Regenerate Daily Pages
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      image_source:
+        description: "Stored image: canonical, or a source key such as iskcon_mumbai"
+        required: true
+        default: "canonical"
+        type: string
 
 permissions:
   contents: write
@@ -42,4 +48,5 @@ jobs:
       - name: Regenerate pages from today's stored image
         env:
           GITHUB_REPO: ${{ github.repository }}
-        run: python scheduler.py pages
+          IMAGE_SOURCE: ${{ inputs.image_source }}
+        run: python scheduler.py pages --image-source "$IMAGE_SOURCE"

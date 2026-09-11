@@ -2,7 +2,7 @@
 
 Jobs (invoked by GitHub Actions):
   - image     : fetch + validate + store today's canonical image + pages, commit
-  - pages     : regenerate pages from today's stored image only, commit
+  - pages     : regenerate pages from a selected stored image only, commit
   - expiry    : flip ACTIVE subscribers past end_date to EXPIRED, commit
   - renewal   : send renewal reminders, then commit renewals log
   - delivery  : send today's darshan to eligible subscribers, then commit sentlog
@@ -10,7 +10,7 @@ Jobs (invoked by GitHub Actions):
 
 Usage:
     python scheduler.py image
-    python scheduler.py pages
+    python scheduler.py pages [--image-source canonical|SOURCE_KEY]
     python scheduler.py expiry
     python scheduler.py delivery
     python scheduler.py renewal
@@ -211,32 +211,54 @@ def run_image(
     return 0
 
 
-def run_pages(container: Container, git: LocalGitRepository, on_date: date) -> int:
-    """Regenerate subscriber pages from an existing canonical image only.
+def run_pages(container: Container, git: LocalGitRepository, on_date: date,
+              image_source: str = "canonical") -> int:
+    """Regenerate subscriber pages from an existing canonical or source image.
 
     This intentionally does not construct an image collector or fetch any
-    remote source. A manual Actions run can therefore repair pages without
-    changing today's selected darshan image.
+    remote source. A manual Actions run can therefore repair pages or switch
+    them to another candidate already stored by today's image workflow.
     """
-    try:
-        image_path = container.image_service.canonical_path(on_date, create=False)
-    except TypeError:  # Backward-compatible test/integration doubles.
-        image_path = container.image_service.canonical_path(on_date)
+    selected_source = image_source.strip().lower().replace("-", "_") or "canonical"
+    if selected_source in {"canonical", "auto"}:
+        try:
+            image_path = container.image_service.canonical_path(on_date, create=False)
+        except TypeError:  # Backward-compatible test/integration doubles.
+            image_path = container.image_service.canonical_path(on_date)
+        image_label = "canonical"
+    else:
+        try:
+            image_path = container.image_service.candidate_path(
+                on_date, selected_source, create=False
+            )
+        except TypeError:  # Backward-compatible test/integration doubles.
+            image_path = container.image_service.candidate_path(on_date, selected_source)
+        image_label = selected_source
     image_bytes = git.read_file(image_path)
-    image = Image(on_date, image_bytes or b"", source="stored_canonical")
+    image = Image(on_date, image_bytes or b"", source=f"stored_{image_label}")
     if not image_bytes or not container.image_validator.validate(image):
-        print(f"[pages] FAILED: no valid stored image at {image_path}", file=sys.stderr)
+        print(
+            f"[pages] FAILED: no valid stored image for source={image_label} at {image_path}",
+            file=sys.stderr,
+        )
         return 1
 
-    pages = _render_pages(container, on_date, image_path=image_path)
-    container.logs.log("PAGES_REGENERATED", details=f"{on_date.isoformat()}:count={len(pages)}")
+    pages = _render_pages(
+        container, on_date,
+        source="" if image_label == "canonical" else image_label,
+        image_path=image_path,
+    )
+    container.logs.log(
+        "PAGES_REGENERATED",
+        details=f"{on_date.isoformat()}:count={len(pages)}:source={image_label}",
+    )
     committed = list(pages)
     logs_path = container.config["paths"].get("logs_csv")
     if logs_path:
         committed.append(logs_path)
     if committed:
         git.commit(committed, f"Regenerate daily pages {on_date.isoformat()}")
-    print(f"[pages] regenerated={len(pages)} image={image_path}")
+    print(f"[pages] regenerated={len(pages)} source={image_label} image={image_path}")
     return 0
 
 
@@ -389,6 +411,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Daily Darshan scheduler")
     parser.add_argument("job", choices=["image", "image-only", "pages", "delivery", "renewal", "expiry", "cleanup", "keepalive", "all"])
     parser.add_argument("--date", help="ISO date override (YYYY-MM-DD)", default=None)
+    parser.add_argument(
+        "--image-source",
+        default="canonical",
+        help="For the pages job: canonical or a stored source key such as iskcon_mumbai",
+    )
     args = parser.parse_args(argv)
 
     on_date = date.fromisoformat(args.date) if args.date else datetime.now(ZoneInfo("Asia/Kolkata")).date()
@@ -407,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.job == "image-only":
         rc |= run_image(container, git, on_date, render_pages=False)
     if args.job == "pages":
-        rc |= run_pages(container, git, on_date)
+        rc |= run_pages(container, git, on_date, image_source=args.image_source)
     # Expiry sweep runs before renewal/delivery so downstream steps see accurate
     # EXPIRED status (eligibility is date-gated regardless, but this keeps the
     # stored status truthful for reminders, reports and admin views).

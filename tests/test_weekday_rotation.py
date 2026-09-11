@@ -662,3 +662,45 @@ def test_pages_job_fails_when_todays_image_is_missing():
         def read_file(self, _path): return None
 
     assert run_pages(Container(), Git(), on_date) == 1
+
+
+def test_pages_job_can_select_a_stored_source_candidate():
+    on_date = date(2026, 9, 11)
+    candidate = "docs/images/uuid_2026-09-11_iskcon_mumbai.jpg"
+
+    class Images:
+        def candidate_path(self, day, source, *, create=True):
+            assert day == on_date
+            assert source == "iskcon_mumbai"
+            assert create is False
+            return candidate
+    class Validator:
+        def validate(self, image): return image.data == b"mumbai-image"
+    class Logs:
+        def __init__(self): self.events = []
+        def log(self, *args, **kwargs): self.events.append((args, kwargs))
+    class Pages:
+        def __init__(self): self.kwargs = None
+        def write_all(self, *_args, **kwargs):
+            self.kwargs = kwargs
+            return ["docs/subscriber/index.html"]
+    class Subs:
+        def all(self): return []
+    class Container:
+        config = {"paths": {"images_dir": "docs/images", "logs_csv": "csv/logs.csv"}}
+        image_service, image_validator, logs, page_renderer, subscribers = (
+            Images(), Validator(), Logs(), Pages(), Subs()
+        )
+        root = "."
+    class Git:
+        def __init__(self): self.commits = []
+        def read_file(self, path): return b"mumbai-image" if path == candidate else None
+        def commit(self, paths, *_args): self.commits.append(paths)
+
+    container = Container()
+    git = Git()
+
+    assert run_pages(container, git, on_date, image_source="ISKCON-MUMBAI") == 0
+    assert container.page_renderer.kwargs["source"] == "iskcon_mumbai"
+    assert container.page_renderer.kwargs["image_name"] == candidate.rsplit("/", 1)[-1]
+    assert git.commits == [["docs/subscriber/index.html", "csv/logs.csv"]]
