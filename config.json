@@ -16,8 +16,8 @@
     "tuesday": ["salangpur"],
     "wednesday": ["iskcon_bangalore"],
     "thursday": ["swaminarayan"],
-    "friday": ["iskcon_vrindavan", "iskcon_mumbai"],
-    "saturday": ["iskcon_mumbai", "iskcon_vrindavan"],
+    "friday": ["iskcon_vrindavan", "iskcon_mumbai", "iskcon_hyderabad"],
+    "saturday": ["iskcon_mumbai", "iskcon_vrindavan", "iskcon_hyderabad"],
     "sunday": ["mayapur"]
   },
   "temple_sources": {
@@ -29,6 +29,7 @@
     "swaminarayan": {"page_url": "https://swaminarayan.info/daily-darshan", "enabled": true},
     "mayapur": {"page_url": "https://www.mayapur.com/media/gallery/daily-darshan", "enabled": true},
     "iskcon_mumbai": {"page_url": "https://www.iskconmumbai.com/daily-sringar-darshan", "enabled": true},
+    "iskcon_hyderabad": {"page_url": "https://www.iskconattapur.com/daily-darshan-gallery", "enabled": true},
     "devi": {"page_url": "", "enabled": false}
   },
   "image_source_config": {

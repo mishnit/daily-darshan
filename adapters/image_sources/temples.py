@@ -39,13 +39,20 @@ _MAYAPUR_ALBUM = re.compile(
     re.IGNORECASE,
 )
 _MAYAPUR_ORIGINAL = re.compile(r'images\[\d+\]\s*=\s*["\'](?P<image>/storage/albums/[^"\']+_image\.jpg)["\']', re.IGNORECASE)
-_MUMBAI_SRI_LINK = re.compile(r'href=["\'](?P<detail>/sringar/sringar-darshan-\d+)["\']', re.IGNORECASE)
+_MUMBAI_DETAIL_LINK = re.compile(
+    r'href=["\'](?P<detail>/(?:sringar/sringar-darshan-\d+|festival/[^"\']+-\d+))["\']',
+    re.IGNORECASE,
+)
 _MUMBAI_LISTING_CARD = re.compile(
-    r'<a\b[^>]*\bhref=["\'](?P<detail>/sringar/sringar-darshan-\d+)["\'][^>]*>'
-    r'.*?<p\b[^>]*>\s*(?P<date>[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})\s*</p>',
+    r'<a\b[^>]*\bhref=["\'](?P<detail>/(?:sringar/sringar-darshan-\d+|festival/[^"\']+-\d+))["\'][^>]*>'
+    r'(?:(?!</a>).)*?<p\b[^>]*>\s*(?P<date>[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})\s*</p>',
     re.IGNORECASE | re.DOTALL,
 )
 _MUMBAI_DATE = re.compile(r'<span[^>]*class=["\'][^"\']*(?:s_date|change_date)[^"\']*["\'][^>]*>\s*(?P<date>[^<]+)', re.IGNORECASE)
+_ATTAPUR_IMAGE = re.compile(
+    r'\\?"image\\?"\s*:\s*\\?"(?P<image>https?://[^"\\]+)',
+    re.IGNORECASE,
+)
 _IMG_TAG = re.compile(r'<img\b(?P<attrs>[^>]*)>', re.IGNORECASE | re.DOTALL)
 _HTML_ATTR = re.compile(r'(?P<name>[\w-]+)=["\'](?P<value>.*?)["\']', re.DOTALL)
 
@@ -280,7 +287,7 @@ class IskconTirupatiSource(_TemplePageSource):
 
 
 class IskconMumbaiSource(HttpImageSource):
-    """Decode date-matched Sringar Darshan images embedded by ISKCON Mumbai."""
+    """Decode same-day Sringar or Festival images embedded by ISKCON Mumbai."""
 
     name = "iskcon_mumbai"
     max_detail_pages = 14
@@ -305,7 +312,7 @@ class IskconMumbaiSource(HttpImageSource):
         return None
 
     @staticmethod
-    def _detail_urls(html: str, on_date: date) -> list[str]:
+    def _detail_urls(html: str, on_date: date, path_prefix: str = "/sringar/") -> list[str]:
         """Select the requested dated card before loading huge detail pages.
 
         Mumbai embeds dozens of full-size base64 images in each detail page,
@@ -319,9 +326,14 @@ class IskconMumbaiSource(HttpImageSource):
             return [
                 unescape(card.group("detail"))
                 for card in cards
-                if " ".join(unescape(card.group("date")).split()) == requested
+                if card.group("detail").lower().startswith(path_prefix)
+                and " ".join(unescape(card.group("date")).split()) == requested
             ]
-        return [unescape(match.group("detail")) for match in _MUMBAI_SRI_LINK.finditer(html)]
+        return [
+            unescape(match.group("detail"))
+            for match in _MUMBAI_DETAIL_LINK.finditer(html)
+            if match.group("detail").lower().startswith(path_prefix)
+        ]
 
     @staticmethod
     def _embedded_images(html: str) -> Iterator[bytes]:
@@ -339,18 +351,18 @@ class IskconMumbaiSource(HttpImageSource):
             except (ValueError, binascii.Error):
                 continue
 
-    def fetch(self, on_date: date):
-        self.last_page_url = self._page_url
+    def _fetch_listing(self, listing_url: str, on_date: date, path_prefix: str):
+        self.last_page_url = listing_url
         try:
-            listing = self._session.get(self._page_url, timeout=self._timeout, headers={"User-Agent": "DailyDarshan/2.0"})
+            listing = self._session.get(listing_url, timeout=self._timeout, headers={"User-Agent": "DailyDarshan/2.0"})
         except Exception:
             return None
         if listing.status_code != 200 or not listing.text:
             return None
 
         seen = set()
-        for detail_path in self._detail_urls(listing.text, on_date):
-            detail_url = urljoin(self._page_url, detail_path)
+        for detail_path in self._detail_urls(listing.text, on_date, path_prefix):
+            detail_url = urljoin(listing_url, detail_path)
             if detail_url in seen:
                 continue
             seen.add(detail_url)
@@ -373,6 +385,90 @@ class IskconMumbaiSource(HttpImageSource):
                 self.last_image_url = f"{detail_url}#embedded-darshan"
                 return Image(image_date=on_date, data=raw, source=self.name)
         return None
+
+    def fetch(self, on_date: date):
+        self.last_image_url = ""
+        image = self._fetch_listing(self._page_url, on_date, "/sringar/")
+        if image:
+            return image
+
+        parts = urlsplit(self._page_url)
+        festival_url = urlunsplit((parts.scheme, parts.netloc, "/festival-darshan", "", ""))
+        return self._fetch_listing(festival_url, on_date, "/festival/")
+
+
+class IskconHyderabadSource(HttpImageSource):
+    """Read Attapur's dated Sringar image, then its same-day Festival image."""
+
+    name = "iskcon_hyderabad"
+
+    def __init__(self, page_url: str, **kwargs):
+        super().__init__(**kwargs)
+        self._page_url = page_url
+        self.last_page_url = ""
+        self.last_image_url = ""
+
+    @staticmethod
+    def _category_marker(category: str, escaped: bool) -> str:
+        quote = r'\"' if escaped else '"'
+        return f"{quote}type{quote}:{quote}{category}{quote}"
+
+    @classmethod
+    def _category_image_url(cls, html: str, on_date: date, category: str) -> str | None:
+        """Select a URL only from the requested category and exact ISO date."""
+        starts = [
+            html.find(cls._category_marker(category, escaped=False)),
+            html.find(cls._category_marker(category, escaped=True)),
+        ]
+        starts = [position for position in starts if position >= 0]
+        if not starts:
+            return None
+        start = min(starts)
+
+        # Each category is a separate object in Next.js hydration data. Bound
+        # Sringar before Festival so an absent Sringar date cannot match the
+        # corresponding Festival record during the first lookup.
+        end = len(html)
+        if category == "sringar":
+            festival_starts = [
+                html.find(cls._category_marker("festival-darshan", escaped=False), start + 1),
+                html.find(cls._category_marker("festival-darshan", escaped=True), start + 1),
+            ]
+            festival_starts = [position for position in festival_starts if position >= 0]
+            if festival_starts:
+                end = min(festival_starts)
+        section = html[start:end]
+
+        iso_date = on_date.isoformat()
+        date_positions = [
+            section.find(f'"date":"{iso_date}"'),
+            section.find(rf'\"date\":\"{iso_date}\"'),
+        ]
+        date_positions = [position for position in date_positions if position >= 0]
+        if not date_positions:
+            return None
+        date_at = min(date_positions)
+        match = _ATTAPUR_IMAGE.search(section, date_at, date_at + 1024)
+        return unescape(match.group("image")) if match else None
+
+    def resolve_url(self, on_date: date):
+        self.last_page_url = self._page_url
+        self.last_image_url = ""
+        try:
+            response = self._session.get(
+                self._page_url,
+                timeout=self._timeout,
+                headers={"User-Agent": "DailyDarshan/2.0"},
+            )
+        except Exception:
+            return None
+        if response.status_code != 200 or not response.text:
+            return None
+
+        self.last_image_url = self._category_image_url(response.text, on_date, "sringar") or ""
+        if not self.last_image_url:
+            self.last_image_url = self._category_image_url(response.text, on_date, "festival-darshan") or ""
+        return self.last_image_url or None
 
 
 class SwaminarayanSource(HttpImageSource):
