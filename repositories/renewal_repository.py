@@ -37,3 +37,9 @@ class CSVRenewalRepository(RenewalRepositoryPort):
             ):
                 return True
         return False
+
+    def mark_failed(self, message_id: str) -> int:
+        return self._csv.update_where(
+            lambda row: row.get("whatsapp_message_id") == message_id,
+            {"status": "FAILED"},
+        )

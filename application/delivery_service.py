@@ -76,7 +76,7 @@ class DeliveryService:
 
         delivery_mode:
           - "utility_template": send an approved parameterized template whose
-            {{2}} is the per-subscriber page URL (utility-priced). No image is
+            dynamic URL button receives the subscription id. No image is
             attached to the WhatsApp message; the image lives on the page.
           - "image" (default): send the image inline. Prefers Meta media upload
             (private-repo safe), falls back to image_url.
@@ -96,6 +96,11 @@ class DeliveryService:
 
         for sub in self._subscribers.all():
             mobile = sub.mobile
+            first_successful_contact = not any(
+                row.get("mobile") == mobile
+                and row.get("status") == DeliveryStatus.SENT.value
+                for row in self._sentlog.all()
+            )
             if self._sentlog.was_sent(on_date, mobile):
                 report.skipped += 1
                 continue
@@ -128,7 +133,12 @@ class DeliveryService:
             })
             if result.ok:
                 report.sent += 1
-                self._log("WHATSAPP_SEND_SUCCESS", mobile, result.message_id)
+                event = (
+                    "ACTIVATION_WELCOME_SENT"
+                    if first_successful_contact
+                    else "WHATSAPP_SEND_SUCCESS"
+                )
+                self._log(event, mobile, result.message_id)
             else:
                 report.failed += 1
                 report.failures.append(mobile)

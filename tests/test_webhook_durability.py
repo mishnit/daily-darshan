@@ -385,3 +385,40 @@ def test_process_payload_never_raises_on_handler_error(app_client, monkeypatch):
     }}]}]}
     # Must not raise despite the handler blowing up.
     main._process_payload(main.container, payload)
+
+
+def test_failed_whatsapp_reply_rolls_back_webhook_state(app_client):
+    main, _ = app_client
+    from tests.conftest import FakeWhatsApp
+
+    main.container.whatsapp = FakeWhatsApp(always_fail=True)
+    main._process_payload(
+        main.container,
+        _tap_payload("9555", "PLAN_monthly", "send-fails", name="Radha"),
+    )
+
+    assert main.container.subscribers.find("9555") is None
+    assert main.container.processed.was_processed("send-fails") is False
+
+
+def test_failed_async_status_reopens_daily_contact_slot(app_client):
+    main, _ = app_client
+    from datetime import date
+
+    main.container.sentlog.append({
+        "date": "2026-09-11", "mobile": "9666", "image": "page",
+        "whatsapp_message_id": "wamid.failed", "status": "SENT",
+    })
+    main.container.renewals.append({
+        "mobile": "9666", "reminder_type": "TWO_DAY", "expiry_date": "2026-09-13",
+        "sent_at": "2026-09-11T08:00:00", "whatsapp_message_id": "wamid.failed",
+        "status": "SENT",
+    })
+    payload = {"entry": [{"changes": [{"value": {"statuses": [{
+        "id": "wamid.failed", "recipient_id": "9666", "status": "failed"
+    }]}}]}]}
+
+    main._process_payload(main.container, payload)
+
+    assert main.container.sentlog.was_sent(date(2026, 9, 11), "9666") is False
+    assert main.container.renewals.all()[0]["status"] == "FAILED"

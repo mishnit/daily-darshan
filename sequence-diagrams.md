@@ -192,6 +192,10 @@ sequenceDiagram
     Note over Web,Repo: stale-SHA conflicts remain local and are retried; no ephemeral quiet-window deferral
 ```
 
+If a synchronous WhatsApp reply fails, the handler restores the pre-message CSV snapshot and
+releases the message id so the journey can be retried. Meta `statuses[]` callbacks also change a
+previously accepted renewal/delivery ledger entry to `FAILED` when asynchronous delivery fails.
+
 ---
 
 ## 4. User makes payment (submits UTR)
@@ -283,7 +287,7 @@ sequenceDiagram
     Sched->>Sub: find active opted-in subs expiring in reminder_days [3,2,1]
     Sched->>Sub: skip when date+mobile already has SENT in sentlog.csv
     Sched->>WA: send renewal reminder
-    WA->>User: Your plan expires soon - renew?
+    WA->>User: Delivery-status template with personalized Daily Darshan link
     Sched->>Local: append renewals.csv + successful daily sentlog row  📝 LOCAL
     Sched->>Repo: git commit + push  ✅ REMOTE (after job)
 
@@ -294,7 +298,7 @@ sequenceDiagram
     Web->>Repo: RepoSync.pull  ⬇️ REPO READ
     Web->>Sub: revoke_opt_in(mobile) - opt_in=false, ts, source=opt_out
     Sub->>Local: write subscribers.csv  📝 LOCAL
-    Web->>User: You have been opted out. Reply SUBSCRIBE to resume.
+    Web->>User: Opted out. Send Radhe Radhe, then choose Subscribe to opt in again.
     Web->>Repo: RepoSync.push - REMOTE after request
     Note over Sub: opt_in=false makes the subscriber non-deliverable immediately.
 ```

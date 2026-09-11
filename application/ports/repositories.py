@@ -59,6 +59,10 @@ class SentLogRepositoryPort(ABC):
     def was_sent(self, on_date: date, mobile: str) -> bool:
         """Idempotency check: successful delivery for date+mobile (section 12)."""
 
+    def mark_failed(self, message_id: str) -> int:
+        """Reconcile an asynchronously failed provider message."""
+        return 0
+
 
 class RenewalRepositoryPort(ABC):
     @abstractmethod
@@ -70,6 +74,10 @@ class RenewalRepositoryPort(ABC):
     @abstractmethod
     def already_sent(self, mobile: str, reminder_type: str, expiry_date: date) -> bool:
         """Idempotency: mobile + reminder_type + expiry_date (section 28)."""
+
+    def mark_failed(self, message_id: str) -> int:
+        """Reconcile an asynchronously failed provider message."""
+        return 0
 
 
 class LogRepositoryPort(ABC):

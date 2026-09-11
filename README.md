@@ -196,13 +196,13 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 - **Change delivery caption** — edit `delivery.caption`.
 - **Change operational-log retention** — edit `delivery.log_retention_days` (currently `30`).
 - **Switch delivery mode** — set `delivery.mode`:
-  - `utility_template` — sends an approved WhatsApp **utility template** whose `{{2}}` is a
-    per-subscriber page URL (`page_base_url/<subscription_id>`); the darshan image lives on a
+  - `utility_template` — sends an approved WhatsApp **utility template** whose dynamic URL
+    button receives the subscription ID and resolves to `page_base_url/<subscription_id>`; the darshan image lives on a
     static GitHub Pages page. Billing depends on Meta's assigned category and current rate;
     verify both in WhatsApp Manager (see [DEPLOYMENT.md](./DEPLOYMENT.md)). Requires
     `template_name`, `page_base_url`, `pages_dir`, `image_public_base` and GitHub Pages enabled.
   - `image` — sends the image inline (Meta media upload, private-repo safe). Higher engagement,
-    billed as Marketing.
+    subject to Meta's current category and pricing rules.
 - **Adjust the schedule** — edit the `cron` in `.github/workflows/image.yml` (the source of
   truth), and optionally mirror it in `config.json.schedule` for documentation. A successful
   image run publishes Pages once; delivery starts only after that publication succeeds.
@@ -313,7 +313,9 @@ WhatsApp secrets as environment variables on the host.
 > never times out and retries. (Forged/unsigned and malformed requests are still rejected
 > synchronously before the ack.) Note: background tasks run in-process — if the instance is
 > killed mid-task the in-flight message is dropped; Meta's own retry and the `message.id`
-> dedupe mitigate this, and a durable queue is the next step for higher guarantees.
+> dedupe mitigate this, and a durable queue is the next step for higher guarantees. A failed
+> synchronous WhatsApp response rolls back that message's CSV state; later Meta `failed` status
+> callbacks reconcile accepted delivery/renewal sends.
 
 Steps:
   1. Push the repo to GitHub.
@@ -426,8 +428,14 @@ Details:
   across webhook calls without server-side session state.
 - Duplicate/re-delivered webhooks are deduped on the WhatsApp `message.id`, so re-taps/re-sends
   don't re-prompt or create duplicate payments.
+- A failed webhook reply rolls back that message's CSV changes and releases its deduplication id,
+  so a retry cannot leave the customer in a silently advanced state.
+- Meta delivery-status callbacks reconcile an initially accepted template send. A later `failed`
+  status changes matching renewal/delivery ledger rows to `FAILED`, reopening the daily slot.
 - Activation remains admin-verified out-of-band (see Admin Operations); the name/plan captured
   here is what later fills the daily utility template and the per-subscriber page greeting.
+- The first successful delivery-status template after activation is treated as the explicit
+  welcome/activation confirmation and is sent only after Pages publication succeeds.
 
 > **WhatsApp note:** interactive buttons/list messages are free-form inside the 24-hour
 > user-initiated window. To send the initial menu to a user who hasn't messaged in 24h, use an
@@ -435,13 +443,10 @@ Details:
 > messaged) the free-form interactive menu is used.
 
 The current configuration uses `daily_darshan_delivery_update` with language `en` for both
-scheduled delivery and renewal reminders. Delivery sends the customer name as body `{{1}}`
-and the subscription ID as dynamic URL-button `{{1}}`; configure the button URL as
-`https://vipseva.com/{{1}}`. Renewal sends customer name and expiry date as body `{{1}}` and
-`{{2}}`. The approved Meta template must exactly match the component shape used by each send.
-If one approved template cannot support both shapes, configure a separate renewal template in
-`renewal.template_name`; do not change `template_lang` to `en_US` unless that is the exact
-approved locale shown in WhatsApp Manager.
+scheduled delivery and renewal reminders. Both paths send the customer name as body `{{1}}`
+and the subscription ID as dynamic URL-button `{{1}}`; configure that button URL as
+`https://vipseva.com/{{1}}`. The renewal send deliberately uses the same delivery-status copy
+and does not include the expiry date.
 
 Subscriber pages show a **Renew on WhatsApp** CTA from the largest configured
 `renewal.reminder_days` value through the post-expiry page grace period. The link opens
@@ -560,9 +565,9 @@ and write the same CSVs there:
 
 Because both write CSVs on `main`, two mechanisms reduce clobbering risk:
 
-1. **Writer separation + safe expiry.** The webhook and scheduler mostly write different
-   files. The one true overlap is `subscribers.csv` (webhook opt-in vs. the nightly expiry
-   sweep). `sweep_expired` therefore **re-reads each subscriber row fresh right before
+1. **Writer separation + safe expiry.** The webhook and scheduler overlap on `subscribers.csv`
+   (webhook opt-in vs. the nightly expiry sweep), while asynchronous Meta status callbacks also
+   reconcile `sentlog.csv` and `renewals.csv`. `sweep_expired` therefore **re-reads each subscriber row fresh right before
    flipping status** and only changes the status field, so a subscriber the webhook added or
    updated concurrently is preserved rather than overwritten by a stale snapshot. Normal
    `logs.csv` writes are append-only; scheduled cleanup atomically removes rows outside the

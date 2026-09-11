@@ -69,7 +69,7 @@ Annual retention should come from service value, not repeated discounting:
 - Reliable delivery and a working personalized page every day.
 - Visible source-temple attribution.
 - Festival-category fallback when regular Vrindavan darshan is unavailable.
-- Renewal reminders three and one day before expiry.
+- Renewal reminders three, two and one day before expiry.
 - Renewal extending from the current expiry date so paid days are never lost.
 - Easy STOP/UNSUBSCRIBE/CANCEL handling and easy resubscription.
 - Optional loyalty renewal pricing only after measuring annual renewal behavior.

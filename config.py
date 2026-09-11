@@ -95,7 +95,7 @@ class Container:
             self.whatsapp,
             reminder_days=renewal_cfg.get("reminder_days", [3, 1]),
             template_name=renewal_cfg.get("template_name", ""),
-            template_lang=renewal_cfg.get("template_lang", "en_US"),
+            template_lang=renewal_cfg.get("template_lang", "en"),
             logs=self.logs,
             sentlog=self.sentlog,
         )
@@ -145,6 +145,8 @@ class Container:
             paths["payments_csv"],
             paths.get("processed_csv", "csv/processed.csv"),
             paths["logs_csv"],
+            paths["sentlog_csv"],
+            paths["renewals_csv"],
         ]
         # Quiet window (UTC) during which the webhook defers pushes so it does
         # not write on top of an in-flight scheduler job. The exact bracket is

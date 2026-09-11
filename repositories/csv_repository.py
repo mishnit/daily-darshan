@@ -168,6 +168,19 @@ class CSVRepository:
                 self._write_all(kept)
             return removed
 
+    def update_where(self, predicate, changes: dict) -> int:
+        """Atomically update every row matching predicate."""
+        with self._exclusive_lock():
+            rows = self.all()
+            updated = 0
+            for row in rows:
+                if predicate(row):
+                    row.update(changes)
+                    updated += 1
+            if updated:
+                self._write_all(rows)
+            return updated
+
     def _write_all(self, rows: list[dict]) -> None:
         directory = os.path.dirname(self.path) or "."
         fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
