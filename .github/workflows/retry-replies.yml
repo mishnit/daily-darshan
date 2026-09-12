@@ -1,0 +1,42 @@
+name: Retry WhatsApp Replies
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: retry-whatsapp-replies
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Wake Render reply worker
+        env:
+          WEBHOOK_BASE_URL: ${{ vars.WEBHOOK_BASE_URL }}
+          WHATSAPP_APP_SECRET: ${{ secrets.WHATSAPP_APP_SECRET }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, hmac, json, os, time, urllib.request
+          from urllib.parse import urlsplit
+          base = os.environ['WEBHOOK_BASE_URL'].rstrip('/')
+          secret = os.environ['WHATSAPP_APP_SECRET']
+          if not secret or urlsplit(base).scheme != 'https' or not urlsplit(base).netloc:
+              raise SystemExit('Configure WEBHOOK_BASE_URL and WHATSAPP_APP_SECRET')
+          body = json.dumps({'timestamp': int(time.time())}).encode()
+          signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+          request = urllib.request.Request(base + '/internal/retry-replies', data=body,
+              headers={'Content-Type': 'application/json', 'X-Hub-Signature-256': 'sha256=' + signature})
+          with urllib.request.build_opener(NoRedirect()).open(request, timeout=180) as response:
+              print('Reply worker HTTP status:', response.status)
+          PY

@@ -186,7 +186,27 @@ Use this sequence when validating a release end to end:
   main checkout with the normal WhatsApp credentials and signing setup.
 - Production webhook replies are persisted in `csv/reply_outbox.csv` with conversation state
   before contacting Meta. Subsequent webhook processing drains queued/failed replies; uncertain
-  attempts remain blocked. There is no independent timer for reply retries; monitor this ledger.
+  attempts remain blocked. `Retry WhatsApp Replies` calls Render every five minutes (GitHub
+  scheduling is best-effort) and can also be run manually. Set repository variable
+  `WEBHOOK_BASE_URL=https://daily-darshan-webhook.onrender.com` and repository secret
+  `WHATSAPP_APP_SECRET` to the same app secret configured in Render. Deploy the new Render
+  code before enabling the workflow; the endpoint rejects unsigned and stale requests.
+  Calls use Render's existing state lock and GitHub persistence. Keep one Render instance
+  and one Uvicorn worker; this file-lock architecture is not a distributed lock.
+  No additional Meta template is needed for these in-session replies.
+- Replies retry at most five attempts, with exponential backoff from 60 seconds capped at
+  one hour. Replies older than 23 hours from the triggering inbound message, legacy queued
+  rows without freshness metadata, and obsolete conversation versions are cancelled.
+  Changes to subscriber/payment data also invalidate old instructions. The customer can
+  send CONTINUE to obtain a fresh response. PENDING/UNKNOWN attempts remain blocked and
+  produce a failing retry job for operator investigation; they are never blindly resent.
+- CONTINUE, STATUS and RESEND reconstruct the current prompt from subscriber/payment data.
+  Existing payment references are reused, submitted UTRs show verification pending, and
+  active subscriptions show their expiry without applying another activation. Recovery
+  commands have a 30-second cooldown. BACK from name entry returns to plan selection;
+  elsewhere it returns to navigation without undoing payment or consent decisions.
+  A user-requested RESEND is a fresh reply, separate from the daily send ledger. If an
+  earlier uncertain reply was actually accepted, both copies can still arrive.
 - Customers can send `BACK`, `GO BACK`, `MENU`, `Radhe Radhe`, `RENEW` or `SUBSCRIBE` at any
   conversational step. These commands return to navigation and never save themselves as a name,
   alter consent, or replace a paid payment. Old CTA taps are validated against the current plan
