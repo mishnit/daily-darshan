@@ -2,7 +2,7 @@ name: Deploy Daily Darshan Pages
 
 on:
   workflow_run:
-    workflows: ["Daily Image"]
+    workflows: ["Daily Image", "Regenerate Daily Pages"]
     types: [completed]
   workflow_dispatch: {}
 
