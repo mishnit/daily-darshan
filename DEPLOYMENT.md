@@ -176,9 +176,17 @@ Use this sequence when validating a release end to end:
   retrying. If already applied, add its reference to the subscriber marker and mark it APPLIED;
   only mark activation_state PENDING after proving it has never granted an entitlement.
 - Configure and approve `daily_darshan_welcome` separately from
-  `daily_darshan_delivery_update`. Activation sends the welcome template once as a best-effort
-  confirmation; it is not recorded in the daily contact ledger. If it fails, retry the welcome
-  operationally without sending another daily delivery.
+  `daily_darshan_delivery_update`. Activation queues one task per payment in `csv/welcomes.csv`,
+  committed with activation/page state. After publication, delivery runs `scheduler.py welcome`.
+  The worker checks consent and public page metadata before sending, using a separate ledger.
+  QUEUED/FAILED tasks can retry; PENDING/UNKNOWN tasks require evidence-based reconciliation.
+  Never clear an uncertain reservation merely because it is old. Welcome errors are surfaced
+  after the remaining delivery steps, so other eligible subscribers can still be processed.
+  For a manual retry after publication, run `python scheduler.py welcome` from an up-to-date
+  main checkout with the normal WhatsApp credentials and signing setup.
+- Production webhook replies are persisted in `csv/reply_outbox.csv` with conversation state
+  before contacting Meta. Subsequent webhook processing drains queued/failed replies; uncertain
+  attempts remain blocked. There is no independent timer for reply retries; monitor this ledger.
 - Customers can send `BACK`, `GO BACK`, `MENU`, `Radhe Radhe`, `RENEW` or `SUBSCRIBE` at any
   conversational step. These commands return to navigation and never save themselves as a name,
   alter consent, or replace a paid payment. Old CTA taps are validated against the current plan

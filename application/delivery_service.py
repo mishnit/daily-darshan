@@ -64,6 +64,8 @@ class DeliveryService:
         suppress today's darshan or renewal reminder. Call this only after an
         admin has verified payment and activated the subscriber.
         """
+        if not subscriber.opt_in:
+            return WhatsAppResult(ok=False, error="consent:subscriber opted out")
         if not self._welcome_template_name:
             return WhatsAppResult(ok=False, error="config:welcome_template_name is required")
         name = sanitize_display_name(subscriber.name, "devotee")

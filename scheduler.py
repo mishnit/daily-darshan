@@ -280,6 +280,18 @@ def _prepare_contact_safety(container, git):
     container.renewal_service.publication_check = checker
 
 
+def run_welcome(container: Container, git: LocalGitRepository, on_date: date) -> int:
+    from application.welcome_service import drain_welcomes
+    from adapters.published_page import PublishedPageChecker
+    path = container.config["paths"].get("welcomes_csv", "csv/welcomes.csv")
+    failures = drain_welcomes(
+        container, on_date, lambda: git.commit([path], "Persist activation welcome outbox"),
+        PublishedPageChecker(container.config.get("delivery", {}).get("page_base_url", "")),
+    )
+    print(f"[welcome] unresolved={failures}")
+    return int(bool(failures))
+
+
 def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -> int:
     _prepare_contact_safety(container, git)
     mode = container.config.get("delivery", {}).get("mode", "image")
@@ -326,6 +338,14 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
     git.commit([sentlog_path, container.config["paths"]["logs_csv"]],
                f"Daily delivery {on_date.isoformat()}")
     print(f"[delivery] sent={report.sent} skipped={report.skipped} failed={report.failed}")
+    if report.failed:
+        return 1
+    unresolved = [row for row in container.sentlog.all()
+                  if row.get("date") == on_date.isoformat()
+                  and row.get("status") in {"PENDING", "UNKNOWN"}]
+    if unresolved:
+        print(f"[delivery] unresolved={len(unresolved)}; reconcile before retrying", file=sys.stderr)
+        return 1
     # A partial failure must stay visible in Actions; successful recipients are
     # protected by sentlog idempotency when the job is retried.
     return 1 if report.failed else 0
@@ -431,7 +451,7 @@ def run_keepalive(container: Container, interval_seconds: int = 300) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Daily Darshan scheduler")
-    parser.add_argument("job", choices=["image", "image-only", "pages", "delivery", "renewal", "expiry", "cleanup", "keepalive", "all"])
+    parser.add_argument("job", choices=["image", "image-only", "pages", "delivery", "renewal", "welcome", "expiry", "cleanup", "keepalive", "all"])
     parser.add_argument("--date", help="ISO date override (YYYY-MM-DD)", default=None)
     parser.add_argument(
         "--image-source",
@@ -462,6 +482,8 @@ def main(argv: list[str] | None = None) -> int:
     # stored status truthful for reminders, reports and admin views).
     if args.job in ("expiry", "all"):
         rc |= run_expiry_sweep(container, git, on_date)
+    if args.job in ("welcome", "all"):
+        rc |= run_welcome(container, git, on_date)
     if args.job in ("renewal", "all"):
         rc |= run_renewal(container, git, on_date)
     if args.job in ("delivery", "all"):

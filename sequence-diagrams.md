@@ -314,11 +314,11 @@ sequenceDiagram
         CLI->>Sub: renew(mobile)  (extend from current expiry, else today)
     end
     Sub->>Local: write subscribers.csv  📝 LOCAL
-    CLI->>WA: daily_darshan_welcome(name, subscription_id)
+    CLI->>Local: queue payment-keyed welcome in welcomes.csv
     Note over CLI,WA: Separate activation confirmation, never consumes sentlog daily slot
     CLI->>Local: render THIS subscriber's page (write_page, one page)  📝 LOCAL
     alt --commit
-        CLI->>Repo: git commit + push (payments, subscribers, logs, this page)  ✅ REMOTE (not yet published)
+        CLI->>Repo: git commit + push (payments, subscribers, welcomes, logs, this page)
         Note over CLI,Repo: Manually run Deploy Daily Darshan Pages to publish, success starts delivery
     else no --commit
         Note over CLI,Local: changes stay 📝 LOCAL only — must git commit + push MANUALLY
@@ -380,7 +380,10 @@ sequenceDiagram
     participant Sched as scheduler.py
     participant Repo as sentlog.csv
 
-    Admin->>WA: daily_darshan_welcome(name, subscription_id)
+    Admin->>Repo: commit activation, page and welcome task
+    Note over Sched,Repo: Deploy page, then check publication and consent
+    Sched->>Repo: persist welcome reservation
+    Sched->>WA: daily_darshan_welcome(name, subscription_id)
     WA->>User: Your VIP Seva subscription is active
     Note over Repo: Welcome is not written to the date+mobile delivery ledger
 
@@ -393,7 +396,7 @@ sequenceDiagram
         Sched->>Repo: renewal competes for the same reservation
         Note over User,Repo: At most one renewal-or-delivery contact per subscriber/date
     else welcome is retried
-        Admin->>WA: retry daily_darshan_welcome only
+        Sched->>WA: retry queued or definitively failed welcome only
         Note over User,Repo: Welcome retry does not suppress delivery
     end
 ```

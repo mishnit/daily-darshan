@@ -170,13 +170,23 @@ def _process_payload(c, payload: dict) -> None:
             raise RuntimeError("Persistence quiet window; retry later")
         c.repo_sync.pull(strict=True)
         snapshot = _snapshot_webhook_state(c)
+        client = c.whatsapp
         try:
+            if production:
+                from application.reply_outbox import QueuedReplies
+                c.whatsapp = QueuedReplies(c.reply_outbox)
             failed = _process_messages(c, payload)
             c.repo_sync.push("Webhook update", strict=True)
         except Exception:
             _restore_webhook_state(snapshot)
             c.repo_sync.abort()
             raise
+        finally:
+            c.whatsapp = client
+        if production:
+            from application.reply_outbox import drain_replies
+            failed |= drain_replies(c.reply_outbox, client,
+                lambda: c.repo_sync.push("Persist webhook reply outbox", strict=True))
         if failed:
             raise RuntimeError("One or more webhook responses need retry")
 
@@ -233,7 +243,7 @@ def _process_messages(c, payload: dict) -> bool:
         if not message_id:
             continue
         c.message_statuses.record(message_id, status.get("status"))
-    c.message_statuses.reconcile(c.sentlog, c.renewals)
+    c.message_statuses.reconcile(c.sentlog, c.renewals, c.welcomes, c.reply_outbox)
 
     return failed
 
@@ -264,6 +274,9 @@ def _webhook_paths(c) -> list[str]:
         paths.get("processed_csv", "csv/processed.csv"), paths["logs_csv"],
         paths["sentlog_csv"], paths["renewals_csv"],
         paths.get("message_statuses_csv", "csv/message_statuses.csv"),
+        paths.get("welcomes_csv", "csv/welcomes.csv"),
+        paths.get("reply_outbox_csv", "csv/reply_outbox.csv"),
+        paths.get("referrals_csv", "csv/referrals.csv"),
         paths.get("reply_retries_csv", "csv/reply_retries.csv"),
     ]
 

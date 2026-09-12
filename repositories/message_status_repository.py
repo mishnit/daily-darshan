@@ -23,7 +23,7 @@ class MessageStatusRepository:
             # A positive receipt must never be undone by a delayed failure.
             state = "DELIVERED" if values & {"delivered", "read"} else "FAILED"
             for ledger in ledgers:
-                ledger._csv.update_where(
+                getattr(ledger, "_csv", ledger).update_where(
                     lambda row: row.get("whatsapp_message_id") == message_id,
                     {"status": state},
                 )
