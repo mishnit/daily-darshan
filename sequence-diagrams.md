@@ -90,7 +90,6 @@ sequenceDiagram
         Note over Runner,WA: Stop — no automatic WhatsApp delivery
     end
 
-    rect rgb(235,255,235)
     Note over Sched,Repo: Daily Delivery starts only after Pages succeeds
     Runner->>Sched: cleanup + idempotent expiry safety sweep
     Runner->>Sched: python scheduler.py renewal
@@ -99,9 +98,7 @@ sequenceDiagram
     Sched->>Repo: commit PENDING date+mobile reservation
     Sched->>WA: send reminder if date+mobile daily slot is free
     Sched->>Repo: commit + push renewals.csv, sentlog.csv, logs.csv
-    end
 
-    rect rgb(255,245,235)
     Note over Sched,Repo: Daily delivery for remaining eligible subscribers
     Runner->>Sched: python scheduler.py delivery
     Sched->>Sched: require today's valid image + free date+mobile slot
@@ -110,7 +107,6 @@ sequenceDiagram
     Sched->>WA: send published utility page link (bounded retries)
     Sched->>Runner: append sentlog.csv (date+mobile)  📝 LOCAL
     Sched->>Repo: git commit + push outcome per contact, then command logs
-    end
 ```
 
 **Key stages where writes happen (scheduled):** each job writes to the runner's **local**
