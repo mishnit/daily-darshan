@@ -1,2 +1,3 @@
 mobile,plan,start_date,end_date,status,opt_in,subscription_id,name,awaiting_name,opt_in_at,opt_in_source,applied_payment_refs
 919535507255,starter,2026-08-26,2027-09-13,ACTIVE,true,9432f6de6af84f6497018d43400d6122,Nitin Mishra,false,2026-08-26T20:00:00+05:30,manual_admin,
+919108711599,yearly,,,PENDING,false,d66f5994c0f74b04bc6e7a661ca2669c,Priyanka Gautam,false,,,
