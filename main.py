@@ -401,12 +401,12 @@ def _extract_input(message: dict) -> tuple[str, str]:
 
 
 def _send_menu(c, mobile: str) -> None:
-    """Entry CTA menu: Subscribe / Renew / Stop (buttons)."""
+    """Entry CTA menu: Subscribe / Renew (buttons)."""
     result = c.whatsapp.send_buttons(
         mobile,
         "🙏 Welcome to Daily Darshan! What would you like to do?\n"
         "Reply CONTINUE to resume, RESEND for your current instructions, or BACK to return.",
-        [("CTA_SUBSCRIBE", "Subscribe"), ("CTA_RENEW", "Renew"), ("CTA_STOP", "Stop messages")],
+        [("CTA_SUBSCRIBE", "Subscribe"), ("CTA_RENEW", "Renew")],
     )
     _require_send(result, "menu")
 
