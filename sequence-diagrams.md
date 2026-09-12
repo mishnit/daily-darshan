@@ -333,12 +333,6 @@ page (`write_page`), not all of them. The push is **not automatic**: it happens 
 your local disk and you must `git add/commit/push` them yourself, or the delivery job (which
 reads the repo) never sees the activation.
 
-> ⚠️ **"Start from next day" discrepancy.** You asked for the subscription to start from the
-> next day, but `Subscriber.activate()` currently sets `start_date = today` and
-> `end_date = today + plan_days`. Delivery/eligibility is date-gated on `end_date`, so today
-> is included. If "start next day" is the intended rule, `activate()` needs
-> `start_date = today + 1` (and `end_date` adjusted accordingly). See notes below.
-
 ---
 
 ## 6. Renewal reminder + opt-out (STOP)

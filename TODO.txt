@@ -6,7 +6,6 @@ update github secret keys -> WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID
 add render secret keys -> WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WEBHOOK_VERIFY_TOKEN, GITHUB_TOKEN, GITHUB_REPO=owner/repo, WHATSAPP_APP_SECRET
 update image sources
 
-Auto deploy happens on render when commit pushed to main
 
 https://daily-darshan-webhook.onrender.com/health for uptimemonitor
 https://dashboard.render.com/web/srv-da3e36bbc2fs738sds6g
@@ -15,7 +14,6 @@ https://api.vipseva.com points to https://daily-darshan-webhook.onrender.com in 
 https://api.vipseva.com/health and https://api.vipseva.com/webhook work as well
 
 https://www.vipseva.com points to https://mishnit.github.io/daily-darshan github pages considering /docs as root
-
 
 Admin verification on local machine: git pull --rebase -> python admin.py list-pending -> python admin.py verify DD2608190001 --activate --commit -> rendering subscriber image and webpage on local -> push to remote main git -> git has "docs/<id>/index.html" and "images/<date>.jpg" -> webpage availabel on https://vipseva.com/<subscription_id>
 
@@ -31,3 +29,8 @@ manual deliver should be run carefully after verifying sentlogs, image exist and
 make image and delivery jobs more manual verifiable on whatsapp - verify daily image and all subscriber pages being updated once image workflow runs. once verified it runs delivery a sometimes job may fail due to github runner issue. if not verfied admin runs manual job to regenerate webpages first and verify later to start delivery
 
 One operational caution: the current implementation sends the welcome message before the final Git commit. If the commit fails, the customer could receive an activation welcome while the activation is not yet visible in main. The safer design is to commit activation/page state first, then send the welcome, or record the welcome as a retryable post-commit task.
+manual deliver should be run carefully after verifying sentlogs, image exist and pages are pointing correctly for subscribers
+
+verify all webook and end to end journey ensuring all correct templates are being used, like delivery, renewal, welcome/menu response, plan list, name request, consent opt-in, payment instruction, utr confirmation and consent optout
+
+make image and delivery jobs more manual verifiable on whatsapp - verify daily image and all subscriber pages being updated once image workflow runs. once verified it runs delivery a sometimes job may fail due to github runner issue. if not verfied admin runs manual job to regenerate webpages first and verify later to start delivery
