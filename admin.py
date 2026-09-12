@@ -37,7 +37,8 @@ from domain.enums import PaymentStatus
 # --------------------------------------------------------------------------- #
 def _changed_csv_paths(container: Container) -> list[str]:
     paths = container.config["paths"]
-    return [paths["payments_csv"], paths["subscribers_csv"], paths["logs_csv"]]
+    return [paths["payments_csv"], paths["subscribers_csv"], paths["logs_csv"],
+            paths.get("welcomes_csv", "csv/welcomes.csv")]
 
 
 def _commit(container: Container, message: str, include_pages: bool = False) -> None:
@@ -114,13 +115,13 @@ def _verify_locked(container: Container, args) -> int:
             payment.activation_state = "APPLIED"
             container.payments.update(payment)
             container.logs.log("PAYMENT_ENTITLEMENT_APPLIED", payment.mobile, reference_id)
-            # Welcome is a distinct activation template. It is best-effort and
-            # never consumes the daily delivery/renewal contact slot.
-            welcome = container.delivery_service.send_welcome(sub)
-            container.logs.log(
-                "WELCOME_SENT" if welcome.ok else "WELCOME_SEND_FAILED",
-                payment.mobile, welcome.message_id or welcome.error,
-            )
+            # Persist the notification intent with the entitlement. A separate
+            # worker sends only after the personalized page is published.
+            if not container.welcomes.find(reference_id):
+                container.welcomes.upsert(reference_id, {
+                    "reference_id": reference_id, "mobile": sub.mobile,
+                    "status": "QUEUED", "whatsapp_message_id": "", "error": "",
+                })
         except SubscriberError as exc:
             print(f"ERROR during activation: {exc}", file=sys.stderr)
             print("Payment was verified but subscriber activation failed. "
@@ -134,7 +135,7 @@ def _verify_locked(container: Container, args) -> int:
         try:
             from datetime import date as _date
             container.page_renderer.write_page(
-                sub, _date.today(), delivered=True,
+                sub, _date.today(), delivered=False,
                 images_dir=container.config["paths"]["images_dir"], root=container.root,
             )
         except Exception as exc:  # page generation must not block activation

@@ -88,6 +88,15 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
         run: python scheduler.py expiry
 
+      - name: Send committed activation welcomes after publication
+        id: welcome
+        continue-on-error: true
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+          WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+        run: python scheduler.py welcome
+
       - name: Send renewal reminders
         id: renewal
         env:
@@ -137,3 +146,9 @@ jobs:
           WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
           WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
         run: python scheduler.py delivery
+
+      - name: Surface unresolved activation welcomes
+        if: always() && steps.welcome.outcome == 'failure'
+        run: |
+          echo "::error::Activation welcomes need retry or reconciliation; inspect welcomes.csv"
+          exit 1

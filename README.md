@@ -438,6 +438,11 @@ Details:
   WhatsApp uses a separate approved `daily_darshan_welcome` activation template. It never
   consumes the daily renewal/delivery contact slot. Daily delivery and renewal continue using
   `daily_darshan_delivery_update`.
+  Admin verification queues a welcome in `csv/welcomes.csv` rather than sending immediately.
+  Commit/push and publish the page first; the delivery workflow drains the welcome outbox.
+  Repeated verification reuses the same payment-keyed task. Opted-out recipients are cancelled.
+  Production webhook replies likewise use a durable `csv/reply_outbox.csv` before sending.
+  Both outboxes retain ambiguous attempts for reconciliation instead of blindly resending.
   Both renewal and delivery check the public page's subscription ID, date and expiry metadata
   before sending. Missing, legacy or stale pages must be regenerated and deployed first.
 
