@@ -95,6 +95,8 @@ class Container:
             delivery_mode=delivery_cfg.get("mode", "image"),
             template_name=delivery_cfg.get("template_name", ""),
             template_lang=delivery_cfg.get("template_lang", "en"),
+            welcome_template_name=delivery_cfg.get("welcome_template_name", ""),
+            welcome_template_lang=delivery_cfg.get("welcome_template_lang", "en"),
             page_base_url=delivery_cfg.get("page_base_url", ""),
         )
         renewal_cfg = self.config.get("renewal", {})

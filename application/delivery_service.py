@@ -38,6 +38,8 @@ class DeliveryService:
         template_name: str = "",
         template_lang: str = "en",
         page_base_url: str = "",
+        welcome_template_name: str = "",
+        welcome_template_lang: str = "en",
     ):
         self._subscribers = subscribers
         self._sentlog = sentlog
@@ -52,6 +54,23 @@ class DeliveryService:
         self._template_lang = template_lang
         self._page_base_url = page_base_url
         self.publication_check = None
+        self._welcome_template_name = welcome_template_name
+        self._welcome_template_lang = welcome_template_lang
+
+    def send_welcome(self, subscriber) -> WhatsAppResult:
+        """Send the activation confirmation, independent of daily delivery.
+
+        Welcome messages never write the daily ``sentlog`` and therefore cannot
+        suppress today's darshan or renewal reminder. Call this only after an
+        admin has verified payment and activated the subscriber.
+        """
+        if not self._welcome_template_name:
+            return WhatsAppResult(ok=False, error="config:welcome_template_name is required")
+        name = sanitize_display_name(subscriber.name, "devotee")
+        return self._whatsapp.send_template_params(
+            subscriber.mobile, self._welcome_template_name, [name],
+            self._welcome_template_lang, url_button_param=subscriber.subscription_id,
+        )
 
     def _retry(self, send) -> WhatsAppResult:
         """Call a zero-arg send callable with bounded retries."""

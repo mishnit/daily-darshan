@@ -114,6 +114,13 @@ def _verify_locked(container: Container, args) -> int:
             payment.activation_state = "APPLIED"
             container.payments.update(payment)
             container.logs.log("PAYMENT_ENTITLEMENT_APPLIED", payment.mobile, reference_id)
+            # Welcome is a distinct activation template. It is best-effort and
+            # never consumes the daily delivery/renewal contact slot.
+            welcome = container.delivery_service.send_welcome(sub)
+            container.logs.log(
+                "WELCOME_SENT" if welcome.ok else "WELCOME_SEND_FAILED",
+                payment.mobile, welcome.message_id or welcome.error,
+            )
         except SubscriberError as exc:
             print(f"ERROR during activation: {exc}", file=sys.stderr)
             print("Payment was verified but subscriber activation failed. "
