@@ -443,6 +443,13 @@ Details:
   Repeated verification reuses the same payment-keyed task. Opted-out recipients are cancelled.
   Production webhook replies likewise use a durable `csv/reply_outbox.csv` before sending.
   Both outboxes retain ambiguous attempts for reconciliation instead of blindly resending.
+  Customers can send CONTINUE, STATUS or RESEND to recover their current step without
+  creating another payment or extending a subscription. Repeated recovery requests have
+  a 30-second cooldown. BACK from name capture returns to plans; other steps return to menu.
+  The `Retry WhatsApp Replies` workflow wakes Render every five minutes to retry eligible
+  outbox entries. Conversation versions and subscriber/payment fingerprints cancel stale
+  instructions, and a 23-hour expiry protects the reply window. See DEPLOYMENT.md for the
+  required WEBHOOK_BASE_URL variable and WHATSAPP_APP_SECRET repository secret.
   Both renewal and delivery check the public page's subscription ID, date and expiry metadata
   before sending. Missing, legacy or stale pages must be regenerated and deployed first.
 

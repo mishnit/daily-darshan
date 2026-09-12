@@ -450,6 +450,36 @@ one person" case; the **daily image job** is the catch-all that (re)builds **eve
 
 ## Timing summary
 
+```mermaid
+sequenceDiagram
+    participant User
+    participant Web as Render
+    participant Repo as Durable state and outbox
+    participant Worker as Retry workflow
+    participant Meta
+    User->>Web: Select plan
+    Web->>Repo: Commit payment reference and versioned reply
+    Web->>Meta: Send reserved reply
+    Meta-->>Web: Definitive failure
+    Web->>Repo: Save FAILED and next attempt time
+    Worker->>Web: Signed periodic retry request
+    Web->>Repo: Load current state under lock
+    alt Reply is current and retry is due
+        Web->>Repo: Persist PENDING attempt
+        Web->>Meta: Retry same instructions
+    else State changed or reply window expired
+        Web->>Repo: Cancel obsolete reply
+    end
+    User->>Web: CONTINUE or RESEND
+    Web->>Repo: Read existing payment and advance conversation version
+    Web->>Repo: Commit fresh reply using existing reference
+    Web->>Meta: Send current instructions
+```
+
+- **Reply recovery** has a best-effort five-minute GitHub Actions schedule and manual dispatch.
+  Unknown attempts require reconciliation; a user-requested resend may duplicate an earlier
+  message already accepted by Meta, but never repeats the payment/activation mutation.
+
 - **Only Daily Image has a fixed target time:** `03:01 UTC` / `08:31 IST`. Its successful
   completion triggers one Pages deployment; successful publication triggers delivery.
 - **All webhook operations are event-driven** (no fixed time): verification, subscribe, plan,

@@ -16,7 +16,9 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
@@ -129,6 +131,31 @@ def _signature_valid(raw_body: bytes, header: str | None) -> bool:
     return hmac.compare_digest(expected, provided)
 
 
+@app.post("/internal/retry-replies")
+async def retry_replies(request: Request) -> Response:
+    """Authenticated scheduler wakeup; all writes share the webhook state lock."""
+    c = _get_container()
+    if c is None or not c.whatsapp_app_secret:
+        return _json({"status": "unavailable"}, 503)
+    raw = await request.body()
+    if not _signature_valid(raw, request.headers.get("X-Hub-Signature-256")):
+        return Response(content="invalid signature", status_code=403)
+    try:
+        timestamp = float(json.loads(raw)["timestamp"])
+        if not abs(time.time() - timestamp) <= 300:
+            raise ValueError("expired request")
+    except (ValueError, KeyError, TypeError):
+        return _json({"status": "invalid request"}, 400)
+    if c.config.get("persistence", {}).get("mode") != "github_api":
+        return _json({"status": "durable persistence required"}, 503)
+    try:
+        await run_in_threadpool(_process_payload, c, {})
+    except Exception:
+        log.exception("Reply retry requires attention")
+        return _json({"status": "retry or reconciliation required"}, 503)
+    return _json({"status": "processed"})
+
+
 @app.post("/webhook")
 async def receive_webhook(request: Request) -> Response:
     raw_body = await request.body()
@@ -174,7 +201,7 @@ def _process_payload(c, payload: dict) -> None:
         try:
             if production:
                 from application.reply_outbox import QueuedReplies
-                c.whatsapp = QueuedReplies(c.reply_outbox)
+                c.whatsapp = QueuedReplies(c.reply_outbox, c)
             failed = _process_messages(c, payload)
             c.repo_sync.push("Webhook update", strict=True)
         except Exception:
@@ -186,7 +213,7 @@ def _process_payload(c, payload: dict) -> None:
         if production:
             from application.reply_outbox import drain_replies
             failed |= drain_replies(c.reply_outbox, client,
-                lambda: c.repo_sync.push("Persist webhook reply outbox", strict=True))
+                lambda: c.repo_sync.push("Persist webhook reply outbox", strict=True), container=c)
         if failed:
             raise RuntimeError("One or more webhook responses need retry")
 
@@ -213,6 +240,18 @@ def _process_messages(c, payload: dict) -> bool:
             if not c.processed.mark_if_new(message_id, mobile):
                 continue
             kind, value = _extract_input(message)
+            if mobile and value:
+                state = c.conversations.find(mobile) or {"mobile": mobile, "version": "0", "last_recovery": "0"}
+                if (kind == "text" and value.strip().upper() in {"CONTINUE", "STATUS", "RESEND"}
+                        and time.time() - float(state.get("last_recovery") or 0) < 30):
+                    continue
+                # Bound delayed events to their original reply window.
+                try:
+                    incoming_at = min(time.time(), float(message.get("timestamp", time.time())))
+                except (ValueError, TypeError):
+                    incoming_at = 0
+                state.update(version=str(int(state["version"]) + 1), last_inbound=str(incoming_at))
+                c.conversations.upsert(mobile, state)
             referral = _REFERRAL_RE.search(value or "")
             if referral:
                 c.referrals.upsert(message_id, {
@@ -276,6 +315,7 @@ def _webhook_paths(c) -> list[str]:
         paths.get("message_statuses_csv", "csv/message_statuses.csv"),
         paths.get("welcomes_csv", "csv/welcomes.csv"),
         paths.get("reply_outbox_csv", "csv/reply_outbox.csv"),
+        paths.get("conversations_csv", "csv/conversations.csv"),
         paths.get("referrals_csv", "csv/referrals.csv"),
         paths.get("reply_retries_csv", "csv/reply_retries.csv"),
     ]
@@ -364,7 +404,8 @@ def _send_menu(c, mobile: str) -> None:
     """Entry CTA menu: Subscribe / Renew / Stop (buttons)."""
     result = c.whatsapp.send_buttons(
         mobile,
-        "🙏 Welcome to Daily Darshan! What would you like to do?",
+        "🙏 Welcome to Daily Darshan! What would you like to do?\n"
+        "Reply CONTINUE to resume, RESEND for your current instructions, or BACK to return.",
         [("CTA_SUBSCRIBE", "Subscribe"), ("CTA_RENEW", "Renew"), ("CTA_STOP", "Stop messages")],
     )
     _require_send(result, "menu")
@@ -457,6 +498,15 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
     # ---------------- Free text (name / UTR / STOP only) ---------------- #
     text = value.strip()
 
+    if text.upper() in {"CONTINUE", "STATUS", "RESEND"}:
+        state = c.conversations.find(mobile) or {"mobile": mobile, "version": "0"}
+        if time.time() - float(state.get("last_recovery") or 0) < 30:
+            return
+        _resume_conversation(c, mobile)
+        state["last_recovery"] = str(time.time())
+        c.conversations.upsert(mobile, state)
+        return
+
     # (0) Opt-out keywords (typed). Meta expects STOP to work as free text too.
     if text.upper() in ("STOP", "UNSUBSCRIBE", "CANCEL"):
         _handle_opt_out(c, mobile)
@@ -473,6 +523,8 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         sub = c.subscribers.find(mobile)
         if sub is not None and sub.awaiting_name:
             svc.set_awaiting_name(mobile, False)
+            _send_plan_list(c, mobile)
+            return
         _send_menu(c, mobile)
         return
 
@@ -542,10 +594,21 @@ def _start_payment(c, mobile: str, plan: str, returning: bool = False) -> None:
 
     `returning=True` uses renewal wording for an existing subscriber.
     """
+    payment = _latest_pending_payment(c, mobile)
+    if payment and payment.utr:
+        _require_send(c.whatsapp.send_text(mobile,
+            f"Payment verification pending for {payment.reference_id}. We received your UTR; please do not pay again."), "payment status")
+        return
+    if payment is None or payment.plan != plan:
+        payment = c.payment_service.create_payment(mobile, plan)
+    _send_payment_instructions(c, mobile, payment, returning)
+
+
+def _send_payment_instructions(c, mobile, payment, returning=False):
     wa = c.whatsapp
     sub = c.subscribers.find(mobile)
     greeting = f"Radhe Radhe {sub.name} Ji! " if sub and sub.name else ""
-    payment = c.payment_service.create_payment(mobile, plan)
+    plan = payment.plan
     intent = c.payment_service.generate_upi_intent(payment)
     if returning:
         header = f"{greeting}Renewing your {plan} plan.\nAmount: ₹{payment.amount:g}\n"
@@ -559,6 +622,29 @@ def _start_payment(c, mobile: str, plan: str, returning: bool = False) -> None:
         f"After paying, reply with your 12-digit UTR.",
     )
     _require_send(result, "payment instruction")
+
+
+def _resume_conversation(c, mobile):
+    sub = c.subscribers.find(mobile)
+    if not sub:
+        _send_plan_list(c, mobile)
+    elif sub.awaiting_name or not sub.name:
+        c.subscriber_service.set_awaiting_name(mobile, True)
+        _require_send(c.whatsapp.send_text(mobile, "🙏 What name should we greet you by?"), "name request")
+    elif not sub.opt_in:
+        _request_opt_in(c, mobile)
+    else:
+        payment = _latest_pending_payment(c, mobile)
+        if payment and payment.utr:
+            _require_send(c.whatsapp.send_text(mobile,
+                f"Payment verification pending for {payment.reference_id}. We received your UTR; please do not pay again."), "payment status")
+        elif payment:
+            _send_payment_instructions(c, mobile, payment, sub.end_date is not None)
+        elif sub.is_deliverable(datetime.now(ZoneInfo('Asia/Kolkata')).date()):
+            _require_send(c.whatsapp.send_text(mobile,
+                f"Your Daily Darshan subscription is active until {sub.end_date}. Send MENU for options."), "active status")
+        else:
+            _send_plan_list(c, mobile)
 
 
 def _default_plan(c) -> str:

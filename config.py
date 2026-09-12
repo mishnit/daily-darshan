@@ -65,7 +65,12 @@ class Container:
         from repositories.csv_repository import CSVRepository
         self.reply_outbox = CSVRepository(
             p(paths.get("reply_outbox_csv", "csv/reply_outbox.csv")),
-            ["id", "method", "arguments", "status", "whatsapp_message_id", "error"], "id",
+            ["id", "method", "arguments", "status", "whatsapp_message_id", "error",
+             "mobile", "version", "fingerprint", "expires_at", "attempts", "next_attempt"], "id",
+        )
+        self.conversations = CSVRepository(
+            p(paths.get("conversations_csv", "csv/conversations.csv")),
+            ["mobile", "version", "last_inbound", "last_recovery"], "mobile",
         )
         self.welcomes = CSVRepository(
             p(paths.get("welcomes_csv", "csv/welcomes.csv")),
@@ -166,6 +171,7 @@ class Container:
             )
         # Files the webhook mutates and must share with the scheduler/admin.
         tracked = [
+            paths.get("conversations_csv", "csv/conversations.csv"),
             paths.get("reply_outbox_csv", "csv/reply_outbox.csv"),
             paths.get("welcomes_csv", "csv/welcomes.csv"),
             paths["subscribers_csv"],
