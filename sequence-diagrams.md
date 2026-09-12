@@ -304,6 +304,7 @@ sequenceDiagram
     participant CLI as admin.py
     participant Pay as PaymentService
     participant Sub as SubscriberService
+    participant WA as WhatsApp (Meta)
     participant Local as Local CSVs
     participant Repo as GitHub repo (main)
 
