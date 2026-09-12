@@ -268,7 +268,7 @@ def run_pages(container: Container, git: LocalGitRepository, on_date: date,
 def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -> int:
     mode = container.config.get("delivery", {}).get("mode", "image")
     if mode == "utility_template":
-        # Page-only template mode sends a URL; it must not require today's
+        # Template mode: the image lives on the per-subscriber page; the WhatsApp
         # message is a utility template carrying that page's URL. Do not send a
         # link to a stale/broken page if today's image workflow did not finish.
         try:
