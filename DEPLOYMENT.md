@@ -123,7 +123,9 @@ Choose the recovery entry point deliberately:
 - **Deploy Daily Darshan Pages** publishes the current `main` `docs/` tree once and then starts
   Daily Delivery. Use this after a mid-day activation or manual page regeneration.
 - **Daily Delivery** sends against the already-published site. It does not build or deploy Pages.
-- **Regenerate Daily Pages** updates page files only. It does not publish or start delivery.
+- **Regenerate Daily Pages** on `main` updates and commits page files, then automatically
+  triggers Pages deployment on success. Successful deployment starts Daily Delivery with
+  the existing daily-send safeguards. Failed or non-default-branch regeneration is not published.
 - A failed/cancelled image run, a non-default-branch image run, or a failed Pages deployment stops
   the automatic chain before WhatsApp delivery.
 

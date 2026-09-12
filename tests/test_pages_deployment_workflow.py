@@ -4,12 +4,12 @@ from pathlib import Path
 def test_pages_deploys_once_after_image_workflow_or_manual_dispatch():
     workflow = Path(".github/workflows/deploy-pages.yml").read_text(encoding="utf-8")
 
-    assert 'workflows: ["Daily Image"]' in workflow
+    assert 'workflows: ["Daily Image", "Regenerate Daily Pages"]' in workflow
     assert "types: [completed]" in workflow
     assert "schedule:" not in workflow
     assert "workflow_dispatch: {}" in workflow
-    assert 'test "$IMAGE_CONCLUSION" = "success"' in workflow
-    assert 'test "$IMAGE_BRANCH" = "$DEFAULT_BRANCH"' in workflow
+    assert "github.event.workflow_run.conclusion == 'success'" in workflow
+    assert "github.event.workflow_run.head_branch == github.event.repository.default_branch" in workflow
     assert "group: pages" in workflow
     assert "cancel-in-progress: true" in workflow
     assert "actions/upload-pages-artifact@v4" in workflow
