@@ -203,6 +203,71 @@ Failed conversational replies restore pre-message state. STOP and UTR are retain
 durable acknowledgement retry record instead. Callbacks are stored even before their send row
 exists; delivered/read evidence wins over delayed failures. Uncertain sends hold the daily slot.
 
+### 3a. Navigation, backtracking and stale CTA cases
+
+The conversation is intentionally recoverable. `BACK`, `GO BACK`, `PREVIOUS`, `MENU`,
+`Radhe Radhe`, `RENEW` and `SUBSCRIBE` are navigation commands at every step. They never become
+the subscriber's name, create a payment, change consent, or consume a daily delivery slot.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User as User (WhatsApp)
+    participant Web as Webhook
+    participant State as Subscriber/payment state
+
+    User->>Web: sends BACK / MENU / Radhe Radhe
+    Web->>State: clear awaiting-name flag only
+    Web-->>User: main menu (Subscribe / Renew / Stop)
+
+    User->>Web: taps CTA_SUBSCRIBE
+    Web-->>User: plan list (PLAN_<plan>)
+    User->>Web: taps PLAN_<plan>
+    Web->>State: save selected plan as PENDING
+    alt name missing
+        Web-->>User: ask for greeting name
+        User->>Web: sends BACK
+        Web->>State: clear awaiting-name flag; retain no payment
+        Web-->>User: main menu
+    else name available
+        Web-->>User: consent disclosure (I agree / No thanks)
+    end
+
+    User->>Web: taps an old/unknown PLAN or CTA id
+    Web-->>User: current main menu or plan list
+    Note over Web,State: stale IDs are ignored; they cannot apply a new paid entitlement
+
+    User->>Web: taps CTA_OPTIN_AGREE twice
+    Web->>State: first tap grants consent and creates one current PENDING payment
+    Web-->>User: UPI instruction + reference
+    Web-->>User: second tap is deduplicated by message.id or supersedes only an old PENDING checkout
+```
+
+### 3b. Payment and UTR recovery cases
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User as User (WhatsApp)
+    participant Web as Webhook
+    participant State as Payment state
+
+    User->>Web: sends a 12-digit UTR
+    Web->>State: attach UTR to latest PENDING payment; keep status PENDING
+    Web-->>User: UTR received; activation waits for admin verification
+    alt acknowledgement fails
+        Web->>State: retain UTR + store acknowledgement in reply_retries.csv
+        Web-->>User: HTTP 503; Meta may redeliver
+        Web->>State: retry acknowledgement only; do not record UTR twice
+    else no PENDING payment
+        Web-->>User: main menu; no payment is changed
+    end
+
+    User->>Web: sends BACK / RENEW / SUBSCRIBE after UTR
+    Web-->>User: navigation menu
+    Note over State: existing UTR remains attached until admin accepts or rejects it
+```
+
 ---
 
 ## 4. User makes payment (submits UTR)
@@ -252,6 +317,8 @@ sequenceDiagram
         CLI->>Sub: renew(mobile)  (extend from current expiry, else today)
     end
     Sub->>Local: write subscribers.csv  📝 LOCAL
+    CLI->>WA: daily_darshan_welcome(name, subscription_id)
+    Note over CLI,WA: Separate activation confirmation; never consumes sentlog daily slot
     CLI->>Local: render THIS subscriber's page (write_page, one page)  📝 LOCAL
     alt --commit
         CLI->>Repo: git commit + push (payments, subscribers, logs, this page)  ✅ REMOTE (not yet published)
@@ -310,6 +377,40 @@ sequenceDiagram
     Web-->>WA: 200 if persisted and reply succeeded; otherwise 503
     Note over Sub: opt_in=false makes the subscriber non-deliverable immediately.
 ```
+
+## 7. Welcome versus daily delivery
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Admin
+    participant WA as WhatsApp (Meta)
+    participant User
+    participant Sched as scheduler.py
+    participant Repo as sentlog.csv
+
+    Admin->>WA: daily_darshan_welcome(name, subscription_id)
+    WA->>User: Your VIP Seva subscription is active
+    Note over Repo: Welcome is not written to the date+mobile delivery ledger
+
+    Sched->>Repo: reserve date+mobile = PENDING
+    Sched->>WA: daily_darshan_delivery_update(name, subscription_id)
+    WA->>User: Today's Daily Darshan page is ready
+    Sched->>Repo: update reservation = SENT / FAILED / UNKNOWN
+
+    alt renewal is due on same date
+        Sched->>Repo: renewal competes for the same reservation
+        Note over User,Repo: At most one renewal-or-delivery contact per subscriber/date
+    else welcome is retried
+        Admin->>WA: retry daily_darshan_welcome only
+        Note over User,Repo: Welcome retry does not suppress delivery
+    end
+```
+
+The welcome event proves activation; it is not evidence that a daily image was delivered.
+The delivery event proves only that Meta accepted the daily template (`SENT`) unless a later
+`delivered` or `read` status is received. A provider timeout is `UNKNOWN` and blocks automatic
+reruns until reconciled, preventing duplicate customer messages.
 
 ---
 

@@ -14,6 +14,10 @@ from tests.test_delivery import _seed, _delivery
 from tests.conftest import FakeWhatsApp
 from application.ports.whatsapp import WhatsAppResult
 from adapters.repo_sync import RepoSync
+from application.delivery_service import DeliveryService
+from application.subscriber_service import SubscriberService
+from domain.enums import SubscriberStatus
+from domain.subscriber import Subscriber
 
 TODAY = date(2026, 8, 19)
 
@@ -203,6 +207,47 @@ def test_network_timeout_is_an_unknown_outcome():
             raise requests.Timeout()
     result = MetaWhatsAppClient("token", "phone-id", session=Session()).send_text("9199", "test")
     assert not result.ok and result.unknown
+
+
+def test_welcome_uses_distinct_template_and_does_not_consume_daily_slot(repos, plans):
+    sub = Subscriber("9199", "monthly", status=SubscriberStatus.ACTIVE,
+                     start_date=TODAY, end_date=date(2026, 9, 18), opt_in=True,
+                     subscription_id="opaque", name="Nitin")
+    repos["subscribers"].append(sub)
+    wa = FakeWhatsApp()
+    eligibility = SubscriberService(repos["subscribers"], repos["payments"], plans, repos["sentlog"])
+    service = DeliveryService(
+        repos["subscribers"], repos["sentlog"], wa, eligibility,
+        delivery_mode="utility_template", template_name="daily_darshan_delivery_update",
+        page_base_url="https://example.com", welcome_template_name="daily_darshan_welcome",
+        welcome_template_lang="en",
+    )
+    welcome = service.send_welcome(sub)
+    assert welcome.ok
+    assert wa.sent[0]["template"] == "daily_darshan_welcome"
+    assert repos["sentlog"].all() == []
+    service._eligibility = eligibility
+    service.publication_check = lambda *_: True
+    report = service.deliver(TODAY)
+    assert report.sent == 1
+    assert [s["template"] for s in wa.sent] == [
+        "daily_darshan_welcome", "daily_darshan_delivery_update"
+    ]
+
+
+def test_backtracking_does_not_save_navigation_as_name(app_client):
+    main, client = app_client
+    c = main.container
+    c.subscriber_service.upsert_pending("9199", "monthly")
+    c.subscriber_service.set_awaiting_name("9199", True)
+    assert client.post("/webhook", json=text_payload("BACK", "back-1")).status_code == 200
+    sub = c.subscribers.find("9199")
+    assert sub.name == "" and sub.awaiting_name is False
+    # A new navigation action remains possible after going back and does not
+    # re-enter name capture. The menu response is the same handler used by the
+    # CTA flow.
+    assert client.post("/webhook", json=_tap_payload("9199", "CTA_SUBSCRIBE", "menu-2")).status_code == 200
+    assert c.subscribers.find("9199").awaiting_name is False
 
 
 @pytest.mark.parametrize("mode", ["delivery", "renewal"])

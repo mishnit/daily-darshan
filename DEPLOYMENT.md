@@ -173,6 +173,14 @@ Use this sequence when validating a release end to end:
   A legacy SUCCESS payment without markers fails closed: reconcile whether it was applied before
   retrying. If already applied, add its reference to the subscriber marker and mark it APPLIED;
   only mark activation_state PENDING after proving it has never granted an entitlement.
+- Configure and approve `daily_darshan_welcome` separately from
+  `daily_darshan_delivery_update`. Activation sends the welcome template once as a best-effort
+  confirmation; it is not recorded in the daily contact ledger. If it fails, retry the welcome
+  operationally without sending another daily delivery.
+- Customers can send `BACK`, `GO BACK`, `MENU`, `Radhe Radhe`, `RENEW` or `SUBSCRIBE` at any
+  conversational step. These commands return to navigation and never save themselves as a name,
+  alter consent, or replace a paid payment. Old CTA taps are validated against the current plan
+  and state; a missing/expired CTA shows the menu.
 - Reconcile PENDING/UNKNOWN sends against provider evidence before any manual change. A failed
   outcome push may leave the reservation ID without a provider ID; do not assume no send occurred.
   This is duplicate prevention under uncertainty, not guaranteed exactly-once delivery.

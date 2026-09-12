@@ -17,7 +17,9 @@ import logging
 import os
 import re
 
-from fastapi import BackgroundTasks, FastAPI, Query, Request, Response
+from fastapi import FastAPI, Query, Request, Response
+from starlette.concurrency import run_in_threadpool
+from repositories.state_lock import state_lock
 
 app = FastAPI(title="Daily Darshan Webhook", version="2.0.0")
 log = logging.getLogger("daily_darshan.webhook")
@@ -126,7 +128,7 @@ def _signature_valid(raw_body: bytes, header: str | None) -> bool:
 
 
 @app.post("/webhook")
-async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -> Response:
+async def receive_webhook(request: Request) -> Response:
     raw_body = await request.body()
 
     # Reject forged/unsigned requests before doing any work (must be synchronous).
@@ -135,10 +137,9 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
 
     c = _get_container()
     if c is None:
-        # Cannot process without a container; ack so Meta doesn't hammer retries,
-        # and rely on /health + logs to surface the outage.
+        # Do not acknowledge an event that cannot be processed.
         log.error("Webhook received but container is unavailable: %s", _container_error)
-        return _json({"status": "unavailable"}, 200)
+        return _json({"status": "unavailable"}, 503)
 
     # Never 500 on a malformed/non-JSON body; ack and ignore (synchronous).
     try:
@@ -148,28 +149,39 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
     if not isinstance(payload, dict):
         return _json({"status": "ignored"})
 
-    # (fix #2) Ack Meta immediately and do the slow work (repo pull/push +
-    # WhatsApp calls) off the response path in a background task. Signature is
-    # already verified and the payload parsed, so scheduling is safe. Meta only
-    # needs a fast 200 to avoid retrying.
-    background_tasks.add_task(_process_payload, c, payload)
+    # Keep the event loop free, but do not acknowledge before durable commit.
+    try:
+        await run_in_threadpool(_process_payload, c, payload)
+    except Exception:
+        log.exception("Webhook not completed; request must be retried")
+        return _json({"status": "retry"}, 503)
     return _json({"status": "accepted"})
 
 
 def _process_payload(c, payload: dict) -> None:
-    """Process a verified webhook payload. Runs in a background task.
+    """Serialize the read/modify/persist transaction before acknowledging it."""
+    with state_lock(c.root):
+        production = c.config.get("persistence", {}).get("mode") == "github_api"
+        if production and not c.repo_sync.enabled:
+            raise RuntimeError("Durable persistence is unavailable")
+        if c.repo_sync.enabled and c.repo_sync.in_quiet_window():
+            raise RuntimeError("Persistence quiet window; retry later")
+        c.repo_sync.pull(strict=True)
+        snapshot = _snapshot_webhook_state(c)
+        try:
+            failed = _process_messages(c, payload)
+            c.repo_sync.push("Webhook update", strict=True)
+        except Exception:
+            _restore_webhook_state(snapshot)
+            c.repo_sync.abort()
+            raise
+        if failed:
+            raise RuntimeError("One or more webhook responses need retry")
 
-    Does the slow/blocking work: pull shared state, handle each message
-    (idempotent, isolated), push changes back. Never raises to the caller.
-    """
-    # Pull latest shared state so this ephemeral webhook sees subscribers/
-    # payments written elsewhere; push after (P0 fix #6).
-    try:
-        c.repo_sync.pull()
-    except Exception:  # noqa: BLE001 - never block on sync
-        log.exception("repo_sync.pull failed; proceeding with local state")
 
-    processed_any = False
+def _process_messages(c, payload: dict) -> bool:
+    """Handle a batch under the caller's state lock; report retriable failures."""
+    failed = False
     for message, ctx in _iter_messages(payload):
         message_id = message.get("id", "")
         mobile = message.get("from", "")
@@ -177,43 +189,43 @@ def _process_payload(c, payload: dict) -> None:
         # Isolate each message: a failure must not abort the batch.
         try:
             snapshot = _snapshot_webhook_state(c)
+            pending_reply = c.reply_retries.find(message_id)
+            if pending_reply:
+                result = c.whatsapp.send_text(pending_reply["mobile"], pending_reply["text"])
+                if not result.ok:
+                    failed = True
+                    continue
+                c.reply_retries.delete(message_id)
+                continue
             # Dedupe on WhatsApp message id: skip a re-delivered message.
             if not c.processed.mark_if_new(message_id, mobile):
                 continue
             kind, value = _extract_input(message)
-            processed_any = True  # Persist the idempotency record too.
             if mobile and value:
                 name = _profile_name(ctx, mobile)
                 _handle_message(c, mobile, kind, value, name)
-                processed_any = True
+        except CustomerIntentReplyFailed as exc:
+            # STOP and received UTR are facts, independent of reply transport.
+            # Keep them and retry only the acknowledgement on redelivery.
+            c.reply_retries.upsert(message_id, {
+                "message_id": message_id, "mobile": exc.mobile, "text": exc.text,
+            })
+            failed = True
         except Exception:  # noqa: BLE001 - log + continue
             # The id is claimed first to prevent concurrent duplicate sends.
             # Release it after a failure so Meta can retry the user action.
             _restore_webhook_state(snapshot)
+            failed = True
             log.exception("Failed handling message id=%s from=%s", message_id, mobile)
 
     for status in _iter_statuses(payload):
-        if status.get("status") != "failed":
-            continue
         message_id = str(status.get("id", ""))
         if not message_id:
             continue
-        sent_updates = c.sentlog.mark_failed(message_id)
-        renewal_updates = c.renewals.mark_failed(message_id)
-        if sent_updates or renewal_updates:
-            c.logs.log(
-                "WHATSAPP_ASYNC_FAILED",
-                str(status.get("recipient_id", "")),
-                f"{message_id}:sentlog={sent_updates}:renewals={renewal_updates}",
-            )
-            processed_any = True
+        c.message_statuses.record(message_id, status.get("status"))
+    c.message_statuses.reconcile(c.sentlog, c.renewals)
 
-    # Push any local CSV changes back to the shared repo (P0 fix #6).
-    if processed_any:
-        try:
-            c.repo_sync.push("Webhook update")
-        except Exception:  # noqa: BLE001
-            log.exception("repo_sync.push failed; local writes not yet shared")
+    return failed
 
 
 def _iter_messages(payload: dict):
@@ -241,6 +253,8 @@ def _webhook_paths(c) -> list[str]:
         paths["subscribers_csv"], paths["payments_csv"],
         paths.get("processed_csv", "csv/processed.csv"), paths["logs_csv"],
         paths["sentlog_csv"], paths["renewals_csv"],
+        paths.get("message_statuses_csv", "csv/message_statuses.csv"),
+        paths.get("reply_retries_csv", "csv/reply_retries.csv"),
     ]
 
 
@@ -267,6 +281,22 @@ def _restore_webhook_state(snapshot: dict[str, tuple[str, bytes | None]]) -> Non
         else:
             with open(full, "wb") as output:
                 output.write(content)
+
+
+class CustomerIntentReplyFailed(RuntimeError):
+    """A durable customer instruction succeeded, but its reply did not."""
+    def __init__(self, mobile, text):
+        super().__init__("Customer instruction saved; acknowledgement needs retry")
+        self.mobile, self.text = mobile, text
+
+
+def _send_intent_reply(c, mobile, text):
+    try:
+        result = c.whatsapp.send_text(mobile, text)
+    except Exception:
+        raise CustomerIntentReplyFailed(mobile, text) from None
+    if not result.ok:
+        raise CustomerIntentReplyFailed(mobile, text)
 
 
 def _require_send(result, purpose: str) -> None:
@@ -409,6 +439,19 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         _handle_opt_out(c, mobile)
         return
 
+    if text.upper() in {"HI", "HELLO", "RADHE RADHE", "RENEW", "SUBSCRIBE", "MENU", "START"}:
+        _send_menu(c, mobile)
+        return
+
+    # Backtracking is deliberately safe: it only changes conversational state,
+    # never payment status or consent. A stale CTA cannot apply a new plan.
+    if text.upper() in {"BACK", "GO BACK", "PREVIOUS"}:
+        sub = c.subscribers.find(mobile)
+        if sub is not None and sub.awaiting_name:
+            svc.set_awaiting_name(mobile, False)
+        _send_menu(c, mobile)
+        return
+
     # (a) Awaiting the user's name -> capture it (a UTR is never a name).
     if svc.is_awaiting_name(mobile) and not _UTR_RE.match(text):
         if text:
@@ -426,12 +469,11 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
             _send_menu(c, mobile)
             return
         c.payment_service.record_utr(payment.reference_id, text)
-        result = wa.send_text(
+        _send_intent_reply(c,
             mobile,
             "Thanks! We received your UTR. Your subscription activates once an "
             "admin verifies the payment.",
         )
-        _require_send(result, "UTR confirmation")
         return
 
     # (c) Anything else typed -> present the CTA menu (no free-text commands).
@@ -442,17 +484,13 @@ def _handle_opt_out(c, mobile: str) -> None:
     """Honor STOP: revoke consent, confirm, stop business-initiated sends (#9)."""
     sub = c.subscriber_service.revoke_opt_in(mobile)
     if sub is None:
-        _require_send(
-            c.whatsapp.send_text(mobile, "You're not subscribed. Send Radhe Radhe anytime to see the menu. 🙏"),
-            "opt-out confirmation",
-        )
+        _send_intent_reply(c, mobile, "You're not subscribed. Send Radhe Radhe anytime to see the menu. 🙏")
         return
-    result = c.whatsapp.send_text(
+    _send_intent_reply(c,
         mobile,
         "You've been opted out — you won't receive further Daily Darshan messages. "
         "Send Radhe Radhe anytime, then choose Subscribe to opt in again. 🙏",
     )
-    _require_send(result, "opt-out confirmation")
 
 
 def _handle_renew(c, mobile: str, name: str = "") -> None:

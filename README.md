@@ -435,7 +435,9 @@ Details:
 - Activation remains admin-verified out-of-band (see Admin Operations); the name/plan captured
   here is what later fills the daily utility template and the per-subscriber page greeting.
 - The subscriber page explicitly confirms that the subscription is active and welcomes the user.
-  WhatsApp still uses the approved delivery-status template, not a separate welcome template.
+  WhatsApp uses a separate approved `daily_darshan_welcome` activation template. It never
+  consumes the daily renewal/delivery contact slot. Daily delivery and renewal continue using
+  `daily_darshan_delivery_update`.
   Both renewal and delivery check the public page's subscription ID, date and expiry metadata
   before sending. Missing, legacy or stale pages must be regenerated and deployed first.
 
@@ -444,8 +446,9 @@ Details:
 > approved template with buttons; within the window (the normal case, since the user just
 > messaged) the free-form interactive menu is used.
 
-The current configuration uses `daily_darshan_delivery_update` with language `en` for both
-scheduled delivery and renewal reminders. Both paths send the customer name as body `{{1}}`
+The current configuration uses `daily_darshan_delivery_update` with language `en` for scheduled
+delivery and renewal reminders. Activation uses the separate `daily_darshan_welcome` template;
+both templates send the customer name as body `{{1}}`
 and the subscription ID as dynamic URL-button `{{1}}`; configure that button URL as
 `https://vipseva.com/{{1}}`. The renewal send deliberately uses the same delivery-status copy
 and does not include the expiry date.
