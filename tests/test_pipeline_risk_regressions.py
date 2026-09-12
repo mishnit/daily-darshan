@@ -18,7 +18,7 @@ def test_automatic_chain_publishes_before_whatsapp_delivery():
     deploy = _workflow("deploy-pages.yml")
     delivery = _workflow("delivery.yml")
 
-    assert 'workflows: ["Daily Image"]' in deploy
+    assert 'workflows: ["Daily Image", "Regenerate Daily Pages"]' in deploy
     assert 'workflows: ["Deploy Daily Darshan Pages"]' in delivery
     assert "actions/deploy-pages@v4" not in image
     assert "actions/deploy-pages@v4" not in delivery
@@ -36,9 +36,9 @@ def test_render_and_ordinary_main_pushes_cannot_deploy_pages():
 def test_failed_or_non_default_image_run_fails_publication_gate():
     deploy = _workflow("deploy-pages.yml")
 
-    assert 'test "$IMAGE_CONCLUSION" = "success"' in deploy
-    assert 'test "$IMAGE_BRANCH" = "$DEFAULT_BRANCH"' in deploy
-    assert "exit 1" in deploy
+    assert "github.event.workflow_run.conclusion == 'success'" in deploy
+    assert "github.event.workflow_run.head_branch == github.event.repository.default_branch" in deploy
+    assert deploy.index("if: >-") < deploy.index("runs-on:")
 
 
 def test_delivery_can_run_manually_but_has_no_independent_schedule():
