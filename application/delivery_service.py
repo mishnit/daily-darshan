@@ -51,13 +51,14 @@ class DeliveryService:
         self._template_name = template_name
         self._template_lang = template_lang
         self._page_base_url = page_base_url
+        self.publication_check = None
 
     def _retry(self, send) -> WhatsAppResult:
         """Call a zero-arg send callable with bounded retries."""
         last: WhatsAppResult = WhatsAppResult(ok=False, error="not attempted")
         for attempt in range(1, self._max_retries + 1):
             last = send()
-            if last.ok:
+            if last.ok or last.unknown:
                 return last
             if attempt < self._max_retries and self._retry_sleep:
                 time.sleep(self._retry_sleep)
@@ -96,11 +97,6 @@ class DeliveryService:
 
         for sub in self._subscribers.all():
             mobile = sub.mobile
-            first_successful_contact = not any(
-                row.get("mobile") == mobile
-                and row.get("status") == DeliveryStatus.SENT.value
-                for row in self._sentlog.all()
-            )
             if self._sentlog.was_sent(on_date, mobile):
                 report.skipped += 1
                 continue
@@ -114,8 +110,17 @@ class DeliveryService:
                 continue
 
             page_url = self._page_url(sub)
+            if self.publication_check and not self.publication_check(sub, on_date):
+                report.failed += 1
+                report.failures.append(mobile)
+                self._log("DELIVERY_PAGE_NOT_PUBLISHED", mobile, "")
+                continue
             # (#7) Sanitize name for the WhatsApp template param; safe fallback.
             name = sanitize_display_name(sub.name, "devotee")
+            reservation = self._sentlog.reserve(on_date, mobile, page_url)
+            if reservation is None:
+                report.skipped += 1
+                continue
             result = self._retry(lambda: self._whatsapp.send_template_params(
                 mobile,
                 self._template_name,
@@ -123,22 +128,10 @@ class DeliveryService:
                 self._template_lang,
                 url_button_param=sub.subscription_id,
             ))
-            status = DeliveryStatus.SENT if result.ok else DeliveryStatus.FAILED
-            self._sentlog.append({
-                "date": on_date.isoformat(),
-                "mobile": mobile,
-                "image": page_url,  # record the page URL delivered
-                "whatsapp_message_id": result.message_id,
-                "status": status.value,
-            })
+            self._sentlog.complete(reservation, result)
             if result.ok:
                 report.sent += 1
-                event = (
-                    "ACTIVATION_WELCOME_SENT"
-                    if first_successful_contact
-                    else "WHATSAPP_SEND_SUCCESS"
-                )
-                self._log(event, mobile, result.message_id)
+                self._log("WHATSAPP_SEND_ACCEPTED", mobile, result.message_id)
             else:
                 report.failed += 1
                 report.failures.append(mobile)
@@ -175,6 +168,10 @@ class DeliveryService:
                 report.skipped += 1
                 continue
 
+            reservation = self._sentlog.reserve(on_date, mobile, image_name)
+            if reservation is None:
+                report.skipped += 1
+                continue
             if media_id:
                 result = self._retry(
                     lambda: self._whatsapp.send_image_by_id(mobile, media_id, caption)
@@ -183,14 +180,7 @@ class DeliveryService:
                 result = self._retry(
                     lambda: self._whatsapp.send_image(mobile, image_url, caption)
                 )
-            status = DeliveryStatus.SENT if result.ok else DeliveryStatus.FAILED
-            self._sentlog.append({
-                "date": on_date.isoformat(),
-                "mobile": mobile,
-                "image": image_name,
-                "whatsapp_message_id": result.message_id,
-                "status": status.value,
-            })
+            self._sentlog.complete(reservation, result)
             if result.ok:
                 report.sent += 1
                 self._log("WHATSAPP_SEND_SUCCESS", mobile, result.message_id)

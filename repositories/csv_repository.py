@@ -74,7 +74,16 @@ class CSVRepository:
         return None
 
     def append(self, record: dict) -> None:
+        with self._exclusive_lock():
+            self._append_unlocked(record)
+
+    def _append_unlocked(self, record: dict) -> None:
         row = self._row(record)
+        with open(self.path, newline="", encoding="utf-8") as source:
+            existing = next(csv.reader(source), [])
+        if existing != self.fieldnames:
+            self._write_all(self.all() + [row])
+            return
         with open(self.path, "a", newline="", encoding="utf-8") as fh:
             csv.DictWriter(fh, fieldnames=self.fieldnames, escapechar="\\").writerow(row)
 
@@ -127,7 +136,7 @@ class CSVRepository:
             for row in self.all():
                 if row.get(self.key_field) == key:
                     raise DuplicateKeyError(key)
-            self.append(record)
+            self._append_unlocked(record)
 
     def update(self, key, record: dict) -> bool:
         """Replace the row whose key_field == key. Returns True if updated."""

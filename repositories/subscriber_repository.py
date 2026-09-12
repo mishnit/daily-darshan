@@ -7,6 +7,7 @@ from application.ports.repositories import SubscriberRepositoryPort
 from .csv_repository import CSVRepository
 
 FIELDNAMES = ["mobile", "plan", "start_date", "end_date", "status", "opt_in", "subscription_id", "name", "awaiting_name", "opt_in_at", "opt_in_source"]
+FIELDNAMES.append("applied_payment_refs")
 
 
 class CSVSubscriberRepository(SubscriberRepositoryPort):

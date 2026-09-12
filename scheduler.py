@@ -265,7 +265,23 @@ def run_pages(container: Container, git: LocalGitRepository, on_date: date,
     return 0
 
 
+def _prepare_contact_safety(container, git):
+    """Install durable reservation commits and publication checks for both phases."""
+    if not hasattr(container, "sentlog"):
+        return  # Lightweight test doubles that do not perform real sends.
+    paths = container.config["paths"]
+    if hasattr(container, "message_statuses"):
+        container.message_statuses.reconcile(container.sentlog, container.renewals)
+    files = [paths["sentlog_csv"], paths["renewals_csv"], paths["logs_csv"]]
+    container.sentlog.persist = lambda: git.commit(files, "Persist daily WhatsApp contact slot")
+    from adapters.published_page import PublishedPageChecker
+    checker = PublishedPageChecker(container.config.get("delivery", {}).get("page_base_url", ""))
+    container.delivery_service.publication_check = checker
+    container.renewal_service.publication_check = checker
+
+
 def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -> int:
+    _prepare_contact_safety(container, git)
     mode = container.config.get("delivery", {}).get("mode", "image")
     if mode == "utility_template":
         # Template mode: the image lives on the per-subscriber page; the WhatsApp
@@ -316,6 +332,7 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
 
 
 def run_renewal(container: Container, git: LocalGitRepository, on_date: date) -> int:
+    _prepare_contact_safety(container, git)
     report = container.renewal_service.run(on_date)
     git.commit([container.config["paths"]["renewals_csv"],
                 container.config["paths"]["sentlog_csv"],

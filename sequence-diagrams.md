@@ -10,7 +10,8 @@ Three kinds of flows:
 - **Manual Actions** — image, Pages deployment, page regeneration and delivery can be run from
   the Actions tab. Direct delivery does not rebuild or redeploy pages.
 - **Event-driven (untimed)** — the webhook on Render, triggered by WhatsApp/Meta. Writes via
-  the **Contents API** (`GitHubApiRepository` through `RepoSync`): pull before and push after.
+  the **Git Data API** (`GitHubApiRepository` through `RepoSync`): snapshot read before handling,
+  atomic publication before HTTP acknowledgement.
 
 | Operation | Trigger | Time (UTC / IST) | Writes to repo? |
 |-----------|---------|------------------|-----------------|
@@ -48,12 +49,12 @@ Every write in this system is one of two kinds, and the **push timing** differs 
 
 | Machine | Mechanism | Push timing |
 |---------|-----------|-------------|
-| **Scheduler** (GitHub Actions) | signed git CLI `commit` + `push` | **After each scheduler command** — cleanup (only if needed), image, expiry, renewal and delivery. Not per-subscriber. |
+| **Scheduler** (GitHub Actions) | signed git CLI `commit` + `push` | After each command, plus a per-subscriber reservation **before** each send and its outcome **after**. |
 | **Admin** (`admin.py`) | git CLI `commit` + `push` | **Only if `--commit` is passed**, at the end of the command. Otherwise the write stays 📝 LOCAL and must be pushed **manually**. |
-| **Webhook** (Render) | Contents API via `RepoSync` | **After background request handling**; stale-SHA conflicts fail safely for retry. |
+| **Webhook** (Render) | Git Data API via `RepoSync` | Atomic CSV publication **before HTTP 200**; concurrent branch advances reject stale snapshots and return 503. |
 
-So there are three push timings: **after each scheduler command**, **manual/optional** for admin,
-and **immediate after background request handling** for the webhook.
+Push timings are per-command/per-contact for the scheduler, optional for admin, and
+before acknowledgement for the webhook.
 
 ---
 
@@ -94,6 +95,8 @@ sequenceDiagram
     Runner->>Sched: cleanup + idempotent expiry safety sweep
     Runner->>Sched: python scheduler.py renewal
     Sched->>Sched: find active opted-in subs expiring in [3,2,1]
+    Sched->>Sched: verify personalized page is published
+    Sched->>Repo: commit PENDING date+mobile reservation
     Sched->>WA: send reminder if date+mobile daily slot is free
     Sched->>Repo: commit + push renewals.csv, sentlog.csv, logs.csv
     end
@@ -102,9 +105,11 @@ sequenceDiagram
     Note over Sched,Repo: Daily delivery for remaining eligible subscribers
     Runner->>Sched: python scheduler.py delivery
     Sched->>Sched: require today's valid image + free date+mobile slot
+    Sched->>Sched: verify public page ID, date and expiry
+    Sched->>Repo: commit PENDING reservation before send
     Sched->>WA: send published utility page link (bounded retries)
     Sched->>Runner: append sentlog.csv (date+mobile)  📝 LOCAL
-    Sched->>Repo: git commit + push (sentlog.csv, logs.csv)  ✅ REMOTE (after job)
+    Sched->>Repo: git commit + push outcome per contact, then command logs
     end
 ```
 
@@ -143,7 +148,7 @@ sequenceDiagram
 ## 3. POST /webhook — inbound message (subscribe → plan → name → opt-in → pay)
 
 This is the main event-driven flow. `RepoSync.pull()` runs at the start and
-`RepoSync.push()` runs after background processing.
+`RepoSync.push()` publishes an atomic CSV transaction before HTTP acknowledgement.
 
 ```mermaid
 sequenceDiagram
@@ -158,9 +163,7 @@ sequenceDiagram
     User->>Meta: taps/sends message
     Meta->>Web: POST /webhook (signed)
     Web->>Web: verify HMAC signature
-    Web-->>Meta: 200 "accepted" (ack fast)
-
-    Note over Web,Repo: slow work runs in a background task
+    Note over Web,Repo: Worker thread holds local state lock; HTTP response waits
     Web->>Repo: RepoSync.pull() — fetch latest CSVs  ⬇️ REPO READ
     Repo-->>Local: overwrite local subscribers/payments/processed/logs
 
@@ -188,13 +191,17 @@ sequenceDiagram
     end
 
     Note over Web,Repo: after handling all messages in the payload
-    Web->>Repo: RepoSync.push() — write CSVs back  ✅ REMOTE (after request)
-    Note over Web,Repo: stale-SHA conflicts remain local and are retried; no ephemeral quiet-window deferral
+    Web->>Repo: RepoSync.push() — one atomic Git tree commit
+    alt durable commit and replies succeeded
+        Web-->>Meta: 200 accepted
+    else persistence or reply failure
+        Web-->>Meta: 503 retry
+    end
 ```
 
-If a synchronous WhatsApp reply fails, the handler restores the pre-message CSV snapshot and
-releases the message id so the journey can be retried. Meta `statuses[]` callbacks also change a
-previously accepted renewal/delivery ledger entry to `FAILED` when asynchronous delivery fails.
+Failed conversational replies restore pre-message state. STOP and UTR are retained with a
+durable acknowledgement retry record instead. Callbacks are stored even before their send row
+exists; delivered/read evidence wins over delayed failures. Uncertain sends hold the daily slot.
 
 ---
 
@@ -212,12 +219,12 @@ sequenceDiagram
 
     User->>Meta: pays via UPI, replies with 12-digit UTR
     Meta->>Web: POST /webhook - text = UTR
-    Web-->>Meta: 200 accepted
     Web->>Repo: RepoSync.pull  ⬇️ REPO READ
     Web->>Pay: record_utr(reference_id, utr)
     Pay->>Local: write payments.csv (UTR attached, still PENDING)  📝 LOCAL
     Web->>User: Received your UTR. Activates once an admin verifies.
-    Web->>Repo: RepoSync.push - REMOTE after request
+    Web->>Repo: Persist UTR and any failed acknowledgement atomically
+    Web-->>Meta: 200 if persisted and reply succeeded; otherwise 503
     Note over Web,Repo: Payment is NOT yet SUCCESS. A UTR is not proof of payment.
 ```
 
@@ -256,7 +263,7 @@ sequenceDiagram
 
 **Admin machine + push:** `admin.py` runs on **whatever machine you invoke it on** (your
 laptop or a maintenance box with a repo checkout), using the **git CLI** — the same mechanism
-as the scheduler, not the webhook's Contents API. It renders **only the one subscriber's**
+as the scheduler, not the webhook's Git Data API. It renders **only the one subscriber's**
 page (`write_page`), not all of them. The push is **not automatic**: it happens **only with
 `--commit`** (at the end of the command). Without `--commit`, the CSV and page edits sit on
 your local disk and you must `git add/commit/push` them yourself, or the delivery job (which
@@ -285,21 +292,22 @@ sequenceDiagram
 
     Note over Sched,Repo: Renewal reminder (event-driven delivery step)
     Sched->>Sub: find active opted-in subs expiring in reminder_days [3,2,1]
-    Sched->>Sub: skip when date+mobile already has SENT in sentlog.csv
+    Sched->>Sub: skip when date+mobile is SENT, DELIVERED, PENDING or UNKNOWN
+    Sched->>Repo: persist PENDING reservation before sending
     Sched->>WA: send renewal reminder
     WA->>User: Delivery-status template with personalized Daily Darshan link
     Sched->>Local: append renewals.csv + successful daily sentlog row  📝 LOCAL
-    Sched->>Repo: git commit + push  ✅ REMOTE (after job)
+    Sched->>Repo: git commit + push outcome per subscriber
 
     Note over User,Repo: Opt-out (event-driven, any time)
     User->>WA: replies STOP / UNSUBSCRIBE / CANCEL
     WA->>Web: POST /webhook
-    Web-->>WA: 200 accepted
     Web->>Repo: RepoSync.pull  ⬇️ REPO READ
     Web->>Sub: revoke_opt_in(mobile) - opt_in=false, ts, source=opt_out
     Sub->>Local: write subscribers.csv  📝 LOCAL
     Web->>User: Opted out. Send Radhe Radhe, then choose Subscribe to opt in again.
-    Web->>Repo: RepoSync.push - REMOTE after request
+    Web->>Repo: Persist opt-out and any failed acknowledgement atomically
+    Web-->>WA: 200 if persisted and reply succeeded; otherwise 503
     Note over Sub: opt_in=false makes the subscriber non-deliverable immediately.
 ```
 
@@ -350,8 +358,8 @@ one person" case; the **daily image job** is the catch-all that (re)builds **eve
 - **Only Daily Image has a fixed target time:** `03:01 UTC` / `08:31 IST`. Its successful
   completion triggers one Pages deployment; successful publication triggers delivery.
 - **All webhook operations are event-driven** (no fixed time): verification, subscribe, plan,
-  name, opt-in, UTR, opt-out. They write locally immediately and push to the repo at the end
-  of background request handling. The quiet window is disabled because manual/delayed workflows
+  name, opt-in, UTR, opt-out. They publish the state transaction before HTTP acknowledgement.
+  Failures request retries with 503. The quiet window is disabled because manual/delayed workflows
   cannot be bracketed reliably and Render's deferred local state is ephemeral.
 - **Admin verification is manual** (run whenever a real payment is confirmed) and only writes
   to the repo when `--commit` is passed.

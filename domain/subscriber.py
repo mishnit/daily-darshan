@@ -103,6 +103,7 @@ class Subscriber:
     status: SubscriberStatus = SubscriberStatus.PENDING
     opt_in: bool = True
     subscription_id: str = ""  # unguessable id for the public page URL
+    applied_payment_refs: str = ""  # Entitlements already applied, persisted with dates.
     name: str = ""             # display name (e.g. WhatsApp profile name) for {{1}}
     awaiting_name: bool = False  # conversational state: expecting the user's name next
     opt_in_at: str = ""        # ISO timestamp when opt-in was granted (consent proof)
@@ -118,6 +119,7 @@ class Subscriber:
     def from_row(cls, row: dict) -> "Subscriber":
         return cls(
             mobile=str(row["mobile"]).strip(),
+            applied_payment_refs=str(row.get("applied_payment_refs", "")),
             plan=str(row.get("plan", "")).strip(),
             start_date=_parse_date(row.get("start_date")),
             end_date=_parse_date(row.get("end_date")),
@@ -133,6 +135,7 @@ class Subscriber:
     def to_row(self) -> dict:
         return {
             "mobile": self.mobile,
+            "applied_payment_refs": self.applied_payment_refs,
             "plan": self.plan,
             "start_date": self.start_date.isoformat() if self.start_date else "",
             "end_date": self.end_date.isoformat() if self.end_date else "",

@@ -33,7 +33,7 @@ class CSVRenewalRepository(RenewalRepositoryPort):
                 row.get("mobile") == mobile
                 and row.get("reminder_type") == reminder_type
                 and row.get("expiry_date") == target
-                and row.get("status") == "SENT"
+                and row.get("status") in {"SENT", "DELIVERED", "UNKNOWN"}
             ):
                 return True
         return False

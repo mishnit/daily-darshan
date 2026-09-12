@@ -10,6 +10,7 @@ class WhatsAppResult:
     ok: bool
     message_id: str = ""
     error: str = ""
+    unknown: bool = False  # Provider may have accepted it; never blindly retry.
 
 
 @dataclass

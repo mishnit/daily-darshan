@@ -64,6 +64,12 @@ def cmd_list_pending(container: Container, args) -> int:
 
 
 def cmd_verify(container: Container, args) -> int:
+    from repositories.state_lock import state_lock
+    with state_lock(container.root):
+        return _verify_locked(container, args)
+
+
+def _verify_locked(container: Container, args) -> int:
     reference_id = args.reference_id
     try:
         payment = container.payment_service.verify_payment(reference_id)
@@ -80,16 +86,34 @@ def cmd_verify(container: Container, args) -> int:
         try:
             svc = container.subscriber_service
             existing = container.subscribers.find(payment.mobile)
-            # Align the subscriber's plan with the paid plan (creates PENDING if new).
-            svc.upsert_pending(payment.mobile, payment.plan)
+            from domain.subscriber import Subscriber
+            sub = existing or Subscriber(mobile=payment.mobile, plan=payment.plan, opt_in=False)
+            applied = set(filter(None, sub.applied_payment_refs.split(";")))
+            if reference_id not in applied and payment.activation_state != "PENDING":
+                raise SubscriberError(
+                    "Legacy verified payment has no activation marker. Reconcile its entitlement "
+                    "before retrying; do not apply the same payment twice."
+                )
             # Renew (extend from current expiry, §29) vs. first-time activate.
             already = existing is not None and existing.status.value in ("ACTIVE", "PAUSED", "EXPIRED")
-            if already or args.renew:
-                sub = svc.renew(payment.mobile)
+            if reference_id in applied:
+                action = "Already activated"
+            elif already or args.renew:
+                sub.plan = payment.plan
+                sub.renew(container.payment_service.plan_days(payment.plan))
                 action = "Renewed"
             else:
-                sub = svc.activate(payment.mobile)
+                sub.plan = payment.plan
+                sub.activate(container.payment_service.plan_days(payment.plan))
                 action = "Activated"
+            sub.ensure_subscription_id()
+            applied.add(reference_id)
+            sub.applied_payment_refs = ";".join(sorted(applied))
+            # Dates and their idempotency marker are one atomic row update.
+            container.subscribers.update(sub)
+            payment.activation_state = "APPLIED"
+            container.payments.update(payment)
+            container.logs.log("PAYMENT_ENTITLEMENT_APPLIED", payment.mobile, reference_id)
         except SubscriberError as exc:
             print(f"ERROR during activation: {exc}", file=sys.stderr)
             print("Payment was verified but subscriber activation failed. "
