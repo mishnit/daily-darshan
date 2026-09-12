@@ -394,6 +394,11 @@ def _extract_input(message: dict) -> tuple[str, str]:
     mtype = message.get("type")
     if mtype == "text":
         return "text", message.get("text", {}).get("body", "")
+    if mtype in {"image", "document"}:
+        caption = message.get(mtype, {}).get("caption", "").strip()
+        if re.fullmatch(r"(?:UTR\s*[:#-]?\s*)?\d{12}", caption, re.IGNORECASE):
+            return "text", caption
+        return "media", mtype
     if mtype == "interactive":
         interactive = message.get("interactive", {})
         for key in ("button_reply", "list_reply"):
@@ -402,24 +407,38 @@ def _extract_input(message: dict) -> tuple[str, str]:
     return "", ""
 
 
+def _has_active_subscription(c, mobile):
+    sub = c.subscribers.find(mobile)
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    return bool(sub and sub.status.value == "ACTIVE" and sub.end_date
+                and sub.end_date >= today)
+
+
 def _send_menu(c, mobile: str) -> None:
-    """Five ordered menu choices in one WhatsApp list message."""
+    """Show one purchase action only to users without an active entitlement."""
+    sub = c.subscribers.find(mobile)
+    rows = []
+    if not _has_active_subscription(c, mobile):
+        rows.append(("CTA_RENEW", "Renew", "Renew your subscription") if sub and sub.end_date
+                    else ("CTA_SUBSCRIBE", "Subscribe", "Choose a plan"))
+    rows.extend([("CTA_CONTINUE", "Continue", "Resume your current step"),
+                 ("CTA_RESEND", "Resend", "Get your current instructions again"),
+                 ("CTA_BACK", "Back", "Return to the previous options")])
     result = c.whatsapp.send_list(
         mobile,
         "🙏 Welcome to Daily Darshan! What would you like to do?\n"
         "Reply CONTINUE to resume, RESEND for your current instructions, or BACK to return.",
         "Open menu",
-        [("CTA_SUBSCRIBE", "Subscribe", "Choose a plan"),
-         ("CTA_RENEW", "Renew", "Renew your subscription"),
-         ("CTA_CONTINUE", "Continue", "Resume your current step"),
-         ("CTA_RESEND", "Resend", "Get your current instructions again"),
-         ("CTA_BACK", "Back", "Return to the previous options")],
+        rows,
     )
     _require_send(result, "menu")
 
 
 def _send_plan_list(c, mobile: str) -> None:
     """Send the plan catalog as a tappable list (ids = PLAN_<plan>)."""
+    if _has_active_subscription(c, mobile):
+        _send_menu(c, mobile)
+        return
     rows = []
     for plan, meta in c.config["plans"].items():
         amount = meta.get("amount")
@@ -464,8 +483,18 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
     svc = c.subscriber_service
     wa = c.whatsapp
 
+    if kind == "media":
+        _require_send(wa.send_text(mobile,
+            "Thanks for sharing. Please send your 12-digit UTR as text (for example, UTR: 123456789012). "
+            "A screenshot alone cannot be recorded for payment review."), "UTR text request")
+        return
+
     # ---------------- Button / list taps (CTAs) ---------------- #
     if kind == "button":
+        if (_has_active_subscription(c, mobile)
+                and (value in {"CTA_SUBSCRIBE", "CTA_RENEW"} or value.startswith("PLAN_"))):
+            _resume_conversation(c, mobile)
+            return
         if value in {"CTA_CONTINUE", "CTA_RESEND", "CTA_BACK"}:
             _handle_message(c, mobile, "text", value.removeprefix("CTA_"), name)
             return
@@ -507,6 +536,9 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
 
     # ---------------- Free text (name / UTR / STOP only) ---------------- #
     text = value.strip()
+    utr_text = re.fullmatch(r"UTR\s*[:#-]?\s*(\d{12})", text, re.IGNORECASE)
+    if utr_text:
+        text = utr_text.group(1)
 
     if text.upper() in {"CONTINUE", "STATUS", "RESEND"}:
         state = c.conversations.find(mobile) or {"mobile": mobile, "version": "0"}
@@ -557,8 +589,9 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         c.payment_service.record_utr(payment.reference_id, text)
         _send_intent_reply(c,
             mobile,
-            "Thanks! We received your UTR. Your subscription activates once an "
-            "admin verifies the payment.",
+            f"Thanks! We received your UTR for {payment.reference_id}. "
+            "Please allow us some time to verify your payment. An admin will review it "
+            "and activate your subscription once approved. You do not need to pay again. 🙏",
         )
         return
 
@@ -604,6 +637,9 @@ def _start_payment(c, mobile: str, plan: str, returning: bool = False) -> None:
 
     `returning=True` uses renewal wording for an existing subscriber.
     """
+    if _has_active_subscription(c, mobile):
+        _resume_conversation(c, mobile)
+        return
     payment = _latest_pending_payment(c, mobile)
     if payment and payment.utr:
         _require_send(c.whatsapp.send_text(mobile,
@@ -636,7 +672,10 @@ def _send_payment_instructions(c, mobile, payment, returning=False):
 
 def _resume_conversation(c, mobile):
     sub = c.subscribers.find(mobile)
-    if not sub:
+    if _has_active_subscription(c, mobile) and sub.opt_in:
+        _require_send(c.whatsapp.send_text(mobile,
+            f"Your Daily Darshan subscription is active until {sub.end_date}. Send MENU for options."), "active status")
+    elif not sub:
         _send_plan_list(c, mobile)
     elif sub.awaiting_name or not sub.name:
         c.subscriber_service.set_awaiting_name(mobile, True)

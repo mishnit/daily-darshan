@@ -305,8 +305,8 @@ def test_webhook_renew_cta_existing_subscriber_uses_plan_no_prompt(webhook):
     from domain.subscriber import Subscriber
     main, client, fake = webhook
     main.container.subscribers.append(Subscriber(
-        mobile="9222", plan="yearly", status=SubscriberStatus.ACTIVE,
-        start_date=date(2026, 1, 1), end_date=date(2026, 12, 31), opt_in=True,
+        mobile="9222", plan="yearly", status=SubscriberStatus.EXPIRED,
+        start_date=date(2025, 1, 1), end_date=date(2025, 12, 31), opt_in=True,
         subscription_id="tok-9222", name="Meera",
     ))
     body = json.dumps(_tap("9222", "CTA_RENEW", "r1")).encode()

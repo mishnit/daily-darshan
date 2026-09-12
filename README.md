@@ -367,7 +367,7 @@ never guesses intent from free text. **Free text is accepted only for the user's
 ```
 User: Radhe Radhe                                       ← inbound greeting
 Bot:  🙏 Welcome to Daily Darshan! What would you like to do?
-      [ Subscribe ]  [ Renew ]  [ Stop messages ]      ← reply buttons (CTA ids)
+      [ Open menu ] → Subscribe, Continue, Resend, Back
 User: (taps Subscribe)
 Bot:  Choose your Daily Darshan plan:                   ← list message
       • Starter — ₹9 · 3 days
@@ -387,11 +387,12 @@ Bot:  Radhe Radhe Deep Ji! Plan: monthly
       Reference: DD2608190001
       After paying, reply with your 12-digit UTR.
 User: 123456789012                                      ← free text (UTR)
-Bot:  Thanks! We received your UTR. Your subscription
-      activates once an admin verifies the payment.
+Bot:  Thanks! We received your UTR for DD2608190001.
+      Please allow us some time to verify your payment. An admin will review it
+      and activate your subscription once approved. You do not need to pay again. 🙏
 ```
 
-Returning subscriber:
+Returning subscriber without an active subscription (menu shows Renew instead of Subscribe):
 
 ```
 User: (taps Renew)
@@ -403,6 +404,14 @@ Bot:  Radhe Radhe Deep Ji! Renewing your monthly plan.   ← existing plan, no n
 ```
 
 Details:
+
+- Active, unexpired subscribers see only Continue, Resend and Back. New users see Subscribe;
+  previous subscribers without an active entitlement see Renew. Old purchase buttons cannot
+  create another checkout while the subscription is active. Typed STOP and consent opt-out
+  remain supported. Under this rule, early renewal checkout is unavailable while active.
+- UTR text may be 12 digits or `UTR: 123456789012`. Image/document captions in that format
+  are accepted; screenshots without a valid UTR caption prompt the user to send it as text.
+  No OCR or automatic payment approval is performed.
 - **Selections are buttons, not typed commands.** Inbound taps arrive as interactive
   `button_reply`/`list_reply` **ids**; routing is on stable ids: `CTA_SUBSCRIBE` → plan list,
   `CTA_RENEW` → renew, `PLAN_<plan>` → chosen plan. Typing a plan word (e.g. "how much is

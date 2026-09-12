@@ -214,7 +214,8 @@ sequenceDiagram
 
     User->>Web: sends BACK / MENU / Radhe Radhe
     Web->>State: clear awaiting-name flag only
-    Web-->>User: main menu (Subscribe / Renew / Stop)
+    Web-->>User: Status-aware menu with Continue, Resend and Back
+    Note over Web,User: New users get Subscribe, inactive returning users get Renew, active users get neither
 
     User->>Web: taps CTA_SUBSCRIBE
     Web-->>User: plan list (PLAN_<plan>)
@@ -250,7 +251,7 @@ sequenceDiagram
 
     User->>Web: sends a 12-digit UTR
     Web->>State: attach UTR to latest PENDING payment, keep status PENDING
-    Web-->>User: UTR received, activation waits for admin verification
+    Web-->>User: UTR received with reference, allow time for admin review, do not pay again
     alt acknowledgement fails
         Web->>State: retain UTR + store acknowledgement in reply_retries.csv
         Web-->>User: HTTP 503, Meta may redeliver
