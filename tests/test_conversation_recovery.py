@@ -23,6 +23,20 @@ def prepare(c):
     return calls
 
 
+@pytest.mark.parametrize("choice", ["CONTINUE", "RESEND", "BACK"])
+def test_menu_recovery_choices_route_to_existing_commands(container, choice):
+    import main
+    calls = prepare(container)
+    payment = container.payment_service.create_payment("9199", "monthly")
+    main._send_menu(container, "9199")
+    assert [r[0] for r in calls[-1][3]] == [
+        "CTA_SUBSCRIBE", "CTA_RENEW", "CTA_CONTINUE", "CTA_RESEND", "CTA_BACK"]
+    main._handle_message(container, "9199", "button", "CTA_" + choice)
+    assert len(container.payments.all()) == 1
+    if choice != "BACK":
+        assert payment.reference_id in calls[-1][1]
+
+
 @pytest.mark.parametrize("command", ["CONTINUE", "STATUS", "RESEND"])
 def test_recovery_reuses_reference_and_does_not_mutate_entitlement(container, command):
     import main
