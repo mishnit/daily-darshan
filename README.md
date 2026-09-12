@@ -443,6 +443,13 @@ Details:
   Repeated verification reuses the same payment-keyed task. Opted-out recipients are cancelled.
   Production webhook replies likewise use a durable `csv/reply_outbox.csv` before sending.
   Both outboxes retain ambiguous attempts for reconciliation instead of blindly resending.
+  Subscriber pages encourage sharing through “Share Darshan with family & friends”.
+  On supported HTTPS browsers the native share sheet receives the actual image file and
+  a VIP Seva referral caption, never the subscriber page URL. Users select WhatsApp.
+  Download-image, copy-caption and explicitly labelled link-only fallbacks remain available.
+  WhatsApp/browser versions may omit the caption when sharing a file; it can be copied manually.
+  This does not prevent someone copying their personal URL from the address bar. After changing
+  the renderer, regenerate subscriber pages and deploy Pages to publish the new share controls.
   Customers can send CONTINUE, STATUS or RESEND to recover their current step without
   creating another payment or extending a subscription. Repeated recovery requests have
   a 30-second cooldown. BACK from name capture returns to plans; other steps return to menu.
