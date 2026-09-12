@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime
 
 from fastapi import FastAPI, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
@@ -48,6 +49,7 @@ _get_container()
 
 _VERIFY_TOKEN = os.environ.get("WEBHOOK_VERIFY_TOKEN", "")
 _UTR_RE = re.compile(r"^\d{12}$")
+_REFERRAL_RE = re.compile(r"(?:^|[\s?&])ref(?:errer)?=([0-9]{7,15})\b", re.IGNORECASE)
 
 
 @app.api_route("/health", methods=["GET", "HEAD"])
@@ -201,6 +203,14 @@ def _process_messages(c, payload: dict) -> bool:
             if not c.processed.mark_if_new(message_id, mobile):
                 continue
             kind, value = _extract_input(message)
+            referral = _REFERRAL_RE.search(value or "")
+            if referral:
+                c.referrals.upsert(message_id, {
+                    "message_id": message_id,
+                    "visitor_mobile": mobile,
+                    "referrer_mobile": referral.group(1),
+                    "recorded_at": datetime.now().isoformat(),
+                })
             if mobile and value:
                 name = _profile_name(ctx, mobile)
                 _handle_message(c, mobile, kind, value, name)
@@ -439,7 +449,8 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         _handle_opt_out(c, mobile)
         return
 
-    if text.upper() in {"HI", "HELLO", "RADHE RADHE", "RENEW", "SUBSCRIBE", "MENU", "START"}:
+    if (text.upper() in {"HI", "HELLO", "RADHE RADHE", "RENEW", "SUBSCRIBE", "MENU", "START"}
+            or text.upper().startswith("RADHE RADHE ")):
         _send_menu(c, mobile)
         return
 

@@ -67,6 +67,11 @@ class Container:
             p(paths.get("reply_retries_csv", "csv/reply_retries.csv")),
             ["message_id", "mobile", "text"], "message_id",
         )
+        self.referrals = CSVRepository(
+            p(paths.get("referrals_csv", "csv/referrals.csv")),
+            ["message_id", "visitor_mobile", "referrer_mobile", "recorded_at"],
+            "message_id",
+        )
 
         # WhatsApp app secret for webhook signature verification (fix #2).
         self.whatsapp_app_secret = os.environ.get("WHATSAPP_APP_SECRET", "")
@@ -160,6 +165,7 @@ class Container:
             paths["renewals_csv"],
             paths.get("message_statuses_csv", "csv/message_statuses.csv"),
             paths.get("reply_retries_csv", "csv/reply_retries.csv"),
+            paths.get("referrals_csv", "csv/referrals.csv"),
         ]
         # Quiet window (UTC) during which the webhook defers pushes so it does
         # not write on top of an in-flight scheduler job. The exact bracket is
