@@ -211,6 +211,14 @@ Use this sequence when validating a release end to end:
   conversational step. These commands return to navigation and never save themselves as a name,
   alter consent, or replace a paid payment. Old CTA taps are validated against the current plan
   and state; a missing/expired CTA shows the menu.
+
+Menu verification: new users receive Subscribe only; previous inactive subscribers receive
+Renew only; active/unexpired subscribers receive neither. Continue, Resend and Back remain
+available. Check stale Subscribe/Renew/plan taps do not create a payment for active users.
+After a valid 12-digit UTR, verify the reply names the reference, requests time for admin
+review, and says not to pay again. Production saves that acknowledgement in the outbox
+before sending; retrying the same inbound message must not duplicate it. If the live user
+still receives nothing, inspect reply_outbox status/error and the configured sender ID.
 - Reconcile PENDING/UNKNOWN sends against provider evidence before any manual change. A failed
   outcome push may leave the reservation ID without a provider ID; do not assume no send occurred.
   This is duplicate prevention under uncertainty, not guaranteed exactly-once delivery.
