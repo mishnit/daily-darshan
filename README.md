@@ -181,7 +181,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `schedule` | Image cron hint (documentation; the actual cron lives in `image.yml`). Pages publication and delivery are event-driven. |
 | `renewal.reminder_days` | Days-before-expiry to send reminders, e.g. `[3, 2, 1]`. |
 | `renewal.whatsapp_number` | Digits-only WhatsApp destination used by the near-expiry page CTA. |
-| `persistence` | Webhook durability. `mode`: `github_api` (webhook syncs CSVs to the shared repo via Contents API — needs `GITHUB_TOKEN`+`GITHUB_REPO`) or `local` (no sync; dev only). `branch`: repo branch to sync against. |
+| `persistence` | Webhook durability. `mode`: `github_api` (snapshot reads and atomic Git Data API commits — needs `GITHUB_TOKEN`+`GITHUB_REPO`) or `local` (no sync; dev only). `branch`: repo branch to sync against. |
 | `delivery` | Delivery mode + message settings. `mode`: `utility_template` (send a parameterized utility template linking to a per-subscriber page) or `image` (send the image inline). Also controls template language, page/image URLs, retries, 30-day operational-log retention, image retention and page-retention grace. |
 
 ### Common config changes
@@ -224,8 +224,8 @@ environment variables (Tech Doc §19).
 | `WHATSAPP_PHONE_NUMBER_ID` | WhatsApp adapter | Meta phone-number id. |
 | `WEBHOOK_VERIFY_TOKEN` | `main.py` GET `/webhook` | Meta webhook verification handshake. |
 | `WHATSAPP_APP_SECRET` | `main.py` POST `/webhook` | Meta app secret; verifies `X-Hub-Signature-256` on inbound webhooks. Local mode can omit it; `github_api` production mode fails closed when it is absent. |
-| `GITHUB_TOKEN` | webhook durable persistence + `GitHubApiRepository` | Contents-API reads/writes so the webhook shares state with the scheduler (**required in production** with `persistence.mode=github_api`). In Actions, the built-in token + `contents: write` suffices. |
-| `GITHUB_REPO` | webhook persistence + scheduler | `owner/repo`. Used for the webhook's Contents-API sync and to build the public raw image URL. Auto-set in Actions via `${{ github.repository }}`; **set explicitly on the webhook host**. |
+| `GITHUB_TOKEN` | webhook durable persistence + `GitHubApiRepository` | Snapshot reads and atomic Git commits; requires Contents read/write (**required in production** with `persistence.mode=github_api`). In Actions, the built-in token + `contents: write` suffices. |
+| `GITHUB_REPO` | webhook persistence + scheduler | `owner/repo`. Used for webhook GitHub sync and public raw image URLs. Auto-set in Actions via `${{ github.repository }}`; **set explicitly on the webhook host**. |
 | `GPG_PRIVATE_KEY` | GitHub Actions scheduler | **Required GitHub Actions secret** containing the ASCII-armored private key used to sign scheduler commits. Workflows fail rather than create unsigned commits if it is unavailable. Add the matching public key to the GitHub account so commits are marked Verified. |
 | `GPG_PASSPHRASE` | GitHub Actions scheduler | **Required GitHub Actions secret** that unlocks `GPG_PRIVATE_KEY` through non-interactive loopback/preset pinentry. The workflow performs a signing check before scheduled work. |
 | `DAILY_DARSHAN_CONFIG` | `config.py` | Optional path override for `config.json`. |
@@ -289,8 +289,8 @@ WhatsApp secrets as environment variables on the host.
 
 > **Webhook durability & shared state (important).** The webhook runs on an ephemeral,
 > single-instance host and writes CSVs to local disk. To make those writes **durable and
-> visible to the scheduler/admin**, it syncs with the shared GitHub repo via the Contents
-> API: it **pulls** the latest tracked CSVs before handling a message and **pushes** them
+> visible to the scheduler/admin**, it reads CSVs at one immutable Git commit and uses the
+> Git Data API to publish an atomic multi-file commit. It **pulls** before handling and **pushes**
 > after. This is enabled only when `persistence.mode = "github_api"` (in `config.json`) **and**
 > both `GITHUB_TOKEN` and `GITHUB_REPO` are set in the environment. If not configured, the
 > webhook writes local-only (fine for dev, **but on an ephemeral host those writes are lost on
@@ -302,20 +302,17 @@ WhatsApp secrets as environment variables on the host.
 > the container failed to build, or `{"status":"degraded"}` if the store is unreadable. It also
 > reports whether durable persistence and signature verification are enabled. A bad config no
 > longer crashes the process — the app starts and `/health` reports the failure so the platform
-> can react. The webhook always returns **200** to Meta (even on a malformed body or a
-> per-message handler error) so Meta does not hammer retries; failures are logged and isolated
-> per message.
+> can react. Processing, persistence and reply failures return **503** to request redelivery;
+> successful messages within a partially failed batch remain deduplicated. Invalid signatures
+> return **403**; malformed JSON is acknowledged and ignored without executing actions.
 >
-> **Ack-fast, process async.** After verifying the signature and parsing the body, the webhook
-> **returns `200 {"status":"accepted"}` immediately** and does the slow work — the repo
-> pull/push and WhatsApp API calls — in a **background task** off the response path. This keeps
-> Meta's webhook latency near-instant regardless of how slow the downstream calls are, so Meta
-> never times out and retries. (Forged/unsigned and malformed requests are still rejected
-> synchronously before the ack.) Note: background tasks run in-process — if the instance is
-> killed mid-task the in-flight message is dropped; Meta's own retry and the `message.id`
-> dedupe mitigate this, and a durable queue is the next step for higher guarantees. A failed
-> synchronous WhatsApp response rolls back that message's CSV state; later Meta `failed` status
-> callbacks reconcile accepted delivery/renewal sends.
+> **Persist before acknowledgement.** Processing runs in a worker thread under a cross-process
+> local state lock, but HTTP **200** is returned only after the GitHub commit succeeds. A process
+> failure before commit leaves the request unacknowledged. This trades latency for durability;
+> slow GitHub/WhatsApp calls can cause redelivery. Interactive replies are not exactly-once.
+> A durable queue remains the recommended upgrade for higher throughput. Production fails
+> closed when persistence is unavailable. If a legacy quiet window is enabled, it returns 503
+> before handling rather than accepting ephemeral deferred writes.
 
 Steps:
   1. Push the repo to GitHub.
@@ -426,16 +423,21 @@ Details:
   revokes delivery consent and confirms the opt-out.
 - The awaiting-name state is a flag on the subscriber row (`subscribers.csv`), so it survives
   across webhook calls without server-side session state.
-- Duplicate/re-delivered webhooks are deduped on the WhatsApp `message.id`, so re-taps/re-sends
-  don't re-prompt or create duplicate payments.
-- A failed webhook reply rolls back that message's CSV changes and releases its deduplication id,
-  so a retry cannot leave the customer in a silently advanced state.
+- Re-delivered webhooks are deduped on WhatsApp `message.id`. A fresh tap has a new ID and is
+  a new action. Restart words such as `Radhe Radhe`, `RENEW` and `MENU` are not stored as names.
+- Failed conversational replies roll back that message's state. **STOP and received UTR are
+  exceptions:** the customer instruction is retained and `reply_retries.csv` stores only its
+  failed acknowledgement. Redelivery retries that reply without reapplying the instruction.
 - Meta delivery-status callbacks reconcile an initially accepted template send. A later `failed`
   status changes matching renewal/delivery ledger rows to `FAILED`, reopening the daily slot.
+  `message_statuses.csv` retains callbacks that arrive before the ledger. Positive delivered/read
+  evidence wins over delayed failure callbacks; `SENT` alone means API acceptance, not delivery.
 - Activation remains admin-verified out-of-band (see Admin Operations); the name/plan captured
   here is what later fills the daily utility template and the per-subscriber page greeting.
-- The first successful delivery-status template after activation is treated as the explicit
-  welcome/activation confirmation and is sent only after Pages publication succeeds.
+- The subscriber page explicitly confirms that the subscription is active and welcomes the user.
+  WhatsApp still uses the approved delivery-status template, not a separate welcome template.
+  Both renewal and delivery check the public page's subscription ID, date and expiry metadata
+  before sending. Missing, legacy or stale pages must be regenerated and deployed first.
 
 > **WhatsApp note:** interactive buttons/list messages are free-form inside the 24-hour
 > user-initiated window. To send the initial menu to a user who hasn't messaged in 24h, use an
@@ -492,7 +494,7 @@ Daily Darshan Pages**, which publishes once and then starts delivery.
 
 1. A customer sends **Radhe Radhe**. Render verifies and deduplicates the webhook, advances the
    CTA/name/consent/payment conversation, and persists subscriber, payment and processed-message
-   CSV changes to `main` through the GitHub Contents API.
+   CSV changes to `main` through an atomic Git Data API commit before HTTP 200.
 2. An administrator verifies the UTR and activates or renews the subscriber. This commits the
    subscriber page, but the commit itself does not publish Pages in Actions-based mode.
 3. At 08:31 IST (target time), **Daily Image** fetches every source configured for the weekday,
@@ -515,8 +517,12 @@ manual Pages deployment. Previously published pages remain viewable until a late
 replaces or prunes them.
 
 **Idempotency** (safe to re-run):
-- Renewal and delivery share a successful-send key of `date + mobile` in `sentlog.csv`; only
-  `SENT` rows block another WhatsApp contact for that subscriber on the same date.
+- Renewal and delivery share `date + mobile` reservations in `sentlog.csv`. The scheduler commits
+  `PENDING` before calling WhatsApp and commits the outcome afterward, per subscriber.
+  `SENT` (accepted), `DELIVERED`, `PENDING` and `UNKNOWN` block the daily slot. A proven failure
+  allows a retry; an ambiguous timeout, crash or failed outcome push does not.
+  Never automatically clear `PENDING`/`UNKNOWN`: reconcile provider evidence first. This chooses
+  duplicate prevention over guaranteed delivery when the external result cannot be established.
 - Renewal reminder history additionally keys on `mobile + reminder_type + expiry_date` in
   `renewals.csv`. Existing successful renewal history is backfilled into the daily ledger on a
   rerun so rollout-day duplicates remain blocked.
@@ -558,7 +564,7 @@ The webhook (Render) and the scheduler/admin (GitHub Actions) never talk to each
 directly. The **GitHub repo `main` branch is the shared source of truth**; both sides read
 and write the same CSVs there:
 
-- **Webhook** uses the GitHub **Contents API** (`GitHubApiRepository` via `RepoSync`): it
+- **Webhook** uses the GitHub **Git Data API** (`GitHubApiRepository` via `RepoSync`): it
   **pulls** the tracked CSVs before handling a message and **pushes** them after.
 - **Scheduler/admin** uses the **git CLI** on the checked-out repo (`LocalGitRepository`):
   it commits + pushes (retry once via `pull --rebase`, never force-push).
@@ -576,11 +582,13 @@ Because both write CSVs on `main`, two mechanisms reduce clobbering risk:
 2. **Optimistic conflict handling.** The webhook now pushes immediately; the quiet window is
    disabled because event-driven/manual workflows cannot be safely bracketed by a fixed clock
    window and deferred writes on Render's ephemeral disk can be lost. GitHub API writes reject a
-   stale SHA, while scheduler pushes pull/rebase once and fail visibly rather than force-pushing.
-   This remains best-effort coordination rather than a transaction.
+   stale snapshot: one tree commit contains all webhook CSV changes and a non-force branch update
+   rejects a concurrent advance. The handler restores its local snapshot and requests redelivery.
+   Scheduler pushes pull/rebase once and fail visibly rather than force-pushing.
 
-> This is coordination by convention (staggered timing + single-writer + rebase-retry), not a
-> transactional database. It suits the low write volume of a darshan service. At higher write
+> GitHub state publication is atomic, but GitHub and WhatsApp are not a distributed transaction.
+> Local locking assumes one Render instance/shared filesystem; retain that deployment model.
+> At higher write
 > rates, move state to a real datastore (SQLite on a persistent volume, or a hosted DB).
 
 ---
@@ -599,9 +607,11 @@ payment (Tech Doc §6/§15).
   Omit `--commit` to review CSVs first; omit `--activate` to only verify. Use
   `python admin.py reject DD2608190001` for a non-matching payment. See
   [DEPLOYMENT.md](./DEPLOYMENT.md#step-by-step-approval) for the full runbook.
-- **Verify a payment (manual):** open `csv/payments.csv`, find the row by
-  `reference_id`/`utr`, confirm the actual UPI transaction, set `status` to `SUCCESS`,
-  commit. Then activate the subscriber via the subscriber service.
+  Repeating the same reference does not extend dates again: `applied_payment_refs` is stored
+  atomically with subscriber dates. `activation_state` records payment application progress.
+  Legacy verified payments without markers require reconciliation before reapplication; see
+  [release and recovery checklist](./DEPLOYMENT.md#safety-changes-release-and-recovery-checklist).
+- Prefer the CLI over manual payment/subscriber edits so entitlement markers remain consistent.
 - **Override the daily image:** replace `docs/images/YYYY-MM-DD.jpg` and commit.
 - Git history serves as the audit trail for all of the above.
 

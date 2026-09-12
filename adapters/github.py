@@ -122,7 +122,7 @@ class LocalGitRepository(GitHubRepositoryPort):
 
 
 class GitHubApiRepository(GitHubRepositoryPort):
-    """Contents-API writer for serverless environments."""
+    """Snapshot reads and atomic, non-force Git Data API transactions."""
 
     def __init__(
         self,
@@ -140,6 +140,29 @@ class GitHubApiRepository(GitHubRepositoryPort):
         # The serverless process has no checkout at ``owner/repo/<path>`` to
         # read from later, so retain the bytes passed by the caller.
         self._pending: list[tuple[str, bytes, str]] = []
+        self._base_commit = None
+        self._base_tree = None
+
+    def _api(self, method, path, **kwargs):
+        response = getattr(self._session, method)(
+            f"https://api.github.com/repos/{self._repo}/{path}",
+            headers=self._headers, timeout=self._timeout, **kwargs,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def begin_snapshot(self):
+        """All reads and the eventual commit share one immutable parent."""
+        if self._pending:
+            raise RuntimeError("Uncommitted GitHub writes require reconciliation")
+        head = self._api("get", f"git/ref/heads/{self._branch}")
+        self._base_commit = head["object"]["sha"]
+        commit = self._api("get", f"git/commits/{self._base_commit}")
+        self._base_tree = commit["tree"]["sha"]
+
+    def discard_pending(self):
+        self._pending.clear()
+        self._base_commit = self._base_tree = None
 
     @property
     def _headers(self) -> dict:
@@ -154,72 +177,41 @@ class GitHubApiRepository(GitHubRepositoryPort):
         Returns the file content as bytes, or None if the file does not exist.
         """
         url = f"https://api.github.com/repos/{self._repo}/contents/{path}"
-        params = {"ref": self._branch}
-        try:
-            resp = self._session.get(url, headers=self._headers, params=params, timeout=self._timeout)
-            if resp.status_code == 404:
-                return None
-            resp.raise_for_status()
-            data = resp.json()
-            # The API returns the content base64-encoded
-            return base64.b64decode(data["content"])
-        except Exception:
-            # Network or API errors are logged at the caller; return None to signal
-            # that local state should be preserved.
+        if self._base_commit is None:
+            self.begin_snapshot()
+        params = {"ref": self._base_commit}
+        resp = self._session.get(url, headers=self._headers, params=params, timeout=self._timeout)
+        if resp.status_code == 404:
             return None
+        resp.raise_for_status()
+        return base64.b64decode(resp.json()["content"])
 
     def write_file(self, path: str, content: bytes, message: str) -> None:
-        """Write a file to the repository via the Contents API.
-        
-        The write is buffered internally and actually committed/pushed by commit().
-        """
+        """Buffer bytes for the next atomic Git tree commit."""
         self._pending.append((path, content, message))
 
     def commit(self, files: list[str], message: str) -> None:
-        """Commit all buffered writes in a single batch via the Contents API.
-        
-        Uses PUT to update existing files or create new ones. Retries once on
-        conflict (422) by re-fetching and retrying with the new SHA.
-        """
+        """Publish all files atomically; never transplant stale data onto a new head."""
         if not self._pending:
             return
-        
-        pending = self._pending
-        self._pending = []
-        try:
-            for path, content, write_message in pending:
-                self._commit_one(path, content, write_message or message)
-        except Exception:
-            # Preserve writes so the next sync can retry.
-            self._pending = pending
-            raise
-
-    def _commit_one(self, path: str, content: bytes, message: str) -> None:
-        """Commit a single file, fetching the current SHA and retrying on conflict."""
-        # Read the current file to get its SHA (needed for update).
-        url = f"https://api.github.com/repos/{self._repo}/contents/{path}"
-        params = {"ref": self._branch}
-        
-        sha = None
-        try:
-            resp = self._session.get(url, headers=self._headers, params=params, timeout=self._timeout)
-            if resp.status_code == 200:
-                sha = resp.json().get("sha")
-            # If 404, it's a new file; sha remains None.
-        except requests.RequestException as exc:
-            raise RuntimeError(f"Could not read GitHub file {path}") from exc
-        
-        payload = {
-            "message": message,
-            "content": base64.b64encode(content).decode("utf-8"),
-            "branch": self._branch,
-        }
-        if sha:
-            payload["sha"] = sha
-        
-        resp = self._session.put(url, headers=self._headers, json=payload, timeout=self._timeout)
-        if resp.status_code == 422:
-            # Retrying a stale whole-CSV payload with a fresh SHA would erase
-            # concurrent rows. Leave it for RepoSync to retry safely.
-            raise RuntimeError(f"GitHub conflict while writing {path}")
-        resp.raise_for_status()
+        if self._base_commit is None:
+            raise RuntimeError("Read a GitHub snapshot before writing")
+        entries = {}
+        for path, content, _ in self._pending:
+            blob = self._api("post", "git/blobs", json={
+                "content": base64.b64encode(content).decode(), "encoding": "base64",
+            })
+            entries[path] = {"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]}
+        tree = self._api("post", "git/trees", json={
+            "base_tree": self._base_tree, "tree": list(entries.values()),
+        })
+        commit = self._api("post", "git/commits", json={
+            "message": message, "tree": tree["sha"], "parents": [self._base_commit],
+        })
+        # A concurrent branch advance is not an ancestor of this commit, so a
+        # non-force ref update fails rather than overwriting another writer.
+        self._api("patch", f"git/refs/heads/{self._branch}", json={
+            "sha": commit["sha"], "force": False,
+        })
+        self._pending.clear()
+        self._base_commit, self._base_tree = commit["sha"], tree["sha"]

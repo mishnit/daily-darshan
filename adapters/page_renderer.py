@@ -25,6 +25,9 @@ _TEMPLATE = """<!DOCTYPE html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
+  <meta name="darshan-subscription" content="{subscription_id}">
+  <meta name="darshan-date" content="{date}">
+  <meta name="darshan-expiry" content="{expiry}">
   <title>Daily Darshan — {date}</title>
   <meta property="og:type" content="website">
   <meta property="og:title" content="Daily Darshan — {date}">
@@ -64,6 +67,7 @@ _TEMPLATE = """<!DOCTYPE html>
   <div class="wrap">
     <h1><strong>🕉&#xA0;</strong>&#x20;Daily Darshan</h1>
     <div class="greeting">{greeting}</div>
+    {activation_confirmation}
     {renewal_reminder}
     <div class="image-frame">
       <img class="darshan" src="{image_url}" alt="Daily Darshan for {date}"
@@ -142,6 +146,12 @@ class PageRenderer:
             date=html.escape(on_date.isoformat()),
             status_text=html.escape(f"{status_text} — {on_date.isoformat()}"),
             greeting=html.escape(greeting),
+            subscription_id=html.escape(subscriber.subscription_id, quote=True),
+            expiry=html.escape(subscriber.end_date.isoformat() if subscriber.end_date else ""),
+            activation_confirmation=(
+                '<div class="greeting">Your Daily Darshan subscription is active. Welcome! 🙏</div>'
+                if subscriber.is_deliverable(on_date) else ""
+            ),
             image_url=html.escape(image_url),
             fallback_url=html.escape(self.fallback_url(images_dir)),
             renewal_reminder=renewal_reminder,

@@ -60,16 +60,17 @@ class MetaWhatsAppClient(WhatsAppClientPort):
                 self._url, json=payload, headers=self._headers, timeout=self._timeout
             )
         except requests.RequestException as exc:  # transient network error
-            return WhatsAppResult(ok=False, error=f"network:{exc}")
+            return WhatsAppResult(ok=False, error=f"network:{exc}", unknown=True)
 
         if resp.status_code >= 400:
-            return WhatsAppResult(ok=False, error=f"http_{resp.status_code}:{resp.text[:200]}")
+            return WhatsAppResult(ok=False, error=f"http_{resp.status_code}:{resp.text[:200]}",
+                                  unknown=resp.status_code >= 500)
 
         try:
             data = resp.json()
             message_id = data["messages"][0]["id"]
         except (ValueError, KeyError, IndexError) as exc:
-            return WhatsAppResult(ok=False, error=f"parse:{exc}")
+            return WhatsAppResult(ok=False, error=f"parse:{exc}", unknown=True)
         return WhatsAppResult(ok=True, message_id=message_id)
 
     def send_text(self, mobile: str, message: str) -> WhatsAppResult:

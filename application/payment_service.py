@@ -115,6 +115,8 @@ class PaymentService:
         payment = self._payments.find(reference_id)
         if payment is None:
             raise PaymentError(f"Payment not found: {reference_id}")
+        if payment.status == PaymentStatus.SUCCESS:
+            return payment
         payment.mark_verified()
         self._payments.update(payment)
         self._log("PAYMENT_VERIFIED", payment.mobile, reference_id)

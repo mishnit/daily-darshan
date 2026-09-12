@@ -298,6 +298,7 @@ def test_health_unhealthy_when_container_failed(monkeypatch):
 
 
 def test_webhook_returns_200_when_container_unavailable(monkeypatch):
+    """Legacy test name retained for CI's deletion guard; expect retryable 503."""
     import importlib
     import main
     main = importlib.reload(main)
@@ -307,8 +308,8 @@ def test_webhook_returns_200_when_container_unavailable(monkeypatch):
     client = TestClient(main.app)
     body = json.dumps({"entry": []}).encode()
     r = client.post("/webhook", content=body)
-    # No 500 — acks so Meta doesn't hammer retries.
-    assert r.status_code == 200
+    # Do not acknowledge an event that cannot be processed.
+    assert r.status_code == 503
     assert r.json()["status"] == "unavailable"
 
 
@@ -324,6 +325,7 @@ def _tap_payload(mobile, button_id, mid, name=None, kind="button_reply"):
 
 
 def test_webhook_isolates_failing_message_and_still_200(app_client, monkeypatch):
+    """Legacy name retained; failures now require 503 while good messages persist."""
     main, client = app_client
 
     # Make handling raise for one message, succeed for another.
@@ -348,32 +350,28 @@ def test_webhook_isolates_failing_message_and_still_200(app_client, monkeypatch)
     body = json.dumps(payload).encode()
     r = client.post("/webhook", content=body)
 
-    # Always 200 (ack-fast) despite the first message throwing in the
-    # background task; both messages attempted.
-    assert r.status_code == 200
-    assert r.json()["status"] == "accepted"
+    # Preserve the successful message; ask for redelivery of the failed one.
+    assert r.status_code == 503
+    assert r.json()["status"] == "retry"
     assert calls["n"] == 2
     # The good message still created a subscriber (plan tap with name).
     assert main.container.subscribers.find("9199") is not None
 
 
 def test_webhook_acks_accepted_and_processes_in_background(app_client):
-    """The POST returns 200 'accepted'; the message is processed off the
-    response path (side effects visible after the request via TestClient)."""
+    """Successful processing completes before the HTTP acknowledgement."""
     main, client = app_client
     payload = _tap_payload("9333", "PLAN_monthly", "bg1", name="Anita")
     import json as _json_mod
     r = client.post("/webhook", content=_json_mod.dumps(payload).encode())
     assert r.status_code == 200
     assert r.json()["status"] == "accepted"
-    # Background task ran (TestClient executes background tasks on response close):
-    # the plan tap created the subscriber.
+    # The plan tap created the subscriber before acknowledgement.
     assert main.container.subscribers.find("9333") is not None
 
 
 def test_process_payload_never_raises_on_handler_error(app_client, monkeypatch):
-    """_process_payload swallows handler errors — background tasks have no
-    caller to catch them, so it must never propagate."""
+    """The endpoint must know to request a retry."""
     main, _ = app_client
 
     def boom(c, mobile, kind, value, name=""):
@@ -383,8 +381,8 @@ def test_process_payload_never_raises_on_handler_error(app_client, monkeypatch):
     payload = {"entry": [{"changes": [{"value": {
         "messages": [{"id": "x1", "from": "9444", "type": "text", "text": {"body": "SUBSCRIBE monthly"}}],
     }}]}]}
-    # Must not raise despite the handler blowing up.
-    main._process_payload(main.container, payload)
+    with pytest.raises(RuntimeError, match="responses need retry"):
+        main._process_payload(main.container, payload)
 
 
 def test_failed_whatsapp_reply_rolls_back_webhook_state(app_client):
@@ -392,10 +390,11 @@ def test_failed_whatsapp_reply_rolls_back_webhook_state(app_client):
     from tests.conftest import FakeWhatsApp
 
     main.container.whatsapp = FakeWhatsApp(always_fail=True)
-    main._process_payload(
-        main.container,
-        _tap_payload("9555", "PLAN_monthly", "send-fails", name="Radha"),
-    )
+    with pytest.raises(RuntimeError, match="responses need retry"):
+        main._process_payload(
+            main.container,
+            _tap_payload("9555", "PLAN_monthly", "send-fails", name="Radha"),
+        )
 
     assert main.container.subscribers.find("9555") is None
     assert main.container.processed.was_processed("send-fails") is False

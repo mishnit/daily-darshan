@@ -66,6 +66,7 @@ class Payment:
     utr: str = ""
     created_at: datetime | None = None
     verified_at: datetime | None = None
+    activation_state: str = ""  # Blank legacy SUCCESS needs reconciliation before applying.
 
     @classmethod
     def from_row(cls, row: dict) -> "Payment":
@@ -78,6 +79,7 @@ class Payment:
             utr=str(row.get("utr", "")).strip(),
             created_at=_parse_dt(row.get("created_at")),
             verified_at=_parse_dt(row.get("verified_at")),
+            activation_state=str(row.get("activation_state", "")),
         )
 
     def to_row(self) -> dict:
@@ -90,6 +92,7 @@ class Payment:
             "utr": self.utr,
             "created_at": self.created_at.isoformat() if self.created_at else "",
             "verified_at": self.verified_at.isoformat() if self.verified_at else "",
+            "activation_state": self.activation_state,
         }
 
     def upi_intent(self, payee_vpa: str, payee_name: str, currency: str = "INR") -> str:
@@ -113,6 +116,7 @@ class Payment:
     def mark_verified(self, at: datetime | None = None) -> None:
         self.status = PaymentStatus.SUCCESS
         self.verified_at = at or datetime.now()
+        self.activation_state = "PENDING"
 
 
 def _parse_dt(value) -> datetime | None:

@@ -141,17 +141,43 @@ Use this sequence when validating a release end to end:
 
 1. Send **Radhe Radhe** to the WhatsApp number and complete every CTA, name, consent, payment and
    UTR step. Confirm Render returns 2xx responses, deduplicates the inbound message ID and commits
-   the updated subscriber/payment/processed CSVs to `main` through the GitHub Contents API.
+   the updated subscriber/payment/processed CSVs to `main` in one Git Data API commit before 200.
+   Inject a reply/persistence failure and expect 503 rather than a false acknowledgement.
 2. Verify the payment and activate or renew the subscriber. Confirm the signed commit includes the
    CSV state and subscriber page. This commit runs **Tests**, but does not itself publish Pages.
 3. For the normal daily path, wait for or manually run **Daily Image** on `main`. Confirm today's
    UUID-prefixed canonical image and pages are committed and the run succeeds.
 4. Confirm exactly one **Deploy Daily Darshan Pages** run follows and completes before delivery.
 5. Confirm exactly one automatic **Daily Delivery** run follows publication. A successful renewal
-   reminder or delivery creates that subscriber's `date + mobile` success entry in `sentlog.csv`.
+   reminder or delivery first commits a `date + mobile` PENDING reservation in `sentlog.csv`,
+   then commits SENT (API accepted), FAILED (rejected) or UNKNOWN (ambiguous).
 6. Rerun delivery manually on the same date and confirm that subscriber is skipped. If a renewal
-   send failed, confirm the delivery send was still eligible; only a successful persisted contact
-   consumes the daily slot.
+   send was definitively rejected, confirm delivery remains eligible. PENDING/UNKNOWN entries
+   remain blocked for operator reconciliation; never clear them just to make a rerun send.
+
+### Safety changes: release and recovery checklist
+
+- Regenerate subscriber pages and deploy them before running delivery after this release.
+  Both message types now require public page metadata matching subscription ID, date and expiry.
+  Legacy pages, 404s, redirects and unreachable pages fail closed without sending.
+- Keep Render on one instance/shared filesystem. Webhook handling uses a local transaction lock,
+  immutable GitHub reads and atomic multi-file publication. No new secret is required; the PAT
+  still needs repository Contents read/write. Branch rules may reject API-generated commits;
+  test persistence before enabling live traffic and do not weaken signing/protection rules.
+- The new `csv/message_statuses.csv` and `csv/reply_retries.csv` are initialized automatically
+  and included in webhook persistence. Keep them private with the other operational CSVs.
+- Simulate a failed STOP/UTR acknowledgement: the instruction remains saved, HTTP is 503, and
+  redelivery retries only the stored acknowledgement. No background task is relied on after 200.
+- Repeat the same `admin.py verify ... --activate`: dates must not extend twice. New activations
+  store `applied_payment_refs` with subscriber dates and `activation_state` on the payment.
+  A legacy SUCCESS payment without markers fails closed: reconcile whether it was applied before
+  retrying. If already applied, add its reference to the subscriber marker and mark it APPLIED;
+  only mark activation_state PENDING after proving it has never granted an entitlement.
+- Reconcile PENDING/UNKNOWN sends against provider evidence before any manual change. A failed
+  outcome push may leave the reservation ID without a provider ID; do not assume no send occurred.
+  This is duplicate prevention under uncertainty, not guaranteed exactly-once delivery.
+- Callback records can precede send records and are reconciled on later webhook/delivery runs.
+  A delivered/read callback must not be reversed by a delayed failed callback.
 
 Pull-request merges, Render persistence commits and other pushes to `main` trigger the **Tests** CI
 workflow. They intentionally do not trigger Pages CD, because the repository uses the custom
@@ -174,7 +200,7 @@ depends on Meta's assigned category and current country rate; verify both in Wha
 1. **Enable GitHub Pages** — repo → **Settings → Pages** → *Build and deployment* → source
    **GitHub Actions**. Pages are written to `docs/<subscription_id>/index.html` and published
    by `Deploy Daily Darshan Pages` before WhatsApp delivery begins.
-   > Pages is public. Pages carry no PII (no mobile number) and use an unguessable
+   > Pages is public. Pages show a customer name and subscription expiry (not a mobile number) and use an unguessable
    > `subscription_id` in the path, plus `noindex`. Confirm you're comfortable with per-subscriber
    > status pages being publicly reachable by URL.
 

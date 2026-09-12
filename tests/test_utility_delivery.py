@@ -232,9 +232,9 @@ def test_template_mode_aborts_without_config(repos, plans):
 def test_page_renderer_writes_per_subscription_file(tmp_path):
     r = PageRenderer(pages_dir="docs", image_public_base="https://u.github.io/dd")
     sub = Subscriber(mobile="9199", plan="monthly", end_date=date(2026, 12, 31),
-                     subscription_id="tok-9199")
+                     subscription_id="tok-private")
     rel = r.write_page(sub, date(2026, 8, 19), delivered=True, root=str(tmp_path))
-    assert rel == "docs/tok-9199/index.html"
+    assert rel == "docs/tok-private/index.html"
     html_text = (tmp_path / rel).read_text()
     assert "2026-08-19" in html_text
     assert "Delivered" in html_text

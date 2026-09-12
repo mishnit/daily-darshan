@@ -53,10 +53,19 @@ class Container:
         self.payments = CSVPaymentRepository(p(paths["payments_csv"]))
         self.sentlog = CSVSentLogRepository(p(paths["sentlog_csv"]))
         self.renewals = CSVRenewalRepository(p(paths["renewals_csv"]))
+        from repositories.message_status_repository import MessageStatusRepository
+        self.message_statuses = MessageStatusRepository(
+            p(paths.get("message_statuses_csv", "csv/message_statuses.csv"))
+        )
         self.logs = CSVLogRepository(p(paths["logs_csv"]))
         # Webhook idempotency store (fix #1). Default path if not configured.
         self.processed = CSVProcessedMessageRepository(
             p(paths.get("processed_csv", "csv/processed.csv"))
+        )
+        from repositories.csv_repository import CSVRepository
+        self.reply_retries = CSVRepository(
+            p(paths.get("reply_retries_csv", "csv/reply_retries.csv")),
+            ["message_id", "mobile", "text"], "message_id",
         )
 
         # WhatsApp app secret for webhook signature verification (fix #2).
@@ -93,7 +102,7 @@ class Container:
             self.subscribers,
             self.renewals,
             self.whatsapp,
-            reminder_days=renewal_cfg.get("reminder_days", [3, 1]),
+            reminder_days=renewal_cfg.get("reminder_days", [3, 2, 1]),
             template_name=renewal_cfg.get("template_name", ""),
             template_lang=renewal_cfg.get("template_lang", "en"),
             logs=self.logs,
@@ -147,6 +156,8 @@ class Container:
             paths["logs_csv"],
             paths["sentlog_csv"],
             paths["renewals_csv"],
+            paths.get("message_statuses_csv", "csv/message_statuses.csv"),
+            paths.get("reply_retries_csv", "csv/reply_retries.csv"),
         ]
         # Quiet window (UTC) during which the webhook defers pushes so it does
         # not write on top of an in-flight scheduler job. The exact bracket is

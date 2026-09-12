@@ -8,15 +8,14 @@ never pushed to the shared GitHub repo, so:
 
 Fix: back the webhook's CSV files with the GitHub repo as the source of truth.
 Before handling a message we PULL the latest CSVs from the repo into local
-disk; after handling we PUSH the changed CSVs back via the Contents API. This
+disk; after handling we PUSH changed CSVs in an atomic Git Data API commit. This
 keeps the webhook and scheduler on one shared store.
 
-Concurrency (see README "Coordination"): the scheduler (GitHub Actions) and the
-webhook (Render) both write CSVs on `main`. To avoid the webhook pushing on top
-of a nightly job mid-run, ``push`` observes a configurable *quiet window* (UTC)
-that brackets the image/expiry/renewal/delivery jobs. During that window pushes
-are deferred (buffered on local disk) and flushed on the next push after the
-window closes. Pulls are always allowed so the webhook keeps reading fresh state.
+Strict webhook operations read one immutable snapshot and fail on any read/write
+error. The caller responds 503 after restoring its local snapshot. Legacy
+non-strict callers can defer writes in a quiet window; the production webhook
+rejects requests before handling during that window rather than acknowledging
+ephemeral writes. The default quiet window remains disabled.
 
 Enabled only when a GitHub token + repo are configured (production webhook).
 In local/dev and inside GitHub Actions (where the scheduler commits via git
@@ -72,6 +71,7 @@ class RepoSync:
         self.enabled = enabled and github is not None
         # Deferred/failed writes must survive the next request's pull.
         self._dirty: set[str] = set()
+        self._baseline: dict[str, bytes | None] = {}
         # Quiet window (UTC 'HH:MM' strings). When both bounds parse, pushes are
         # deferred while now is inside [start, end].
         start, end = quiet_window or ("", "")
@@ -91,7 +91,7 @@ class RepoSync:
         now_utc = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
         return _in_window(now_utc.timetz().replace(tzinfo=None), self._quiet_start, self._quiet_end)
 
-    def pull(self) -> None:
+    def pull(self, strict: bool = False) -> None:
         """Overwrite local tracked files with the repo's latest content.
 
         A file missing in the repo is left as-is locally (the local header-only
@@ -99,23 +99,41 @@ class RepoSync:
         """
         if not self.enabled:
             return
+        if strict and self._dirty:
+            raise RuntimeError("Unpersisted local state requires recovery")
+        if hasattr(self._github, "begin_snapshot"):
+            self._github.begin_snapshot()
         for rel in self._tracked:
             if rel in self._dirty:
                 continue
             try:
                 content = self._github.read_file(rel)
             except Exception:
+                if strict:
+                    raise
                 # Never let a transient read failure break request handling;
                 # fall back to whatever is on local disk.
                 continue
             if content is None:
+                if strict:
+                    full = self._abs(rel)
+                    # A missing remote file must not resurrect stale local rows.
+                    if os.path.exists(full):
+                        with open(full, "rb") as source:
+                            header = source.readline()
+                        with open(full, "wb") as output:
+                            output.write(header)
+                        self._baseline[rel] = header
+                else:
+                    self._baseline[rel] = None
                 continue
             full = self._abs(rel)
             os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
             with open(full, "wb") as fh:
                 fh.write(content)
+            self._baseline[rel] = content
 
-    def push(self, message: str) -> list[str]:
+    def push(self, message: str, strict: bool = False) -> list[str]:
         """Push local tracked files back to the repo. Returns files pushed.
 
         Deferred (returns []) while inside the quiet window, so the webhook does
@@ -125,6 +143,8 @@ class RepoSync:
         if not self.enabled:
             return []
         if self.in_quiet_window():
+            if strict:
+                raise RuntimeError("Persistence quiet window; retry later")
             # Defer: local disk already has the latest rows; a later push (or the
             # next request outside the window) will flush them to the repo.
             self._dirty.update(self._tracked)
@@ -136,10 +156,15 @@ class RepoSync:
                 continue
             with open(full, "rb") as fh:
                 content = fh.read()
+            if rel in self._baseline and content == self._baseline[rel] and rel not in self._dirty:
+                continue
             try:
                 self._github.write_file(rel, content, message)
                 pushed.append(rel)
             except Exception:
+                self._dirty.add(rel)
+                if strict:
+                    raise
                 # Best-effort per file; a failure here is logged by the caller.
                 # The local write already succeeded, so we don't lose the row
                 # within this process's lifetime; a later push retries it.
@@ -150,6 +175,17 @@ class RepoSync:
             self._github.commit(pushed, message)
         except Exception:
             self._dirty.update(pushed)
+            if strict:
+                raise
             return []
         self._dirty.difference_update(pushed)
+        for rel in pushed:
+            with open(self._abs(rel), "rb") as source:
+                self._baseline[rel] = source.read()
         return pushed
+
+    def abort(self):
+        """Caller restored its snapshot; discard the abandoned transaction."""
+        self._dirty.clear()
+        if hasattr(self._github, "discard_pending"):
+            self._github.discard_pending()

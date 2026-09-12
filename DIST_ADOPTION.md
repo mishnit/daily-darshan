@@ -46,10 +46,17 @@ organic devotional posts and measured Click-to-WhatsApp campaigns. The ideal fir
 6. The service creates a UPI instruction and reference number.
 7. Customer pays and replies with the 12-digit UTR.
 8. Admin verifies payment, activates or renews, and publishes the personalized page.
-9. Daily utility-template delivery links to that page.
+9. Daily utility-template delivery links to that page only after its public date, expiry and
+   subscription metadata are verified. The page explicitly confirms activation and welcomes
+   the customer; WhatsApp itself still uses the approved delivery-status template.
 
 Do not advertise “instant activation” while UTR verification remains manual. State a realistic
-verification service level and send a clear confirmation after approval.
+verification service level. Publish the page after approval so its activation confirmation is visible.
+
+Customer actions are not discarded when a confirmation fails: STOP and received UTR remain
+saved, with acknowledgement-only retries. Renewal and delivery share a daily contact reservation;
+uncertain sends are held for review rather than risking duplicate messages. Do not promise
+guaranteed daily receipt during provider or persistence outages.
 
 ## Conversion strategy
 

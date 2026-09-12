@@ -48,6 +48,7 @@ class RenewalReminderService:
         self._retry_sleep = retry_sleep
         self._logs = logs
         self._sentlog = sentlog
+        self.publication_check = None
 
     def find_due_subscribers(self, today: date | None = None) -> list[tuple[Subscriber, int]]:
         """Return (subscriber, days_remaining) for ACTIVE+opt_in subscribers
@@ -84,7 +85,7 @@ class RenewalReminderService:
                 self._template_lang,
                 url_button_param=subscriber.subscription_id,
             )
-            if last.ok:
+            if last.ok or last.unknown:
                 return last
             if attempt < self._max_retries and self._retry_sleep:
                 time.sleep(self._retry_sleep)
@@ -114,7 +115,7 @@ class RenewalReminderService:
             "expiry_date": expiry_date.isoformat(),
             "sent_at": datetime.now().isoformat(),
             "whatsapp_message_id": result.message_id,
-            "status": "SENT" if result.ok else "FAILED",
+            "status": "SENT" if result.ok else ("UNKNOWN" if result.unknown else "FAILED"),
         })
 
     def run(self, today: date | None = None) -> ReminderReport:
@@ -142,17 +143,22 @@ class RenewalReminderService:
                     })
                 report.skipped += 1
                 continue
+            if self.publication_check and not self.publication_check(sub, today):
+                report.failed += 1
+                report.failures.append(sub.mobile)
+                self._log("RENEWAL_PAGE_NOT_PUBLISHED", sub.mobile, "")
+                continue
+            reservation = None
+            if self._sentlog:
+                reservation = self._sentlog.reserve(today, sub.mobile, f"renewal:{reminder_type.value}")
+                if reservation is None:
+                    report.skipped += 1
+                    continue
             result = self.send_reminder(sub, remaining)
             self.record_reminder(sub, reminder_type, expiry, result)
+            if reservation:
+                self._sentlog.complete(reservation, result)
             if result.ok:
-                if self._sentlog:
-                    self._sentlog.append({
-                        "date": today.isoformat(),
-                        "mobile": sub.mobile,
-                        "image": f"renewal:{reminder_type.value}",
-                        "whatsapp_message_id": result.message_id,
-                        "status": DeliveryStatus.SENT.value,
-                    })
                 report.sent += 1
                 self._log("RENEWAL_REMINDER_SENT", sub.mobile, reminder_type.value)
             else:
