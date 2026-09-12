@@ -17,27 +17,15 @@ concurrency:
 
 jobs:
   deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Require a successful image run on the default branch
-        if: github.event_name == 'workflow_run'
-        env:
-          IMAGE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          IMAGE_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          test "$IMAGE_CONCLUSION" = "success" || {
-            echo "Image workflow concluded ${IMAGE_CONCLUSION}; Pages will not be deployed" >&2
-            exit 1
-          }
-          test "$IMAGE_BRANCH" = "$DEFAULT_BRANCH" || {
-            echo "Image workflow ran on ${IMAGE_BRANCH}, not ${DEFAULT_BRANCH}; Pages will not be deployed" >&2
-            exit 1
-          }
-
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.repository.default_branch }}

@@ -515,8 +515,8 @@ Daily Darshan Pages**, which publishes once and then starts delivery.
    Pages** manually; for a new image plus the complete chain, run **Daily Image** manually on `main`.
 
 Direct **Daily Delivery** runs never rebuild or deploy the site and should be used only after the
-current page is public. Direct **Regenerate Daily Pages** runs only update files; follow them with a
-manual Pages deployment. Previously published pages remain viewable until a later deployment
+current page is public. Successful **Regenerate Daily Pages** runs on the default branch automatically
+trigger Pages deployment, followed by Daily Delivery with daily-send safeguards. Previously published pages remain viewable until a later deployment
 replaces or prunes them.
 
 **Idempotency** (safe to re-run):
