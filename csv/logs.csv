@@ -221,3 +221,7 @@ timestamp,event,mobile,details
 2026-09-11T18:44:49.694309,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
 2026-09-11T18:44:49.912927,IMAGE_FETCH_FAILED,,iskcon_hyderabad:no-candidate
 2026-09-11T18:44:49.919621,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-12
+2026-09-12T03:37:21.091685,IMAGE_FETCH_FAILED,,iskcon_mumbai:no-candidate
+2026-09-12T03:37:23.091478,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-12T03:37:23.232745,IMAGE_FETCH_FAILED,,iskcon_hyderabad:no-candidate
+2026-09-12T03:37:23.239453,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-12
