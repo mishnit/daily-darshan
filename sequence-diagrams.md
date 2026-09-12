@@ -74,7 +74,7 @@ sequenceDiagram
     Trigger->>Runner: checkout main
     Runner->>Sched: python scheduler.py cleanup (signed commit only if rows expire)
     Runner->>Sched: python scheduler.py image
-    Sched->>Sched: fetch + validate all configured weekday sources; select largest
+    Sched->>Sched: fetch and validate configured weekday sources, then select largest
     Sched->>Runner: write UUID-prefixed candidates + canonical image  📝 LOCAL
     Sched->>Runner: render ALL per-subscriber pages (write_all)  📝 LOCAL
     Sched->>Repo: git commit + push (image + pages)  ✅ REMOTE (after job)
@@ -159,7 +159,7 @@ sequenceDiagram
     User->>Meta: taps/sends message
     Meta->>Web: POST /webhook (signed)
     Web->>Web: verify HMAC signature
-    Note over Web,Repo: Worker thread holds local state lock; HTTP response waits
+    Note over Web,Repo: Worker thread holds local state lock, then HTTP response waits
     Web->>Repo: RepoSync.pull() — fetch latest CSVs  ⬇️ REPO READ
     Repo-->>Local: overwrite local subscribers/payments/processed/logs
 
@@ -223,7 +223,7 @@ sequenceDiagram
     alt name missing
         Web-->>User: ask for greeting name
         User->>Web: sends BACK
-        Web->>State: clear awaiting-name flag; retain no payment
+        Web->>State: clear awaiting-name flag, retain no payment
         Web-->>User: main menu
     else name available
         Web-->>User: consent disclosure (I agree / No thanks)
@@ -231,7 +231,7 @@ sequenceDiagram
 
     User->>Web: taps an old/unknown PLAN or CTA id
     Web-->>User: current main menu or plan list
-    Note over Web,State: stale IDs are ignored; they cannot apply a new paid entitlement
+    Note over Web,State: stale IDs are ignored, they cannot apply a new paid entitlement
 
     User->>Web: taps CTA_OPTIN_AGREE twice
     Web->>State: first tap grants consent and creates one current PENDING payment
@@ -249,14 +249,14 @@ sequenceDiagram
     participant State as Payment state
 
     User->>Web: sends a 12-digit UTR
-    Web->>State: attach UTR to latest PENDING payment; keep status PENDING
-    Web-->>User: UTR received; activation waits for admin verification
+    Web->>State: attach UTR to latest PENDING payment, keep status PENDING
+    Web-->>User: UTR received, activation waits for admin verification
     alt acknowledgement fails
         Web->>State: retain UTR + store acknowledgement in reply_retries.csv
-        Web-->>User: HTTP 503; Meta may redeliver
-        Web->>State: retry acknowledgement only; do not record UTR twice
+        Web-->>User: HTTP 503, Meta may redeliver
+        Web->>State: retry acknowledgement only, do not record UTR twice
     else no PENDING payment
-        Web-->>User: main menu; no payment is changed
+        Web-->>User: main menu, no payment is changed
     end
 
     User->>Web: sends BACK / RENEW / SUBSCRIBE after UTR
@@ -285,7 +285,7 @@ sequenceDiagram
     Pay->>Local: write payments.csv (UTR attached, still PENDING)  📝 LOCAL
     Web->>User: Received your UTR. Activates once an admin verifies.
     Web->>Repo: Persist UTR and any failed acknowledgement atomically
-    Web-->>Meta: 200 if persisted and reply succeeded; otherwise 503
+    Web-->>Meta: 200 if persisted and reply succeeded, otherwise 503
     Note over Web,Repo: Payment is NOT yet SUCCESS. A UTR is not proof of payment.
 ```
 
@@ -315,11 +315,11 @@ sequenceDiagram
     end
     Sub->>Local: write subscribers.csv  📝 LOCAL
     CLI->>WA: daily_darshan_welcome(name, subscription_id)
-    Note over CLI,WA: Separate activation confirmation; never consumes sentlog daily slot
+    Note over CLI,WA: Separate activation confirmation, never consumes sentlog daily slot
     CLI->>Local: render THIS subscriber's page (write_page, one page)  📝 LOCAL
     alt --commit
         CLI->>Repo: git commit + push (payments, subscribers, logs, this page)  ✅ REMOTE (not yet published)
-        Note over CLI,Repo: Manually run Deploy Daily Darshan Pages to publish; success starts delivery
+        Note over CLI,Repo: Manually run Deploy Daily Darshan Pages to publish, success starts delivery
     else no --commit
         Note over CLI,Local: changes stay 📝 LOCAL only — must git commit + push MANUALLY
     end
@@ -371,7 +371,7 @@ sequenceDiagram
     Sub->>Local: write subscribers.csv  📝 LOCAL
     Web->>User: Opted out. Send Radhe Radhe, then choose Subscribe to opt in again.
     Web->>Repo: Persist opt-out and any failed acknowledgement atomically
-    Web-->>WA: 200 if persisted and reply succeeded; otherwise 503
+    Web-->>WA: 200 if persisted and reply succeeded, otherwise 503
     Note over Sub: opt_in=false makes the subscriber non-deliverable immediately.
 ```
 
