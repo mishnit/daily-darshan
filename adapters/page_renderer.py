@@ -59,7 +59,13 @@ _TEMPLATE = """<!DOCTYPE html>
     .renewal a, .share a {{ display: inline-block; padding: 7px 12px; border-radius: 7px;
                            color: #fff; text-decoration: none; font-weight: 650; }}
     .renewal a {{ background: #c62828; }}
-    .share a {{ background: #198754; }}
+    .share a, .share button {{ background: #198754; }}
+    .share button {{ border: 0; border-radius: 7px; padding: 10px 16px;
+                     color: white; font: inherit; font-weight: 650; cursor: pointer; }}
+    .privacy-note {{ margin: 3px 8px; font-size: .72rem; color: #53483c; }}
+    .share small {{ display: block; margin-top: 5px; }}
+    .share textarea {{ box-sizing: border-box; width: 100%; min-height: 90px; }}
+    body {{ overflow-y: auto; }}
     .renewal + .image-frame img {{ border-radius: 0; }}
   </style>
 </head>
@@ -67,6 +73,7 @@ _TEMPLATE = """<!DOCTYPE html>
   <div class="wrap">
     <h1><strong>🕉&#xA0;</strong>&#x20;Daily Darshan</h1>
     <div class="greeting">{greeting}</div>
+    <p class="privacy-note">This page is personal to you. To share Darshan, use the button below.</p>
     {activation_confirmation}
     {renewal_reminder}
     <div class="image-frame">
@@ -74,12 +81,81 @@ _TEMPLATE = """<!DOCTYPE html>
            onerror="this.onerror=null; this.src='{fallback_url}';">
     </div>
     <div class="share">
-      <p>Share this HD Daily Darshan image with friends and family on WhatsApp.</p>
-      <a href="{share_url}">Share on WhatsApp</a>
+      <p><strong>Bring today's Darshan to someone you love 🙏</strong></p>
+      <button id="share-darshan" type="button" hidden>📲 Share Darshan with family &amp; friends</button>
+      <small>Your personal page link won't be included. Choose WhatsApp in the share menu.</small>
+      <p id="share-status" role="status" aria-live="polite"></p>
+      <details id="share-fallback">
+        <summary>Download image and copy caption</summary>
+        <a id="download-darshan" href="{image_url}" download>Download image</a>
+        <textarea id="share-caption" readonly aria-label="Caption to share">{share_caption}</textarea>
+        <button id="copy-caption" type="button" hidden>Copy caption</button>
+        <a href="{share_url}">Share on WhatsApp (link only)</a>
+      </details>
     </div>
   </div>
+  <script>{share_script}</script>
 </body>
 </html>
+"""
+
+_SHARE_SCRIPT = r"""
+(() => {
+  const button = document.getElementById('share-darshan');
+  const caption = document.getElementById('share-caption');
+  const status = document.getElementById('share-status');
+  const fallback = document.getElementById('share-fallback');
+  const download = document.getElementById('download-darshan');
+  const copy = document.getElementById('copy-caption');
+  let file;
+  let loading = true;
+  button.hidden = false;
+  copy.hidden = false;
+  // Fetch before the click so native sharing retains its user activation.
+  fetch(download.href).then(response => {
+    if (!response.ok) throw new Error('Image unavailable');
+    return response.blob();
+  }).then(blob => {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(blob.type)) throw new Error('Not an image');
+    const extension = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp'}[blob.type];
+    file = new File([blob], 'daily-darshan.' + extension, {type: blob.type});
+    download.href = URL.createObjectURL(blob);
+    download.download = file.name;
+  }).catch(() => {
+    status.textContent = 'Image sharing is unavailable. Use the download and caption options below.';
+    fallback.open = true;
+  }).finally(() => { loading = false; });
+  button.addEventListener('click', async () => {
+    if (loading) {
+      status.textContent = 'Preparing the image. Please tap Share again in a moment.';
+      return;
+    }
+    try {
+      const data = {files: file ? [file] : [], text: caption.value};
+      if (!file || !navigator.share || !navigator.canShare || !navigator.canShare(data)) {
+        fallback.open = true;
+        status.textContent = 'Download the image, copy the caption, then attach both in WhatsApp.';
+        return;
+      }
+      await navigator.share(data);
+      status.textContent = 'If WhatsApp omitted the caption, copy it from the options below.';
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      fallback.open = true;
+      status.textContent = 'Sharing could not open. Download the image and copy the caption below.';
+    }
+  });
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(caption.value);
+      status.textContent = 'Caption copied. Paste it alongside your image in WhatsApp.';
+    } catch (_) {
+      caption.focus();
+      caption.select();
+      status.textContent = 'Select and copy the caption manually.';
+    }
+  });
+})();
 """
 
 
@@ -143,6 +219,9 @@ class PageRenderer:
             f"\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/?ref={quote(subscriber.mobile, safe='')}"
         )
         return _TEMPLATE.format(
+            share_script=_SHARE_SCRIPT,
+            share_caption=html.escape("Radhe Radhe 🙏\n\nToday's HD Daily Darshan.\n\n"
+                f"Visit VIP Seva for daily darshan:\nhttps://vipseva.com/?ref={quote(subscriber.mobile, safe='')}"),
             date=html.escape(on_date.isoformat()),
             status_text=html.escape(f"{status_text} — {on_date.isoformat()}"),
             greeting=html.escape(greeting),
