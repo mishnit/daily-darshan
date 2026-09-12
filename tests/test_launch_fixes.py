@@ -140,7 +140,7 @@ def test_webhook_accepts_valid_signature(webhook):
     resp = client.post("/webhook", content=body,
                        headers={"X-Hub-Signature-256": _sign("s3cret", body)})
     assert resp.status_code == 200
-    assert any(s["type"] == "buttons" for s in fake.sent)
+    assert any(s["type"] == "list" for s in fake.sent)
 
 
 def test_webhook_malformed_body_no_500(webhook):
@@ -159,7 +159,7 @@ def test_typed_plan_word_does_not_subscribe(webhook):
     client.post("/webhook", content=body, headers={"X-Hub-Signature-256": _sign("s3cret", body)})
     assert len(main.container.payments.all()) == 0          # no accidental payment
     assert main.container.subscribers.find("9199") is None  # no accidental signup
-    assert any(s["type"] == "buttons" for s in fake.sent)   # shown the menu instead
+    assert any(s["type"] == "list" for s in fake.sent)   # shown the menu instead
 
 
 def test_webhook_idempotent_on_duplicate_message_id(webhook):

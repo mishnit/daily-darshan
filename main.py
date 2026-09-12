@@ -242,7 +242,9 @@ def _process_messages(c, payload: dict) -> bool:
             kind, value = _extract_input(message)
             if mobile and value:
                 state = c.conversations.find(mobile) or {"mobile": mobile, "version": "0", "last_recovery": "0"}
-                if (kind == "text" and value.strip().upper() in {"CONTINUE", "STATUS", "RESEND"}
+                recovery = ((kind == "text" and value.strip().upper() in {"CONTINUE", "STATUS", "RESEND"})
+                            or (kind == "button" and value in {"CTA_CONTINUE", "CTA_RESEND"}))
+                if (recovery
                         and time.time() - float(state.get("last_recovery") or 0) < 30):
                     continue
                 # Bound delayed events to their original reply window.
@@ -401,12 +403,17 @@ def _extract_input(message: dict) -> tuple[str, str]:
 
 
 def _send_menu(c, mobile: str) -> None:
-    """Entry CTA menu: Subscribe / Renew / Stop (buttons)."""
-    result = c.whatsapp.send_buttons(
+    """Five ordered menu choices in one WhatsApp list message."""
+    result = c.whatsapp.send_list(
         mobile,
         "🙏 Welcome to Daily Darshan! What would you like to do?\n"
         "Reply CONTINUE to resume, RESEND for your current instructions, or BACK to return.",
-        [("CTA_SUBSCRIBE", "Subscribe"), ("CTA_RENEW", "Renew"), ("CTA_STOP", "Stop messages")],
+        "Open menu",
+        [("CTA_SUBSCRIBE", "Subscribe", "Choose a plan"),
+         ("CTA_RENEW", "Renew", "Renew your subscription"),
+         ("CTA_CONTINUE", "Continue", "Resume your current step"),
+         ("CTA_RESEND", "Resend", "Get your current instructions again"),
+         ("CTA_BACK", "Back", "Return to the previous options")],
     )
     _require_send(result, "menu")
 
@@ -459,6 +466,9 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
 
     # ---------------- Button / list taps (CTAs) ---------------- #
     if kind == "button":
+        if value in {"CTA_CONTINUE", "CTA_RESEND", "CTA_BACK"}:
+            _handle_message(c, mobile, "text", value.removeprefix("CTA_"), name)
+            return
         if value == "CTA_SUBSCRIBE":
             _send_plan_list(c, mobile)
             return
