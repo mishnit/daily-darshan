@@ -140,7 +140,7 @@ class PageRenderer:
         image_url = self.image_url(on_date, images_dir, image_name)
         share_text = (
             f"Radhe Radhe 🙏\n\nToday's HD Daily Darshan:\n{image_url}"
-            "\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/"
+            f"\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/?ref={quote(subscriber.mobile, safe='')}"
         )
         return _TEMPLATE.format(
             date=html.escape(on_date.isoformat()),

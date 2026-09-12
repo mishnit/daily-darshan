@@ -21,7 +21,15 @@
     <h1>🙏 VIP Seva - Daily Darshan</h1>
     <p>Your daily darshan link is personal and arrives on WhatsApp.</p>
     <img src="fallback.jpg" alt="Om symbol">
-    <a class="request" href="https://wa.me/916361699109?text=Radhe%20Radhe"
+    <a id="join-vip" class="request" href="https://wa.me/916361699109?text=Radhe%20Radhe"
        target="_blank" rel="noopener noreferrer">Join Vip Seva on Whatsapp</a>
   </div>
+  <script>
+    (() => {
+      const ref = new URLSearchParams(window.location.search).get("ref");
+      if (!ref || !/^[0-9]{7,15}$/.test(ref)) return;
+      document.getElementById("join-vip").href =
+        "https://wa.me/916361699109?text=" + encodeURIComponent("Radhe Radhe ref=" + ref);
+    })();
+  </script>
 </body>
