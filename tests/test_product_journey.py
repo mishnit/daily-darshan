@@ -159,7 +159,7 @@ def test_new_user_menu_and_incomplete_signup(container):
     assert "PLAN_monthly" in container.whatsapp.sent[-1]["rows"]
     main._handle_message(container, "9199", "button", "PLAN_monthly")
     main._send_menu(container, "9199")
-    assert "What name" in container.whatsapp.sent[-1]["body"]
+    assert "Please tell us your name" in container.whatsapp.sent[-1]["body"]
     assert container.whatsapp.sent[-1]["rows"] == ["CTA_SUBSCRIBE"]
     container.subscriber_service.set_name("9199", "nitin")
     container.subscriber_service.set_awaiting_name("9199", False)

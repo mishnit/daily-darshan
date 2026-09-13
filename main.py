@@ -427,7 +427,7 @@ def _send_menu(c, mobile: str) -> None:
     locked_payment = bool(payment and (payment.utr or payment.status.value != "PENDING"))
     if sub and (not sub.end_date or payment) and not locked_payment and (sub.awaiting_name or not sub.name):
         c.subscriber_service.set_awaiting_name(mobile, True)
-        body = "🙏 What name should we greet you by? Reply with your name, or choose another plan."
+        body = "🙏 Please tell us your name, or choose another plan."
         rows.append(("CTA_SUBSCRIBE", "Change plan", "Choose a different plan"))
     elif sub and not sub.opt_in and not sub.end_date and not locked_payment:
         _request_opt_in(c, mobile)
@@ -497,7 +497,7 @@ def _after_name_or_optin(c, mobile: str, returning: bool) -> None:
         return
     if not sub.name:
         c.subscriber_service.set_awaiting_name(mobile, True)
-        _require_send(c.whatsapp.send_text(mobile, "🙏 What name should we greet you by?"), "name request")
+        _require_send(c.whatsapp.send_text(mobile, "🙏 Please tell us your name."), "name request")
         return
     if not sub.opt_in:
         _request_opt_in(c, mobile)
@@ -606,7 +606,7 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
             sub = c.subscribers.find(mobile)
             if not sub.name:
                 svc.set_awaiting_name(mobile, True)
-                _require_send(wa.send_text(mobile, "🙏 What name should we greet you by?"), "name request")
+                _require_send(wa.send_text(mobile, "🙏 Please tell us your name."), "name request")
                 return
             _after_name_or_optin(c, mobile, returning=False)
             return
@@ -769,7 +769,7 @@ def _resume_conversation(c, mobile):
         _send_plan_list(c, mobile)
     elif sub.awaiting_name or not sub.name:
         c.subscriber_service.set_awaiting_name(mobile, True)
-        _require_send(c.whatsapp.send_text(mobile, "🙏 What name should we greet you by?"), "name request")
+        _require_send(c.whatsapp.send_text(mobile, "🙏 Please tell us your name."), "name request")
     elif not sub.opt_in:
         _request_opt_in(c, mobile)
     else:

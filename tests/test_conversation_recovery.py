@@ -67,7 +67,7 @@ def test_recovery_command_never_becomes_name(container):
     container.subscriber_service.set_awaiting_name("9199", True)
     main._handle_message(container, "9199", "text", "RESEND")
     assert container.subscribers.find("9199").name == "Nitin"
-    assert "What name" in calls[-1][1]
+    assert "Please tell us your name" in calls[-1][1]
 
 
 def test_repeat_payment_cta_reuses_pending_reference(container):

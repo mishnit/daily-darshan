@@ -375,7 +375,7 @@ Bot:  Choose your Daily Darshan plan:                   ← list message
       • Monthly — ₹199 · 90 days
       • Yearly  — ₹699 · 365 days
 User: (taps Monthly)
-Bot:  🙏 What name should we greet you by?               ← asked only if no name yet
+Bot:  🙏 Please tell us your name.                        ← asked only if no name yet
 User: Deep                                              ← free text (name)
 Bot:  By continuing, you agree to receive daily darshan
       and occasional subscription updates. Reply STOP anytime.

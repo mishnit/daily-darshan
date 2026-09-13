@@ -171,7 +171,7 @@ sequenceDiagram
         Web->>Svc: upsert_pending(mobile, plan, name)
         Svc->>Local: write subscribers.csv (PENDING)  📝 LOCAL
         alt name missing
-            Web->>User: "What name should we greet you by?"
+            Web->>User: "Please tell us your name."
             User->>Meta: types name
             Meta->>Web: POST /webhook (name)
             Web->>Svc: set_name(mobile, name)

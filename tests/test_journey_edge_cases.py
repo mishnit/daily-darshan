@@ -40,7 +40,7 @@ def test_greeting_reopens_relevant_step_without_reset(container, greeting, stage
     assert [p.to_row() for p in container.payments.all()] == before_payments
     reply = container.whatsapp.sent[-1]
     if stage == 'name':
-        assert 'What name' in reply['body']
+        assert 'Please tell us your name' in reply['body']
     elif stage == 'consent':
         assert reply['buttons'] == ['CTA_OPTIN_AGREE', 'CTA_STOP']
     else:
