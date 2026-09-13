@@ -509,6 +509,11 @@ Details:
   `applied_payment_refs`, so a careful manual CSV activation remains recoverable and idempotent.
   The subscriber's existing `subscription_id` is preserved across activation and renewal, keeping
   one stable `docs/<subscription_id>/index.html` page for that mobile number.
+  Page generation validates the complete subscriber snapshot before writing: every ACTIVE mobile
+  must have exactly one ACTIVE row and one non-shared `subscription_id`. Conflicting active rows,
+  missing IDs or an ID assigned to different mobiles fail the workflow before any personalised
+  page is overwritten. If a historical non-active row exists for the same mobile, only its
+  canonical ACTIVE row is rendered.
   Commit/push and publish the page first; the delivery workflow drains the welcome outbox.
   Repeated verification reuses the same payment-keyed task. Opted-out recipients are cancelled.
   Production webhook replies likewise use a durable `csv/reply_outbox.csv` before sending.

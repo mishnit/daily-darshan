@@ -17,6 +17,7 @@ import os
 from datetime import date
 from urllib.parse import quote
 
+from domain.enums import SubscriberStatus
 from domain.subscriber import Subscriber
 
 _TEMPLATE = """<!DOCTYPE html>
@@ -285,13 +286,42 @@ class PageRenderer:
                   delivered: bool = True, images_dir: str = "images",
                   root: str = ".", source: str = "",
                   image_name: str | None = None) -> list[str]:
-        written = []
+        """Render a fail-closed, one-page-per-active-subscriber snapshot.
+
+        A hand-edited CSV can otherwise assign one page ID to two mobiles or
+        contain two ACTIVE rows for one mobile. Either case would overwrite a
+        personalised page with another subscriber's content. Validate the full
+        snapshot before writing anything, then ignore non-active duplicate rows
+        when the same mobile has one canonical ACTIVE row.
+        """
+        active_by_mobile: dict[str, Subscriber] = {}
+        id_owner: dict[str, str] = {}
         for sub in subscribers:
+            if sub.subscription_id:
+                owner = id_owner.setdefault(sub.subscription_id, sub.mobile)
+                if owner != sub.mobile:
+                    raise ValueError(
+                        f"subscription_id {sub.subscription_id!r} is assigned to multiple mobiles"
+                    )
+            if sub.status == SubscriberStatus.ACTIVE:
+                if not sub.subscription_id:
+                    raise ValueError(f"active subscriber {sub.mobile!r} has no subscription_id")
+                if sub.mobile in active_by_mobile:
+                    raise ValueError(f"multiple ACTIVE subscriber rows found for {sub.mobile!r}")
+                active_by_mobile[sub.mobile] = sub
+
+        written = []
+        written_paths: set[str] = set()
+        for sub in subscribers:
+            canonical_active = active_by_mobile.get(sub.mobile)
+            if canonical_active is not None and sub is not canonical_active:
+                continue
             path = self.write_page(
                 sub, on_date, delivered, images_dir, root, source, image_name
             )
-            if path:
+            if path and path not in written_paths:
                 written.append(path)
+                written_paths.add(path)
         return written
 
     def prune_pages(
@@ -323,8 +353,6 @@ class PageRenderer:
         """
         import shutil
         from datetime import timedelta
-
-        from domain.enums import SubscriberStatus
 
         abs_dir = os.path.join(root, self._pages_dir)
         if not os.path.isdir(abs_dir):
