@@ -558,7 +558,13 @@ per date after its successful send has been persisted.
 | `image.yml` | `1 3 * * *` | 08:31 IST target | Test → verify GPG signing → prune operational logs → fetch all configured sources, store the largest valid canonical image, regenerate pages, expire lapsed subscribers, prune inactive pages and old images, then commit. Historical backfill misses warn and continue; today's image is mandatory. |
 | `deploy-pages.yml` | After successful `Daily Image` completion; manual on demand | After image preparation | Publish the current default branch's `docs/` exactly once. A failed/cancelled or non-default-branch image run fails this gate and cannot trigger delivery. |
 | `delivery.yml` | After successful `Deploy Daily Darshan Pages`; manual on demand | After publication | Validate WhatsApp secrets → test → verify GPG signing → prune logs → run an idempotent expiry safety sweep → send renewal reminders → deliver today's published personalized page link → signed commits. |
-| `pages.yml` | Manual only | On demand | Regenerate all pages from today's stored canonical image without fetching remote images. |
+| `pages.yml` | Manual only | On demand | Regenerate pages using today's selected stored image, or the latest valid earlier image for that same source. No remote image fetching. |
+
+Page regeneration prefers today's image. If missing or invalid, it searches retained images
+newest-first, ignoring future dates and invalid files. An explicitly selected source never
+silently switches to another source. If no valid matching image exists, the job fails without
+regenerating pages. The older filename and watermarked date are preserved; page generation
+and subscription-expiry calculations still use today's date. The selected image path is logged.
 
 GitHub cron schedules are targets rather than exact start-time guarantees and may be delayed
 under runner load. Workflow YAML is authoritative; `config.json.schedule` is informational.

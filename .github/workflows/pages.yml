@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       image_source:
-        description: "Stored image: canonical, or a source key such as iskcon_mumbai"
+        description: "Stored image: canonical or source key; uses latest earlier date if today is unavailable"
         required: true
         default: "canonical"
         type: string
@@ -60,7 +60,7 @@ jobs:
           git config --global commit.gpgsign true
           echo "GIT_COMMIT_GPG_SIGN=true" >> "$GITHUB_ENV"
 
-      - name: Regenerate pages from today's stored image
+      - name: Regenerate pages from today's or latest earlier stored image
         env:
           GITHUB_REPO: ${{ github.repository }}
           IMAGE_SOURCE: ${{ inputs.image_source }}
