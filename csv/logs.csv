@@ -277,3 +277,4 @@ timestamp,event,mobile,details
 2026-09-13T16:19:53.385851,WHATSAPP_SEND_FAILED,919108711599,"http_400:{""error"":{""message"":""(#132012) Parameter format does not match format in the created template"",""code"":132012,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""header: For"
 2026-09-13T16:44:00.539231,RENEWAL_PAGE_NOT_PUBLISHED,919108711599,
 2026-09-13T16:44:02.446056,DELIVERY_PAGE_NOT_PUBLISHED,919108711599,
+2026-09-13T16:50:30.659685,PAGES_REGENERATED,,2026-09-13:count=2:source=canonical:image=docs/images/5a4fcc82-3020-4ee8-9b05-459359aac0e9_2026-09-13.jpg
