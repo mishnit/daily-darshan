@@ -91,6 +91,27 @@ def test_active_menu_labels_extension_and_hides_it_for_largest_plan(container):
     ]
 
 
+def test_yearly_payment_status_does_not_offer_extend_plan(container):
+    """The largest active plan must not advertise an unavailable upgrade."""
+    import main
+    from domain.enums import PaymentStatus
+
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    container.config["plans"]["yearly"] = {"amount": 699, "days": 365}
+    container.subscribers.append(Subscriber(
+        "9199", "yearly", status=SubscriberStatus.ACTIVE,
+        end_date=today + timedelta(days=30), opt_in=True,
+    ))
+    payment = container.payment_service.create_payment("9199", "yearly", today)
+    payment.utr = "123456789012"
+    payment.status = PaymentStatus.PENDING
+    container.payments.update(payment)
+
+    message = main._payment_status_text(container, payment)
+    assert "Extend plan" not in message
+    assert "No larger plan is currently available" in message
+
+
 def test_active_plan_list_contains_only_strictly_larger_plans(container):
     import main
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
@@ -105,6 +126,54 @@ def test_active_plan_list_contains_only_strictly_larger_plans(container):
     container.whatsapp = FakeWhatsApp()
     main._send_plan_list(container, "9199")
     assert container.whatsapp.sent[-1]["rows"] == ["PLAN_yearly"]
+
+
+@pytest.mark.parametrize("current,expected", [
+    ("starter", ["PLAN_weekly", "PLAN_monthly", "PLAN_yearly"]),
+    ("weekly", ["PLAN_monthly", "PLAN_yearly"]),
+    ("monthly", ["PLAN_yearly"]),
+    ("yearly", []),
+])
+def test_each_active_plan_only_offers_strictly_larger_plans(container, current, expected):
+    """Plan navigation must never offer the current or a smaller plan."""
+    import main
+
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    container.config["plans"] = {
+        "starter": {"amount": 9, "days": 3},
+        "weekly": {"amount": 69, "days": 30},
+        "monthly": {"amount": 199, "days": 90},
+        "yearly": {"amount": 699, "days": 365},
+    }
+    container.subscribers.append(Subscriber(
+        "9199", current, status=SubscriberStatus.ACTIVE,
+        end_date=today + timedelta(days=30), opt_in=True,
+    ))
+    container.whatsapp = FakeWhatsApp()
+
+    main._send_plan_list(container, "9199")
+
+    if expected:
+        assert container.whatsapp.sent[-1]["rows"] == expected
+    else:
+        assert "largest available plan" in container.whatsapp.sent[-1]["message"]
+
+
+def test_new_user_plan_list_offers_all_configured_plans(container):
+    import main
+
+    container.config["plans"] = {
+        "starter": {"amount": 9, "days": 3},
+        "weekly": {"amount": 69, "days": 30},
+        "monthly": {"amount": 199, "days": 90},
+        "yearly": {"amount": 699, "days": 365},
+    }
+    container.whatsapp = FakeWhatsApp()
+    main._send_plan_list(container, "9199")
+
+    assert container.whatsapp.sent[-1]["rows"] == [
+        "PLAN_starter", "PLAN_weekly", "PLAN_monthly", "PLAN_yearly",
+    ]
 
 
 def test_subscription_status_includes_current_plan(container):
