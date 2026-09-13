@@ -28,6 +28,7 @@ import sys
 from adapters.github import LocalGitRepository
 from application.payment_service import PaymentError
 from application.subscriber_service import SubscriberError
+from domain.clock import today_ist
 from config import Container
 from domain.enums import PaymentStatus
 
@@ -158,9 +159,8 @@ def _verify_locked(container: Container, args) -> int:
         # Generate the per-subscriber page now so their branded URL works
         # immediately (not only after the next daily image job).
         try:
-            from datetime import date as _date
             container.page_renderer.write_page(
-                sub, _date.today(), delivered=False,
+                sub, today_ist(), delivered=False,
                 images_dir=container.config["paths"]["images_dir"], root=container.root,
             )
         except Exception as exc:  # page generation must not block activation

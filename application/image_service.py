@@ -8,6 +8,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from domain.image import Image
+from domain.clock import today_ist
 from application.ports.repositories import LogRepositoryPort
 from application.ports.storage import ImageSourcePort
 
@@ -46,7 +47,7 @@ class ImageCollector:
         return self._sources
 
     def collect_candidates(self, on_date: date | None = None) -> list[Image]:
-        on_date = on_date or date.today()
+        on_date = on_date or today_ist()
         candidates: list[Image] = []
         for source in self._sources_for(on_date):
             try:

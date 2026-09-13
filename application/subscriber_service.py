@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from domain.enums import SubscriberStatus
+from domain.clock import today_ist
 from domain.subscriber import Subscriber, normalize_subscriber_name
 from application.ports.repositories import (
     LogRepositoryPort,
@@ -151,7 +152,7 @@ class SubscriberService:
 
         Returns the list of mobiles transitioned this run.
         """
-        on_date = on_date or date.today()
+        on_date = on_date or today_ist()
         # Snapshot only the mobiles to consider; re-read each row fresh right
         # before flipping so a concurrent webhook write to subscribers.csv
         # (e.g. a new opt-in) is not clobbered by a stale in-memory copy. We
@@ -184,7 +185,7 @@ class SubscriberService:
         This allows an administrator to grant an active subscription without a
         corresponding payment row.
         """
-        on_date = on_date or date.today()
+        on_date = on_date or today_ist()
         sub = self._subscribers.find(mobile)
         if sub is None or not sub.is_deliverable(on_date):
             return False

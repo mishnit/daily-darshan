@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from domain.enums import DeliveryStatus, ReminderType, SubscriberStatus
+from domain.clock import today_ist
 from domain.subscriber import Subscriber, sanitize_display_name
 from application.ports.repositories import (
     LogRepositoryPort,
@@ -61,7 +62,7 @@ class RenewalReminderService:
     def find_due_subscribers(self, today: date | None = None) -> list[tuple[Subscriber, int]]:
         """Return (subscriber, days_remaining) for ACTIVE+opt_in subscribers
         whose days_remaining is in the configured reminder_days (section 27)."""
-        today = today or date.today()
+        today = today or today_ist()
         due: list[tuple[Subscriber, int]] = []
         for sub in self._subscribers.all():
             if sub.status != SubscriberStatus.ACTIVE or not sub.opt_in:
@@ -138,7 +139,7 @@ class RenewalReminderService:
     def run(
         self, today: date | None = None, header_image_url: str | None = None
     ) -> ReminderReport:
-        today = today or date.today()
+        today = today or today_ist()
         report = ReminderReport()
         for sub, remaining in self.find_due_subscribers(today):
             reminder_type = ReminderType.for_days_remaining(remaining)

@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from dateutil.parser import isoparse
 
+from .clock import today_ist
 from .enums import InvalidStateTransition, SubscriberStatus
 
 
@@ -178,7 +179,7 @@ class Subscriber:
 
     def activate(self, plan_days: int, on_date: date | None = None) -> None:
         """Activate a PENDING (or re-activate) subscription for plan_days."""
-        on_date = on_date or date.today()
+        on_date = on_date or today_ist()
         self._transition(SubscriberStatus.ACTIVE)
         self.start_date = on_date
         self.end_date = on_date + timedelta(days=plan_days)
@@ -189,7 +190,7 @@ class Subscriber:
         Per section 29: extend from the current expiry date when the
         subscription is still active/unexpired, otherwise from today.
         """
-        on_date = on_date or date.today()
+        on_date = on_date or today_ist()
         base = self.end_date if (self.end_date and self.end_date >= on_date) else on_date
         self.end_date = base + timedelta(days=plan_days)
         if self.status in (SubscriberStatus.EXPIRED, SubscriberStatus.PAUSED):
@@ -214,13 +215,13 @@ class Subscriber:
     # Business queries
     # ------------------------------------------------------------------ #
     def is_expired(self, on_date: date | None = None) -> bool:
-        on_date = on_date or date.today()
+        on_date = on_date or today_ist()
         return self.end_date is not None and self.end_date < on_date
 
     def days_remaining(self, on_date: date | None = None) -> int | None:
         if self.end_date is None:
             return None
-        on_date = on_date or date.today()
+        on_date = on_date or today_ist()
         return (self.end_date - on_date).days
 
     def is_deliverable(self, on_date: date | None = None) -> bool:
@@ -228,7 +229,7 @@ class Subscriber:
 
         Requires ACTIVE status, valid opt-in, and an unexpired subscription.
         """
-        on_date = on_date or date.today()
+        on_date = on_date or today_ist()
         return (
             self.status == SubscriberStatus.ACTIVE
             and self.opt_in

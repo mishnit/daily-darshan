@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from domain.enums import PaymentStatus
+from domain.clock import today_ist
 from domain.payment import Payment, build_reference_id, is_valid_utr
 from application.ports.repositories import (
     LogRepositoryPort,
@@ -34,7 +35,7 @@ class PaymentService:
         self._logs = logs
 
     def generate_reference_id(self, on_date: date | None = None) -> str:
-        on_date = on_date or date.today()
+        on_date = on_date or today_ist()
         seq = self._payments.next_sequence(on_date)
         return build_reference_id(on_date, seq)
 
@@ -59,7 +60,7 @@ class PaymentService:
         if plan not in self._plans:
             raise PaymentError(f"Unknown plan: {plan}")
         amount = float(self._plans[plan]["amount"])
-        on_date = on_date or date.today()
+        on_date = on_date or today_ist()
 
         # (#4) Supersede any earlier still-pending payments for this mobile so
         # only the newest is actionable; a UTR then attaches unambiguously.
