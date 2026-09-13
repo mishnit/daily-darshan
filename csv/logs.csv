@@ -285,3 +285,4 @@ timestamp,event,mobile,details
 2026-09-13T18:53:31.040623,PAYMENT_CREATED,919535507255,DD2609140001
 2026-09-13T19:56:05.422154,IMAGE_FETCH_FAILED,,mahakal:no-candidate
 2026-09-13T19:56:05.427936,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-14
+2026-09-13T19:57:11.795746,PAGES_REGENERATED,,2026-09-14:count=2:source=canonical:image=docs/images/5a4fcc82-3020-4ee8-9b05-459359aac0e9_2026-09-13.jpg
