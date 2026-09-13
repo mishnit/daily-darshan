@@ -42,15 +42,77 @@ def test_renewal_checkout_preserves_entitlement_and_reuses_name(container, expir
 
 @pytest.mark.parametrize("action", ["CTA_SUBSCRIBE", "CTA_RENEW", "PLAN_yearly", "CTA_BACK"])
 def test_payment_review_cannot_be_replaced_by_stale_cta(container, action):
+    """Plan navigation cannot destroy the reviewed payment or misapply entitlement."""
+    import main
+    from domain.enums import PaymentStatus
+    setup_sub(container)
+    entitlement_before = container.subscribers.find("9199").to_row()
+    main._handle_message(container, "9199", "button", "PLAN_monthly")
+    paid = container.payments.all()[0]
+    main._handle_message(container, "9199", "text", f"UTR {paid.reference_id} 123456789012")
+    main._send_menu(container, "9199")
+    assert "CTA_PAYMENT" in container.whatsapp.sent[-1]["rows"]
+    assert "CTA_RENEW" in container.whatsapp.sent[-1]["rows"]
+    assert f"UTR {paid.reference_id} 123456789012" in container.whatsapp.sent[-1]["body"]
+
+    main._handle_message(container, "9199", "button", action)
+    if action == "CTA_BACK":
+        assert "CTA_RENEW" in container.whatsapp.sent[-1]["rows"]
+        main._handle_message(container, "9199", "button", "CTA_RENEW")
+    if action != "PLAN_yearly":
+        assert "PLAN_yearly" in container.whatsapp.sent[-1]["rows"]
+        main._handle_message(container, "9199", "button", "PLAN_yearly")
+    replacement = main._latest_pending_payment(container, "9199")
+    assert replacement.reference_id != paid.reference_id
+    preserved = container.payments.find(paid.reference_id)
+    assert preserved.status == PaymentStatus.SUPERSEDED
+    assert preserved.utr == "123456789012"
+    assert container.subscribers.find("9199").to_row() == entitlement_before
+    assert f"Example: UTR {replacement.reference_id} 123456789012" in container.whatsapp.sent[-1]["message"]
+
+    main._handle_message(container, "9199", "text", f"UTR {paid.reference_id} 123456789012")
+    assert container.payments.find(paid.reference_id).status == PaymentStatus.PENDING
+    assert container.payments.find(replacement.reference_id).status == PaymentStatus.SUPERSEDED
+    assert "admin will review" in container.whatsapp.sent[-1]["message"]
+
+
+def test_payment_status_during_review_explains_reference_qualified_utr(container):
     import main
     setup_sub(container)
     main._handle_message(container, "9199", "button", "PLAN_monthly")
+    payment = container.payments.all()[0]
     main._handle_message(container, "9199", "text", "123456789012")
-    before = container.payments.all()[0].to_row()
+    main._handle_message(container, "9199", "button", "CTA_PAYMENT")
+    message = container.whatsapp.sent[-1]["message"]
+    assert "verification pending" in message
+    assert f"UTR {payment.reference_id} 123456789012" in message
+    assert "Change plan" in message
+
+
+def test_reference_qualified_utr_correction_overwrites_previous_value(container):
+    import main
+    setup_sub(container)
+    main._handle_message(container, "9199", "button", "PLAN_monthly")
+    payment = container.payments.all()[0]
+    main._handle_message(container, "9199", "text", f"UTR {payment.reference_id} 123456789012")
+    main._handle_message(container, "9199", "text", f"UTR {payment.reference_id} 999999999999")
+    assert container.payments.find(payment.reference_id).utr == "999999999999"
+    assert "admin will review" in container.whatsapp.sent[-1]["message"]
+
+
+@pytest.mark.parametrize("action", ["CTA_SUBSCRIBE", "CTA_RENEW", "CTA_BACK"])
+def test_review_state_legacy_navigation_is_not_blocked(container, action):
+    import main
+    setup_sub(container)
+    main._handle_message(container, "9199", "button", "PLAN_monthly")
+    payment = container.payments.all()[0]
+    main._handle_message(container, "9199", "text", f"UTR {payment.reference_id} 123456789012")
     main._handle_message(container, "9199", "button", action)
-    main._handle_message(container, "9199", "text", "999999999999")
-    assert [p.to_row() for p in container.payments.all()] == [before]
-    assert "do not pay again" in container.whatsapp.sent[-1]["message"]
+    reply = container.whatsapp.sent[-1]
+    if action == "CTA_BACK":
+        assert "CTA_RENEW" in reply["rows"]
+    else:
+        assert "PLAN_yearly" in reply["rows"]
 
 
 def test_active_continue_shows_renewal_checkout_not_only_subscription_status(container):
@@ -120,6 +182,7 @@ def test_messages_do_not_advertise_obsolete_navigation(container, stage):
     assert not set(rows) & {"CTA_CONTINUE", "CTA_RESEND", "CTA_BACK", "CTA_HELP", "CTA_STOP"}
     if stage in {"unpaid", "review"}:
         assert "CTA_PAYMENT" in rows
+        assert "CTA_RENEW" in rows
         main._handle_message(container, "9199", "button", "CTA_PAYMENT")
         assert main._latest_pending_payment(container, "9199").reference_id in container.whatsapp.sent[-1]["message"]
     main._handle_message(container, "9199", "button", "CTA_HELP")
@@ -191,7 +254,7 @@ def test_orphaned_unpaid_checkout_restarts_signup_without_deleting_payment(conta
     assert len(container.payments.all()) == 1
 
 
-@pytest.mark.parametrize("status,utr", [("PENDING", "123456789012"), ("FAILED", ""), ("SUCCESS", "")])
+@pytest.mark.parametrize("status,utr", [("FAILED", ""), ("SUCCESS", "")])
 def test_orphaned_payment_evidence_keeps_status_and_blocks_purchase(container, status, utr):
     import main
     from domain.enums import PaymentStatus

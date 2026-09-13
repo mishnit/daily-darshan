@@ -100,6 +100,33 @@ def test_verify_activate_renews_existing_active_subscriber(container):
     assert sub.end_date == date(2026, 9, 30) + timedelta(days=30)
 
 
+@pytest.mark.parametrize("approval_order", [("monthly", "yearly"), ("yearly", "monthly")])
+def test_multiple_approved_plans_keep_larger_plan_and_apply_all_paid_days(container, approval_order):
+    from datetime import timedelta
+
+    container.config["plans"]["yearly"] = {"amount": 699, "days": 365}
+    monthly = container.payment_service.create_payment("919999999999", "monthly", date(2026, 8, 19))
+    yearly = container.payment_service.create_payment("919999999999", "yearly", date(2026, 8, 19))
+    payments = {"monthly": monthly, "yearly": yearly}
+
+    for plan in approval_order:
+        args = SimpleNamespace(
+            reference_id=payments[plan].reference_id,
+            activate=True,
+            renew=False,
+            commit=False,
+        )
+        assert admin.cmd_verify(container, args) == 0
+
+    sub = container.subscribers.find("919999999999")
+    assert sub.plan == "yearly"
+    assert sub.end_date == sub.start_date + timedelta(days=395)
+    assert set(sub.applied_payment_refs.split(";")) == {
+        monthly.reference_id,
+        yearly.reference_id,
+    }
+
+
 def test_reject_sets_failed(container):
     p = container.payment_service.create_payment("919999999999", "monthly", date(2026, 8, 19))
     args = SimpleNamespace(reference_id=p.reference_id, commit=False)

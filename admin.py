@@ -32,6 +32,17 @@ from config import Container
 from domain.enums import PaymentStatus
 
 
+def _larger_plan(container: Container, current: str, candidate: str) -> str:
+    """Keep the longest approved plan as the subscriber's displayed plan."""
+    plans = container.config["plans"]
+
+    def rank(plan: str) -> tuple[int, float]:
+        details = plans.get(plan, {})
+        return int(details.get("days", 0)), float(details.get("amount", 0))
+
+    return max((current, candidate), key=rank)
+
+
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
@@ -111,7 +122,10 @@ def _verify_locked(container: Container, args) -> int:
                 sub.status = SubscriberStatus.ACTIVE
                 action = "Reactivated"
             elif already or args.renew:
-                sub.plan = payment.plan
+                # Every approved payment contributes its purchased days, but a
+                # later approval for a smaller plan must not downgrade the
+                # subscriber's active plan label.
+                sub.plan = _larger_plan(container, sub.plan, payment.plan) if already else payment.plan
                 sub.renew(container.payment_service.plan_days(payment.plan))
                 action = "Renewed"
             else:
