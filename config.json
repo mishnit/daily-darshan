@@ -65,6 +65,8 @@
     "welcome_template_name": "daily_darshan_delivery_update",
     "welcome_template_lang": "en",
     "template_lang": "en",
+    "template_header": "none",
+    "welcome_template_header": "none",
     "page_base_url": "https://vipseva.com",
     "pages_dir": "docs",
     "image_public_base": "https://vipseva.com",
@@ -80,6 +82,7 @@
     "reminder_days": [3, 2, 1],
     "whatsapp_number": "916361699109",
     "template_name": "daily_darshan_delivery_update",
-    "template_lang": "en"
+    "template_lang": "en",
+    "template_header": "none"
   }
 }

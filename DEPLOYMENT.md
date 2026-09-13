@@ -104,7 +104,7 @@ Only Daily Image has a cron; successful completion advances through the gated ch
 | Workflow | Cron (UTC) | Local time | Action |
 |----------|-----------|------------|--------|
 | **Daily Image** (`image.yml`) | `1 3 * * *` | 08:31 IST target | Prune logs, store UUID-prefixed candidates/canonical image, regenerate pages, expire subscribers and prune inactive pages/old images → signed commits |
-| **Pending Payment UTR Alert** (`payment-utr-alert.yml`) | `30 15 * * *` | 21:00 IST target | Send one administrator alert when payments created today remain `PENDING` without a UTR; skip silently when none qualify |
+| **Pending Payment UTR Alert** (`payment-utr-alert.yml`) | Manual only | On demand | Send one administrator alert when payments created today remain `PENDING` without a UTR; skip silently when none qualify |
 | **Deploy Daily Darshan Pages** (`deploy-pages.yml`) | Event-driven | After successful image | Publish `docs/` once through GitHub Actions |
 | **Daily Delivery** (`delivery.yml`) | Event-driven | After successful Pages deployment | Renewal reminder or today's published page link, at most one successful contact per subscriber/date |
 
@@ -330,6 +330,19 @@ depends on Meta's assigned category and current country rate; verify both in Wha
 
    Renewal uses this same template and language with the same customer-name and URL-button
    parameters. It intentionally does not submit the expiry date as another body variable.
+
+   Templates without media headers use `template_header: "none"` (the default). To switch an
+   approved template to a dynamic Meta **Image** header without another code change, update its
+   template name and set the matching configuration field to `"image"`:
+
+   - `delivery.template_header` for daily delivery
+   - `delivery.welcome_template_header` for activation welcomes
+   - `renewal.template_header` for renewal reminders
+
+   The header receives today's publicly deployed canonical image URL. The body and URL-button
+   parameters do not change. Do not set `image` until the corresponding Meta template is approved
+   with an Image header; a header mismatch is rejected by Meta. A missing/invalid daily image
+   fails the configured media-header phase before a WhatsApp send is attempted.
 
 4. **Backfill subscription ids** for any existing subscribers (new signups get one automatically):
    ```bash

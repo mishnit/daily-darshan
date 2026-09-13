@@ -11,6 +11,7 @@ from domain.enums import PaymentStatus, SubscriberStatus
 from domain.payment import Payment
 from domain.subscriber import Subscriber, new_subscription_id
 from application.delivery_service import DeliveryService
+from application.ports.whatsapp import WhatsAppResult
 from application.subscriber_service import SubscriberService
 from adapters.page_renderer import PageRenderer
 from tests.conftest import FakeWhatsApp
@@ -134,6 +135,34 @@ def test_meta_send_template_params_payload(monkeypatch):
     }
 
 
+def test_meta_template_image_header_precedes_body_and_button(monkeypatch):
+    from adapters.whatsapp import MetaWhatsAppClient
+    captured = {}
+    client = MetaWhatsAppClient(access_token="t", phone_number_id="pid")
+    monkeypatch.setattr(
+        client, "_post",
+        lambda payload: captured.update(payload)
+        or WhatsAppResult(ok=True, message_id="m1"),
+    )
+
+    client.send_template_params(
+        "9199", "daily_darshan_with_image", ["Ravi"], "en",
+        url_button_param="tok-9199",
+        header_image_url="https://vipseva.com/images/today.jpg",
+    )
+
+    header, body, button = captured["template"]["components"]
+    assert header == {
+        "type": "header",
+        "parameters": [{
+            "type": "image",
+            "image": {"link": "https://vipseva.com/images/today.jpg"},
+        }],
+    }
+    assert body["type"] == "body"
+    assert button["type"] == "button"
+
+
 def test_meta_client_fails_fast_without_credentials():
     """A missing Actions secret must never become a request to /messages."""
     from adapters.whatsapp import MetaWhatsAppClient
@@ -191,6 +220,42 @@ def test_template_mode_sends_per_subscriber_url(repos, plans):
     assert call["template"] == "daily_darshan_status"
     assert call["params"] == ["devotee"]
     assert call["url_button_param"] == "tok-9199"
+
+
+def test_template_mode_image_header_is_selected_by_config(repos, plans):
+    _seed_active(repos, "9199", "tok-9199")
+    wa = FakeWhatsApp()
+    elig = SubscriberService(repos["subscribers"], repos["payments"], plans, repos["sentlog"])
+    service = DeliveryService(
+        repos["subscribers"], repos["sentlog"], wa, elig,
+        delivery_mode="utility_template", template_name="daily_darshan_with_image",
+        template_lang="en", template_header="image",
+        page_base_url="https://darshan.example.com", max_retries=1,
+    )
+
+    report = service.deliver(
+        date(2026, 8, 19), image_url="https://vipseva.com/images/today.jpg"
+    )
+
+    assert report.sent == 1
+    assert wa.sent[0]["header_image_url"] == "https://vipseva.com/images/today.jpg"
+
+
+def test_template_mode_missing_configured_image_header_fails_before_reservation(repos, plans):
+    _seed_active(repos, "9199", "tok-9199")
+    wa = FakeWhatsApp()
+    elig = SubscriberService(repos["subscribers"], repos["payments"], plans, repos["sentlog"])
+    service = DeliveryService(
+        repos["subscribers"], repos["sentlog"], wa, elig,
+        delivery_mode="utility_template", template_name="daily_darshan_with_image",
+        template_header="image", page_base_url="https://darshan.example.com",
+    )
+
+    report = service.deliver(date(2026, 8, 19))
+
+    assert report.failed == 1
+    assert wa.sent == []
+    assert repos["sentlog"].all() == []
 
 
 def test_template_mode_idempotent(repos, plans):

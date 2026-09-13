@@ -37,10 +37,12 @@ def test_automatic_chain_publishes_before_whatsapp_delivery():
 
 
 def test_pending_utr_alert_runs_at_9pm_ist_and_only_alerts_for_missing_utr():
+    # Keep this historical test name so the removed-test guard can track the
+    # contract. The workflow is now intentionally manual-only.
     workflow = _workflow("payment-utr-alert.yml")
 
-    assert 'cron: "30 15 * * *"' in workflow
     assert "workflow_dispatch:" in workflow
+    assert "\n  schedule:" not in workflow
     assert 'ZoneInfo("Asia/Kolkata")' in workflow
     assert 'row.get("status", "").strip().upper() == "PENDING"' in workflow
     assert 'not row.get("utr", "").strip()' in workflow

@@ -37,6 +37,7 @@ class RenewalReminderService:
         retry_sleep: float = 0.0,
         logs: LogRepositoryPort | None = None,
         sentlog: SentLogRepositoryPort | None = None,
+        template_header: str = "none",
     ):
         self._subscribers = subscribers
         self._renewals = renewals
@@ -48,7 +49,14 @@ class RenewalReminderService:
         self._retry_sleep = retry_sleep
         self._logs = logs
         self._sentlog = sentlog
+        self._template_header = str(template_header or "none").strip().lower()
+        if self._template_header not in {"none", "image"}:
+            raise ValueError("template header must be 'none' or 'image'")
         self.publication_check = None
+
+    @property
+    def requires_image_header(self) -> bool:
+        return self._template_header == "image"
 
     def find_due_subscribers(self, today: date | None = None) -> list[tuple[Subscriber, int]]:
         """Return (subscriber, days_remaining) for ACTIVE+opt_in subscribers
@@ -68,11 +76,15 @@ class RenewalReminderService:
     def already_sent(self, subscriber: Subscriber, reminder_type: ReminderType, expiry_date: date) -> bool:
         return self._renewals.already_sent(subscriber.mobile, reminder_type.value, expiry_date)
 
-    def _send_with_retry(self, subscriber: Subscriber) -> WhatsAppResult:
+    def _send_with_retry(
+        self, subscriber: Subscriber, header_image_url: str | None = None
+    ) -> WhatsAppResult:
         if not self._template_name:
             return WhatsAppResult(ok=False, error="config:renewal template_name is required")
         if not subscriber.subscription_id:
             return WhatsAppResult(ok=False, error="config:subscription_id is required")
+        if self.requires_image_header and not header_image_url:
+            return WhatsAppResult(ok=False, error="config:renewal template image header requires today's image URL")
 
         name = sanitize_display_name(subscriber.name, "Devotee").title()
         expiry = subscriber.end_date.isoformat() if subscriber.end_date else "soon"
@@ -84,6 +96,7 @@ class RenewalReminderService:
                 [name],
                 self._template_lang,
                 url_button_param=subscriber.subscription_id,
+                header_image_url=header_image_url if self.requires_image_header else None,
             )
             if last.ok or last.unknown:
                 return last
@@ -91,14 +104,18 @@ class RenewalReminderService:
                 time.sleep(self._retry_sleep)
         return last
 
-    def send_reminder(self, subscriber: Subscriber, days_remaining: int) -> WhatsAppResult:
+    def send_reminder(
+        self, subscriber: Subscriber, days_remaining: int,
+        header_image_url: str | None = None,
+    ) -> WhatsAppResult:
         """Send an approved Utility template outside the 24-hour session window.
 
         Uses the delivery-status template: body {{1}} = display name and the
         dynamic URL-button {{1}} = subscription id. ``days_remaining`` remains part of
         the public method because it selects the 3-day/1-day idempotency key.
+        A media header is supplied only when configured for this template.
         """
-        return self._send_with_retry(subscriber)
+        return self._send_with_retry(subscriber, header_image_url)
 
     def record_reminder(
         self,
@@ -118,7 +135,9 @@ class RenewalReminderService:
             "status": "SENT" if result.ok else ("UNKNOWN" if result.unknown else "FAILED"),
         })
 
-    def run(self, today: date | None = None) -> ReminderReport:
+    def run(
+        self, today: date | None = None, header_image_url: str | None = None
+    ) -> ReminderReport:
         today = today or date.today()
         report = ReminderReport()
         for sub, remaining in self.find_due_subscribers(today):
@@ -154,7 +173,7 @@ class RenewalReminderService:
                 if reservation is None:
                     report.skipped += 1
                     continue
-            result = self.send_reminder(sub, remaining)
+            result = self.send_reminder(sub, remaining, header_image_url)
             self.record_reminder(sub, reminder_type, expiry, result)
             if reservation:
                 self._sentlog.complete(reservation, result)

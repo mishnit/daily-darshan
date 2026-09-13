@@ -30,6 +30,22 @@ def _service(repos, wa=None):
     )
 
 
+def test_image_header_template_is_config_driven(repos):
+    _add(repos, "9199", 2)
+    wa = FakeWhatsApp()
+    service = RenewalReminderService(
+        repos["subscribers"], repos["renewals"], wa,
+        reminder_days=[3, 2, 1], template_name="daily_darshan_with_image",
+        template_lang="en", template_header="image", max_retries=1,
+        sentlog=repos["sentlog"],
+    )
+
+    report = service.run(TODAY, header_image_url="https://vipseva.com/images/today.jpg")
+
+    assert report.sent == 1
+    assert wa.sent[0]["header_image_url"] == "https://vipseva.com/images/today.jpg"
+
+
 def test_subscriber_exactly_3_days_selected(repos):
     _add(repos, "9199", 3)
     due = _service(repos).find_due_subscribers(TODAY)

@@ -66,7 +66,8 @@ class FakeWhatsApp(WhatsAppClientPort):
         return r
 
     def send_template_params(
-        self, mobile, template_name, body_params, lang="en", url_button_param=None
+        self, mobile, template_name, body_params, lang="en", url_button_param=None,
+        header_image_url=None,
     ):
         r = self._result()
         sent = {
@@ -75,6 +76,8 @@ class FakeWhatsApp(WhatsAppClientPort):
         }
         if url_button_param is not None:
             sent["url_button_param"] = url_button_param
+        if header_image_url is not None:
+            sent["header_image_url"] = header_image_url
         self.sent.append(sent)
         return r
 
