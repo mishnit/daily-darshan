@@ -48,7 +48,7 @@ def drain_replies(repository, client, persist, container=None, now=None):
             if (not row.get("version") or row["version"] != state.get("version")
                     or row.get("fingerprint") != state_fingerprint(container, row.get("mobile", ""))
                     or float(row.get("expires_at") or 0) <= now):
-                row.update(status="CANCELLED", error="Superseded state or expired reply window; send CONTINUE")
+                row.update(status="CANCELLED", error="Superseded state or expired reply window; send MENU")
                 repository.upsert(row["id"], row)
                 persist()
                 continue

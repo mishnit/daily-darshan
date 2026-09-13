@@ -74,7 +74,7 @@ class Container:
         )
         self.welcomes = CSVRepository(
             p(paths.get("welcomes_csv", "csv/welcomes.csv")),
-            ["reference_id", "mobile", "status", "whatsapp_message_id", "error"],
+            ["reference_id", "mobile", "status", "whatsapp_message_id", "error", "publication_verified"],
             "reference_id",
         )
         self.reply_retries = CSVRepository(

@@ -29,7 +29,7 @@ def test_menu_matches_entitlement(container, status, expiry, expected):
     container.whatsapp = SimpleNamespace(send_list=lambda *args: calls.append(args) or SimpleNamespace(ok=True))
     main._send_menu(container, "9199")
     ids = [row[0] for row in calls[-1][3]]
-    assert ids == ["CTA_STATUS", expected] + (["CTA_STOP"] if status else []) + ["CTA_CONTINUE", "CTA_HELP", "CTA_RESEND", "CTA_BACK"]
+    assert ids == (["CTA_STATUS"] if expiry is not None else []) + [expected]
 
 
 @pytest.mark.parametrize("cta", ["CTA_SUBSCRIBE", "CTA_RENEW", "PLAN_monthly", "CTA_OPTIN_AGREE"])

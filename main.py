@@ -417,30 +417,36 @@ def _has_active_subscription(c, mobile):
 def _send_menu(c, mobile: str) -> None:
     """Show actions appropriate to entitlement and the current checkout."""
     sub = c.subscribers.find(mobile)
-    payment = _latest_pending_payment(c, mobile)
-    rows = [("CTA_STATUS", "Subscription status", "Check your subscription")]
+    payment = _checkout_payment(c, mobile)
+    rows = [("CTA_STATUS", "Subscription status", "Check your subscription")] if sub and sub.end_date else []
+    body = "🙏 Radhe Radhe! Choose an option below."
     if payment:
-        rows.append(("CTA_CONTINUE", "Payment status" if payment.utr else "Payment instructions",
-                     "Review in progress" if payment.utr else "Continue your payment"))
-        if not payment.utr:
+        reviewing = payment.utr or payment.status.value != "PENDING"
+        rows.append(("CTA_PAYMENT", "Payment status" if reviewing else "Payment instructions",
+                     "View your payment details"))
+        if not reviewing:
             rows.append(("CTA_RENEW", "Change plan", "Choose a different plan"))
+        else:
+            body = _payment_status_text(c, payment)
     elif _has_active_subscription(c, mobile):
-        rows.append(("CTA_RENEW", "Renew / extend", "Add days to your subscription") if sub.opt_in
-                    else ("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
+        if not sub.opt_in:
+            rows.append(("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
+        rows.append(("CTA_RENEW", "Renew / extend", "Add days to your subscription"))
+    elif sub and not sub.end_date and (sub.awaiting_name or not sub.name):
+        c.subscriber_service.set_awaiting_name(mobile, True)
+        body = "🙏 What name should we greet you by? Reply with your name, or choose another plan."
+        rows.append(("CTA_SUBSCRIBE", "Change plan", "Choose a different plan"))
+    elif sub and not sub.end_date and not sub.opt_in:
+        _request_opt_in(c, mobile)
+        return
     else:
-        rows.append(("CTA_RENEW", "Renew", "Renew your subscription") if sub and sub.end_date
-                    else ("CTA_SUBSCRIBE", "Subscribe", "Choose a plan"))
-    if sub and sub.opt_in:
-        rows.append(("CTA_STOP", "Stop messages", "Keep your paid subscription"))
-    if not payment:
-        rows.append(("CTA_CONTINUE", "Continue", "Resume your current step"))
-    rows.extend([("CTA_HELP", "Help", "Get help with your subscription"),
-                 ("CTA_RESEND", "Resend", "Get your current instructions again"),
-                 ("CTA_BACK", "Back", "Return to the previous options")])
+        rows.append(("CTA_RENEW", "View renewal plans", "Renew your subscription") if sub and sub.end_date
+                    else ("CTA_SUBSCRIBE", "View plans", "Choose a plan"))
+        if sub and sub.is_expired(datetime.now(ZoneInfo("Asia/Kolkata")).date()):
+            body = f"Your subscription expired on {sub.end_date}. Choose a renewal plan."
     result = c.whatsapp.send_list(
         mobile,
-        "🙏 Welcome to Daily Darshan! What would you like to do?\n"
-        "Reply CONTINUE to resume, RESEND for your current instructions, or BACK to return.",
+        body,
         "Open menu",
         rows,
     )
@@ -449,8 +455,8 @@ def _send_menu(c, mobile: str) -> None:
 
 def _send_plan_list(c, mobile: str) -> None:
     """Send the plan catalog as a tappable list (ids = PLAN_<plan>)."""
-    payment = _latest_pending_payment(c, mobile)
-    if payment and payment.utr:
+    payment = _checkout_payment(c, mobile)
+    if payment and (payment.utr or payment.status.value != "PENDING"):
         _resume_conversation(c, mobile)
         return
     rows = []
@@ -511,18 +517,19 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
 
     # ---------------- Button / list taps (CTAs) ---------------- #
     if kind == "button":
-        payment = _latest_pending_payment(c, mobile)
-        if (payment and payment.utr
+        payment = _checkout_payment(c, mobile)
+        if (payment and (payment.utr or payment.status.value != "PENDING")
                 and (value in {"CTA_SUBSCRIBE", "CTA_RENEW"} or value.startswith("PLAN_"))):
             _resume_conversation(c, mobile)
             return
         if value == "CTA_STATUS":
             _send_subscription_status(c, mobile)
             return
+        if value == "CTA_PAYMENT":
+            _resume_conversation(c, mobile)
+            return
         if value == "CTA_HELP":
-            _require_send(wa.send_text(mobile, "Reply CONTINUE for your current step or BACK for options. "
-                "If payment is under review, please allow the admin time to verify it; do not pay again. "
-                "If it remains unresolved, contact the VIP Seva administrator. This menu does not create a support ticket."), "help")
+            _send_menu(c, mobile)
             return
         if value == "CTA_RESUME_MESSAGES":
             _request_opt_in(c, mobile)
@@ -659,7 +666,7 @@ def _handle_opt_out(c, mobile: str) -> None:
         mobile,
         "You've been opted out — you won't receive further Daily Darshan messages. "
         "Your paid subscription dates are unchanged. Send Radhe Radhe anytime, then choose "
-        "Resume messages if available, or Continue for an existing checkout. If expired, choose Renew. 🙏",
+        "Resume messages if available, or Payment instructions for an existing checkout. If expired, choose Renew. 🙏",
     )
 
 
@@ -673,10 +680,9 @@ def _start_payment(c, mobile: str, plan: str, returning: bool = False) -> None:
 
     `returning=True` uses renewal wording for an existing subscriber.
     """
-    payment = _latest_pending_payment(c, mobile)
-    if payment and payment.utr:
-        _require_send(c.whatsapp.send_text(mobile,
-            f"Payment verification pending for {payment.reference_id}. We received your UTR; please do not pay again."), "payment status")
+    payment = _checkout_payment(c, mobile)
+    if payment and (payment.utr or payment.status.value != "PENDING"):
+        _require_send(c.whatsapp.send_text(mobile, _payment_status_text(c, payment)), "payment status")
         return
     if payment is None or payment.plan != plan:
         payment = c.payment_service.create_payment(mobile, plan)
@@ -705,10 +711,9 @@ def _send_payment_instructions(c, mobile, payment, returning=False):
 
 def _resume_conversation(c, mobile):
     sub = c.subscribers.find(mobile)
-    payment = _latest_pending_payment(c, mobile)
-    if payment and payment.utr:
-        _require_send(c.whatsapp.send_text(mobile,
-            f"Payment verification pending for {payment.reference_id}. We received your UTR; please do not pay again."), "payment status")
+    payment = _checkout_payment(c, mobile)
+    if payment and (payment.utr or payment.status.value != "PENDING"):
+        _require_send(c.whatsapp.send_text(mobile, _payment_status_text(c, payment)), "payment status")
     elif not sub:
         _send_plan_list(c, mobile)
     elif sub.awaiting_name or not sub.name:
@@ -734,15 +739,41 @@ def _send_subscription_status(c, mobile):
         status = "expired" if sub.is_expired(datetime.now(ZoneInfo("Asia/Kolkata")).date()) else sub.status.value.lower()
         message = (f"Your Daily Darshan subscription is {status}. Expiry: {sub.end_date or 'not activated'}. "
                    f"Messages: {'enabled' if sub.opt_in else 'stopped'}. Send MENU for options.")
-    payment = _latest_pending_payment(c, mobile)
+    payment = _checkout_payment(c, mobile)
     if payment:
-        message += (f" Payment {payment.reference_id}: "
-                    + ("under admin review; do not pay again." if payment.utr else "awaiting payment. Reply CONTINUE for instructions."))
+        message += " " + _payment_status_text(c, payment)
     _require_send(c.whatsapp.send_text(mobile, message), "subscription status")
 
 
 def _default_plan(c) -> str:
     return next(iter(c.config["plans"]))
+
+
+def _payment_status_text(c, payment):
+    ref = payment.reference_id
+    if payment.status.value == "FAILED":
+        return (f"Payment {ref} was rejected. Please contact the VIP Seva administrator with this reference "
+                "and your payment proof to resolve it before making another payment.")
+    if payment.status.value == "SUCCESS":
+        if payment.activation_state != "APPLIED":
+            return f"Payment {ref} is approved. Subscription activation is being completed; please do not pay again."
+        return f"Payment {ref} is approved. Your Darshan page is being prepared; publication is awaiting confirmation."
+    if payment.utr:
+        return f"Payment verification pending for {ref}. Please allow the admin time to verify your UTR; please do not pay again."
+    return f"Payment {ref} is awaiting payment. Send MENU and select Payment instructions."
+
+
+def _checkout_payment(c, mobile):
+    """Latest non-superseded checkout, including unresolved approval/rejection."""
+    payments = [p for p in c.payments.all() if p.mobile == mobile and p.status.value != "SUPERSEDED"]
+    if not payments:
+        return None
+    payment = max(payments, key=lambda p: (p.created_at.isoformat() if p.created_at else "", p.reference_id))
+    if payment.status.value == "SUCCESS" and payment.activation_state == "APPLIED":
+        welcome = c.welcomes.find(payment.reference_id)
+        if welcome and (welcome.get("publication_verified") == "true" or welcome.get("status") in {"PENDING", "UNKNOWN", "SENT", "DELIVERED", "READ"}):
+            return None
+    return payment
 
 
 def _latest_pending_payment(c, mobile: str):

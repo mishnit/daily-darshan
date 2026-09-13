@@ -14,9 +14,17 @@ def drain_welcomes(container, on_date, persist, publication_check):
         if row["status"] in {"PENDING", "UNKNOWN"}:
             failures += 1
             continue
-        if row["status"] not in {"QUEUED", "FAILED"}:
+        if row["status"] not in {"QUEUED", "FAILED", "CANCELLED"}:
             continue
         sub = container.subscribers.find(row["mobile"])
+        published = bool(sub and row["reference_id"] in sub.applied_payment_refs.split(";")
+                         and publication_check(sub, on_date))
+        if published and row.get("publication_verified") != "true":
+            row["publication_verified"] = "true"
+            container.welcomes.upsert(row["reference_id"], row)
+            persist()
+        if row["status"] == "CANCELLED":
+            continue
         if not sub or not sub.opt_in:
             row.update(status="CANCELLED", error="Subscriber missing or opted out")
             container.welcomes.upsert(row["reference_id"], row)
@@ -25,7 +33,7 @@ def drain_welcomes(container, on_date, persist, publication_check):
         if row["reference_id"] not in sub.applied_payment_refs.split(";"):
             failures += 1
             continue
-        if not publication_check(sub, on_date):
+        if not published:
             failures += 1
             continue
         row.update(status="PENDING", error="")

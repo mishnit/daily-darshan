@@ -101,6 +101,32 @@ def test_new_customer_can_change_unpaid_plan(container):
     assert "Plan: yearly" in container.whatsapp.sent[-1]["message"]
 
 
+@pytest.mark.parametrize("stage", ["new", "active", "expired", "unpaid", "review", "optout"])
+def test_messages_do_not_advertise_obsolete_navigation(container, stage):
+    import main
+    import re
+    container.whatsapp = FakeWhatsApp()
+    if stage != "new":
+        setup_sub(container, expired=stage == "expired", opted_in=stage != "optout")
+    if stage in {"unpaid", "review"}:
+        main._handle_message(container, "9199", "button", "PLAN_monthly")
+        if stage == "review":
+            main._handle_message(container, "9199", "text", "123456789012")
+    container.whatsapp.sent.clear()
+    main._send_menu(container, "9199")
+    rows = container.whatsapp.sent[-1]["rows"]
+    assert not set(rows) & {"CTA_CONTINUE", "CTA_RESEND", "CTA_BACK", "CTA_HELP", "CTA_STOP"}
+    if stage in {"unpaid", "review"}:
+        assert "CTA_PAYMENT" in rows
+        main._handle_message(container, "9199", "button", "CTA_PAYMENT")
+        assert main._latest_pending_payment(container, "9199").reference_id in container.whatsapp.sent[-1]["message"]
+    main._handle_message(container, "9199", "button", "CTA_HELP")
+    main._send_subscription_status(container, "9199")
+    main._handle_opt_out(container, "9199")
+    for sent in container.whatsapp.sent:
+        assert not re.search(r"\b(continue|resend|back)\b", sent.get("body", "") + sent.get("message", ""), re.I)
+
+
 @pytest.mark.parametrize("expired", [False, True])
 def test_approval_applies_selected_plan_once_and_queues_welcome(container, expired):
     import admin
@@ -122,3 +148,59 @@ def test_approval_applies_selected_plan_once_and_queues_welcome(container, expir
     assert container.welcomes.all()[0]["status"] == "QUEUED"
     assert len(container.whatsapp.sent) == before_sends
     assert container.sentlog.all() == []
+
+
+def test_new_user_menu_and_incomplete_signup(container):
+    import main
+    container.whatsapp = FakeWhatsApp()
+    main._send_menu(container, "9199")
+    assert container.whatsapp.sent[-1]["rows"] == ["CTA_SUBSCRIBE"]
+    main._handle_message(container, "9199", "button", "CTA_SUBSCRIBE")
+    assert "PLAN_monthly" in container.whatsapp.sent[-1]["rows"]
+    main._handle_message(container, "9199", "button", "PLAN_monthly")
+    main._send_menu(container, "9199")
+    assert "What name" in container.whatsapp.sent[-1]["body"]
+    assert container.whatsapp.sent[-1]["rows"] == ["CTA_SUBSCRIBE"]
+    container.subscriber_service.set_name("9199", "nitin")
+    container.subscriber_service.set_awaiting_name("9199", False)
+    main._send_menu(container, "9199")
+    assert container.whatsapp.sent[-1]["buttons"] == ["CTA_OPTIN_AGREE", "CTA_STOP"]
+    assert container.payments.all() == []
+
+
+@pytest.mark.parametrize("cta", ["PLAN_yearly", "CTA_SUBSCRIBE", "CTA_RENEW", "CTA_OPTIN_AGREE", "CTA_PAYMENT"])
+def test_rejected_payment_requires_admin_resolution(container, cta):
+    import main
+    import admin
+    from types import SimpleNamespace
+    setup_sub(container)
+    p = container.payment_service.create_payment("9199", "monthly")
+    admin.cmd_reject(container, SimpleNamespace(reference_id=p.reference_id, commit=False))
+    main._handle_message(container, "9199", "button", cta)
+    main._handle_message(container, "9199", "text", "123456789012")
+    assert len(container.payments.all()) == 1
+    assert container.payments.find(p.reference_id).status.value == "FAILED"
+    main._handle_message(container, "9199", "button", "CTA_PAYMENT")
+    assert "rejected" in container.whatsapp.sent[-1]["message"]
+
+
+@pytest.mark.parametrize("consent", [True, False])
+def test_approved_payment_waits_for_publication_not_welcome_delivery(container, monkeypatch, consent):
+    import main
+    import admin
+    from types import SimpleNamespace
+    from application.welcome_service import drain_welcomes
+    from application.ports.whatsapp import WhatsAppResult
+    setup_sub(container, opted_in=consent)
+    p = container.payment_service.create_payment("9199", "monthly")
+    admin.cmd_verify(container, SimpleNamespace(reference_id=p.reference_id, activate=True, renew=True, commit=False))
+    main._send_menu(container, "9199")
+    assert "publication is awaiting confirmation" in container.whatsapp.sent[-1]["body"]
+    drain_welcomes(container, datetime.now().date(), lambda: None, lambda *a: False)
+    assert main._checkout_payment(container, "9199") is not None
+    monkeypatch.setattr(container.delivery_service, "send_welcome", lambda *a: WhatsAppResult(ok=False, error="template unavailable"))
+    drain_welcomes(container, datetime.now().date(), lambda: None, lambda *a: True)
+    assert container.welcomes.find(p.reference_id)["publication_verified"] == "true"
+    assert main._checkout_payment(container, "9199") is None
+    main._send_menu(container, "9199")
+    assert "CTA_RENEW" in container.whatsapp.sent[-1]["rows"]

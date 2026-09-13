@@ -198,27 +198,38 @@ Use this sequence when validating a release end to end:
   one hour. Replies older than 23 hours from the triggering inbound message, legacy queued
   rows without freshness metadata, and obsolete conversation versions are cancelled.
   Changes to subscriber/payment data also invalidate old instructions. The customer can
-  send CONTINUE to obtain a fresh response. PENDING/UNKNOWN attempts remain blocked and
+  send MENU and choose the relevant action for a fresh response. PENDING/UNKNOWN attempts remain blocked and
   produce a failing retry job for operator investigation; they are never blindly resent.
-- CONTINUE, STATUS and RESEND reconstruct the current prompt from subscriber/payment data.
-  Existing payment references are reused, submitted UTRs show verification pending, and
-  active subscriptions show their expiry without applying another activation. Recovery
-  commands have a 30-second cooldown. BACK from name entry returns to plan selection;
-  elsewhere it returns to navigation without undoing payment or consent decisions.
-  A user-requested RESEND is a fresh reply, separate from the daily send ledger. If an
+- Payment instructions/Payment status reconstructs the current checkout from saved data.
+  Existing payment references are reused and submitted UTRs show verification pending.
+  Subscription status shows entitlement without applying another activation. Continue,
+  Resend and Back are hidden; legacy inputs remain accepted for older messages.
+  A user-requested payment instruction is a fresh reply, separate from the daily send ledger. If an
   earlier uncertain reply was actually accepted, both copies can still arrive.
-- Customers can send `BACK`, `GO BACK`, `MENU`, `Radhe Radhe`, `RENEW` or `SUBSCRIBE` at any
+- Customers can send `MENU`, `Radhe Radhe`, `RENEW` or `SUBSCRIBE` at any
   conversational step. These commands return to navigation and never save themselves as a name,
   alter consent, or replace a paid payment. Old CTA taps are validated against the current plan
   and state; a missing/expired CTA shows the menu.
 
-Menu verification: new users receive Subscribe, expired users Renew, active opted-in users
-Renew / extend and Stop messages, and active opted-out users Resume messages. All have
-status/help/recovery options. Unpaid checkout shows payment instructions/change plan;
+Menu verification: new users receive View plans only; incomplete signup returns to name or
+consent. Expired users receive View renewal plans, active users Renew / extend, and active
+opted-out users additionally Resume messages. Only existing dated subscriptions have a
+Subscription status menu option. Help, Stop messages, Continue, Resend and Back are hidden.
+Typed STOP and consent No thanks remain supported. Unpaid checkout shows payment instructions/change plan;
 UTR review hides purchase actions and blocks stale purchase taps. Verify active renewal
 leaves the current paid plan/dates unchanged until admin approval, and extends from expiry.
 Resume messages requires consent but no payment. STOP changes consent, not paid dates.
-No new secrets, CSV columns or Meta templates are required: activation/renewal approval
+No new secrets or Meta templates are required. `welcomes.csv` gains the optional trailing
+column `publication_verified`; existing CSV headers are upgraded automatically on repository
+rewrite. Blank means publication has not been confirmed by this worker. The worker persists
+`true` after checking the published page, independently of notification outcome or opt-out.
+Old PENDING/UNKNOWN/SENT/DELIVERED/READ welcome rows imply the existing publication gate passed.
+The webhook never performs a network publication check while replying.
+Rejected payments remain blocked for user checkout until administrator resolution. Verify
+the original payment using `admin.py verify <reference> --activate --commit` only after
+validating payment proof. If no payment occurred, an administrator must explicitly reconcile
+the rejected record before opening another checkout; rejection alone is not permission to pay again.
+Activation/renewal approval
 continues to queue the separate `daily_darshan_welcome` status confirmation after publication.
 The welcome is independent of the maximum-one-per-day renewal-or-delivery notification.
 Run `pytest -q` including `tests/test_product_journey.py`; live acceptance must additionally
