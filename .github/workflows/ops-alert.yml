@@ -5,63 +5,121 @@ on:
     workflows:
       - Daily Image
       - Daily Delivery
-    types: [completed]
+    types:
+      - completed
 
 permissions:
   actions: read
+  contents: read
+
+concurrency:
+  group: daily-darshan-ops-alert-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
 
 jobs:
   alert:
     if: >-
       github.event.workflow_run.conclusion != 'success' &&
       github.event.workflow_run.head_branch == github.event.repository.default_branch
+
     runs-on: ubuntu-latest
+    timeout-minutes: 3
+
     steps:
-      - name: Send WhatsApp failure alert
+      - name: Find failed job
+        id: failed_job
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          FALLBACK_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+
+          job_url="$(
+            gh api \
+              "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+              --paginate \
+              --jq '.jobs[]
+                | select(.conclusion != "success" and .conclusion != null)
+                | .html_url' \
+              | head -n 1
+          )"
+
+          if [ -z "$job_url" ]; then
+            job_url="$FALLBACK_URL"
+          fi
+
+          case "$job_url" in
+            https://github.com/*)
+              job_suffix="${job_url#https://github.com/}"
+              ;;
+            *)
+              echo "::error::Unexpected GitHub job URL"
+              exit 1
+              ;;
+          esac
+
+          echo "job_suffix=$job_suffix" >> "$GITHUB_OUTPUT"
+
+      - name: Send WhatsApp alert
         env:
           WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
           WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
           ALERT_TO: "919535507255"
           WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
-          RUN_URL: ${{ github.event.workflow_run.html_url }}
           RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          JOB_SUFFIX: ${{ steps.failed_job.outputs.job_suffix }}
         run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
+          set -euo pipefail
 
-          url = (
-              "https://graph.facebook.com/v22.0/"
-              + os.environ["WHATSAPP_PHONE_NUMBER_ID"]
-              + "/messages"
-          )
-
-          payload = {
-              "messaging_product": "whatsapp",
-              "to": os.environ["ALERT_TO"],
-              "type": "template",
-              "template": {
-                  "name": "daily_darshan_ops_alert",
-                  "language": {"code": "en"},
-                  "components": [{
-                      "type": "body",
-                      "parameters": [
-                          {"type": "text", "text": os.environ["WORKFLOW_NAME"]},
-                          {"type": "text", "text": os.environ["RUN_CONCLUSION"]},
-                          {"type": "text", "text": os.environ["RUN_URL"]},
-                      ],
-                  }],
-              },
+          test -n "$WHATSAPP_ACCESS_TOKEN" || {
+            echo "::error::WHATSAPP_ACCESS_TOKEN is missing"
+            exit 1
           }
 
-          request = urllib.request.Request(
-              url,
-              data=json.dumps(payload).encode(),
-              headers={
-                  "Authorization": "Bearer " + os.environ["WHATSAPP_ACCESS_TOKEN"],
-                  "Content-Type": "application/json",
-              },
-          )
+          test -n "$WHATSAPP_PHONE_NUMBER_ID" || {
+            echo "::error::WHATSAPP_PHONE_NUMBER_ID is missing"
+            exit 1
+          }
 
-          with urllib.request.urlopen(request, timeout=30) as response:
-              print("Alert sent:", response.status)
-          PY
+          payload="$(
+            jq -n \
+              --arg to "$ALERT_TO" \
+              --arg workflow "$WORKFLOW_NAME" \
+              --arg conclusion "$RUN_CONCLUSION" \
+              --arg job_suffix "$JOB_SUFFIX" \
+              '{
+                messaging_product: "whatsapp",
+                to: $to,
+                type: "template",
+                template: {
+                  name: "daily_darshan_ops_alert",
+                  language: { code: "en" },
+                  components: [
+                    {
+                      type: "body",
+                      parameters: [
+                        { type: "text", text: $workflow },
+                        { type: "text", text: $conclusion }
+                      ]
+                    },
+                    {
+                      type: "button",
+                      sub_type: "url",
+                      index: "0",
+                      parameters: [
+                        { type: "text", text: $job_suffix }
+                      ]
+                    }
+                  ]
+                }
+              }'
+          )"
+
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_NUMBER_ID}/messages" \
+            --header "Authorization: Bearer ${WHATSAPP_ACCESS_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data "$payload"
