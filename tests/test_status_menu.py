@@ -92,6 +92,68 @@ def test_active_menu_labels_extension_and_hides_it_for_largest_plan(container):
     ]
 
 
+def test_pending_checkout_uses_extend_outside_renewal_window(container):
+    import main
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    container.config["plans"].clear()
+    container.config["plans"].update({
+        "monthly": {"amount": 199, "days": 90},
+        "yearly": {"amount": 699, "days": 365},
+    })
+    container.subscribers.append(Subscriber(
+        "9199", "monthly", status=SubscriberStatus.ACTIVE,
+        end_date=today + timedelta(days=30), opt_in=True, name="Nitin",
+    ))
+    container.payment_service.create_payment("9199", "yearly", today)
+    calls = []
+    container.whatsapp = SimpleNamespace(
+        send_list=lambda *args: calls.append(args) or SimpleNamespace(ok=True),
+    )
+
+    main._send_menu(container, "9199")
+
+    assert calls[-1][3] == [
+        ("CTA_STATUS", "Subscription status", "Check your subscription"),
+        ("CTA_PAYMENT", "Payment instructions", "View your payment details"),
+        ("CTA_RENEW", "Extend plan", "Choose a larger plan"),
+    ]
+
+
+def test_applied_yearly_payment_repairs_stale_menu_entitlement(container):
+    """Applied admin evidence wins over a stale subscriber plan label."""
+    import main
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    container.config["plans"].clear()
+    container.config["plans"].update({
+        "starter": {"amount": 9, "days": 3},
+        "weekly": {"amount": 69, "days": 30},
+        "monthly": {"amount": 199, "days": 90},
+        "yearly": {"amount": 699, "days": 365},
+    })
+    sub = Subscriber(
+        "9199", "starter", status=SubscriberStatus.ACTIVE,
+        end_date=today + timedelta(days=30), opt_in=True,
+    )
+    container.subscribers.append(sub)
+    payment = container.payment_service.create_payment("9199", "yearly", today)
+    sub = container.subscribers.find("9199")
+    sub.applied_payment_refs = payment.reference_id
+    container.subscribers.update(sub)
+    container.whatsapp = FakeWhatsApp()
+
+    main._send_menu(container, "9199")
+
+    assert container.whatsapp.sent[-1]["rows"] == ["CTA_STATUS"]
+    assert "Payment instructions" not in container.whatsapp.sent[-1]["body"]
+    main._send_subscription_status(container, "9199")
+    assert "Current plan: Yearly." in container.whatsapp.sent[-1]["message"]
+
+    # A button from an older WhatsApp message is revalidated against current
+    # state and cannot reopen obsolete starter-plan choices.
+    main._handle_message(container, "9199", "button", "CTA_RENEW")
+    assert "largest available plan: Yearly" in container.whatsapp.sent[-1]["message"]
+
+
 @pytest.mark.parametrize("plan,days,expected_label", [
     ("starter", 30, "Extend plan"),
     ("weekly", 30, "Extend plan"),

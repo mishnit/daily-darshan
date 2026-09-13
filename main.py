@@ -149,7 +149,7 @@ async def retry_replies(request: Request) -> Response:
     if c.config.get("persistence", {}).get("mode") != "github_api":
         return _json({"status": "durable persistence required"}, 503)
     try:
-        await run_in_threadpool(_process_payload, c, {})
+        await run_in_threadpool(_process_payload, c, {}, 5.0)
     except Exception:
         log.exception("Reply retry requires attention")
         return _json({"status": "retry or reconciliation required"}, 503)
@@ -180,16 +180,16 @@ async def receive_webhook(request: Request) -> Response:
 
     # Keep the event loop free, but do not acknowledge before durable commit.
     try:
-        await run_in_threadpool(_process_payload, c, payload)
+        await run_in_threadpool(_process_payload, c, payload, 10.0)
     except Exception:
         log.exception("Webhook not completed; request must be retried")
         return _json({"status": "retry"}, 503)
     return _json({"status": "accepted"})
 
 
-def _process_payload(c, payload: dict) -> None:
+def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> None:
     """Serialize the read/modify/persist transaction before acknowledging it."""
-    with state_lock(c.root):
+    with state_lock(c.root, timeout=lock_timeout):
         production = c.config.get("persistence", {}).get("mode") == "github_api"
         if production and not c.repo_sync.enabled:
             raise RuntimeError("Durable persistence is unavailable")
@@ -427,7 +427,7 @@ def _larger_plan_names(c, mobile: str) -> list[str]:
     sub = c.subscribers.find(mobile)
     if not _has_active_subscription(c, mobile) or not sub:
         return list(c.config["plans"])
-    current = c.config["plans"].get(sub.plan)
+    current = c.config["plans"].get(_effective_plan_name(c, sub))
     if not current:
         return []
     current_rank = (int(current.get("days", 0)), float(current.get("amount", 0)))
@@ -465,7 +465,33 @@ def _eligible_plan_names(c, mobile: str) -> list[str]:
     if not _is_expiring_soon(c, mobile):
         return larger
     # Near expiry, renewal may keep the current plan or move to a larger one.
-    return [plan for plan in c.config["plans"] if plan == sub.plan or plan in larger]
+    current_plan = _effective_plan_name(c, sub)
+    return [plan for plan in c.config["plans"] if plan == current_plan or plan in larger]
+
+
+def _applied_payment_refs(sub) -> set[str]:
+    return {ref.strip() for ref in (sub.applied_payment_refs or "").split(";") if ref.strip()}
+
+
+def _effective_plan_name(c, sub) -> str:
+    """Resolve entitlement from the subscriber and its applied payment markers.
+
+    Manual recovery can leave ``sub.plan`` stale while atomically recording an
+    applied payment reference.  Applied references are authoritative admin
+    state, so menu eligibility uses the largest applied entitlement and never
+    offers an accidental downgrade.
+    """
+    candidates = [sub.plan] if sub.plan in c.config["plans"] else []
+    for reference in _applied_payment_refs(sub):
+        payment = c.payments.find(reference)
+        if payment and payment.plan in c.config["plans"]:
+            candidates.append(payment.plan)
+    if not candidates:
+        return sub.plan
+    return max(candidates, key=lambda plan: (
+        int(c.config["plans"][plan].get("days", 0)),
+        float(c.config["plans"][plan].get("amount", 0)),
+    ))
 
 
 def _send_menu(c, mobile: str) -> None:
@@ -495,7 +521,10 @@ def _send_menu(c, mobile: str) -> None:
         rows.append(("CTA_PAYMENT", "Payment status" if reviewing else "Payment instructions",
                      "View your payment details"))
         if payment.status.value == "PENDING" and (not active or eligible_plans):
-            label = "Renew" if (sub and sub.end_date) else "Change plan"
+            if active:
+                label = "Renew" if expiring_soon else "Extend plan"
+            else:
+                label = "Renew" if (sub and sub.end_date) else "Change plan"
             if active and expiring_soon:
                 description = "Renew or choose a larger plan" if larger_plans else "Renew your current plan"
             else:
@@ -541,7 +570,7 @@ def _send_plan_list(c, mobile: str) -> None:
         sub = c.subscribers.find(mobile)
         _require_send(c.whatsapp.send_text(
             mobile,
-            f"You already have the largest available plan: {sub.plan.capitalize()}. "
+            f"You already have the largest available plan: {_effective_plan_name(c, sub).capitalize()}. "
             "Send MENU to check your subscription status.",
         ), "plan list")
         return
@@ -882,7 +911,7 @@ def _send_subscription_status(c, mobile):
         message = "You do not have a subscription yet. Send MENU to view plans."
     else:
         status = "expired" if sub.is_expired(datetime.now(ZoneInfo("Asia/Kolkata")).date()) else sub.status.value.lower()
-        message = (f"Your Daily Darshan subscription is {status}. Current plan: {sub.plan.capitalize()}. "
+        message = (f"Your Daily Darshan subscription is {status}. Current plan: {_effective_plan_name(c, sub).capitalize()}. "
                    f"Expiry: {sub.end_date or 'not activated'}. "
                    f"Messages: {'enabled' if sub.opt_in else 'stopped'}. Send MENU for options.")
     payment = _checkout_payment(c, mobile)
@@ -927,7 +956,11 @@ def _payment_status_text(c, payment):
 
 def _checkout_payment(c, mobile):
     """Latest non-superseded checkout, including unresolved approval/rejection."""
-    payments = [p for p in c.payments.all() if p.mobile == mobile and p.status.value != "SUPERSEDED"]
+    sub = c.subscribers.find(mobile)
+    applied = _applied_payment_refs(sub) if sub else set()
+    payments = [p for p in c.payments.all()
+                if p.mobile == mobile and p.status.value != "SUPERSEDED"
+                and (p.reference_id not in applied or p.status.value == "SUCCESS")]
     if not payments:
         return None
     payment = max(payments, key=lambda p: (p.created_at.isoformat() if p.created_at else "", p.reference_id))

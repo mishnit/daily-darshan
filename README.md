@@ -308,9 +308,13 @@ WhatsApp secrets as environment variables on the host.
 >
 > **Persist before acknowledgement.** Processing runs in a worker thread under a cross-process
 > local state lock, but HTTP **200** is returned only after the GitHub commit succeeds. A process
-> failure before commit leaves the request unacknowledged. This trades latency for durability;
-> slow GitHub/WhatsApp calls can cause redelivery. Interactive replies are not exactly-once.
-> A durable queue remains the recommended upgrade for higher throughput. Production fails
+> failure before commit leaves the request unacknowledged. Tracked CSVs are fetched concurrently
+> from one immutable commit; an unchanged snapshot is reused after a one-request branch check.
+> The inbound transition and outbound PENDING reservation share one atomic commit, followed by
+> one batched provider-outcome commit. Meta is never contacted before PENDING is durable. A
+> bounded lock wait returns 503 instead of leaving webhook/retry callers hanging indefinitely.
+> Interactive replies are not exactly-once. A transactional database-backed queue remains the
+> recommended upgrade for higher throughput. Production fails
 > closed when persistence is unavailable or a repository conflict prevents a durable commit;
 > it returns 503 so Meta can retry.
 
@@ -444,6 +448,10 @@ Details:
   “Renew your current plan”; plans with larger choices use “Renew or choose a larger plan.”
   Expired users see Subscription status and Renew, with all configured plans available. Active opted-out users additionally see Resume messages: explicit
   consent restores delivery without another payment.
+- Applied payment references are excluded from unpaid checkout actions. If a manual recovery left
+  the subscriber plan label stale, menu and status eligibility use the largest plan proven by the
+  subscriber's applied payment references. This prevents an old WhatsApp CTA from reopening plans
+  below or above the wrong entitlement; old messages remain visible, but every click is revalidated.
 - Help, Stop messages, Continue, Resend and Back are not menu options. Typed STOP and the
   consent disclosure's No thanks button still revoke consent without removing paid days.
 - An unpaid checkout shows Payment instructions and Change plan for new users, Renew for existing
@@ -624,11 +632,10 @@ reference that persisted opaque filename. Image, page-repair, and delivery runs 
 reuse the same name for the date. A fresh image run migrates an existing date-only canonical
 image and removes its predictable legacy canonical and candidate aliases.
 
-The delivery workflow queues overlapping runs and sends renewal reminders before the daily
-darshan message. When at least one reminder is sent, it waits five minutes before delivery by
-default. If no reminder is sent, delivery starts immediately. Set the GitHub Actions repository
-variable `WHATSAPP_MESSAGE_GAP_SECONDS` to another non-negative whole number to change the
-workflow-wide pause; `0` proceeds directly to delivery.
+The delivery workflow queues overlapping repository writers and sends renewal reminders before
+the daily darshan phase. It does not sleep between phases: the shared `sentlog.csv` reservation
+already guarantees that the same subscriber receives at most one welcome, renewal or delivery
+attempt per day. Removing the workflow-wide pause frees the runner without weakening that rule.
 
 Welcome, renewal and delivery share the `sentlog.csv` daily contact ledger while retaining their
 separate welcome/renewal audit CSVs. A successful welcome or renewal uses that subscriber's one
@@ -821,8 +828,11 @@ pytest tests/test_renewal.py -q   # a single file
   external services.
 - Image-validation tests auto-skip if Pillow is unavailable.
 
-Both GitHub Actions workflows run `pytest` before executing their job, so a failing test
-blocks image collection / delivery.
+The `Tests` CI workflow runs for pull requests and code/configuration pushes to `main`.
+CSV-only webhook commits and docs-only pushes skip CI because they cannot change executable code;
+this avoids consuming runners for every WhatsApp interaction. Operational workflows execute only
+from the default branch and rely on the already-required CI check instead of reinstalling test-only
+dependencies and rerunning the full suite during image, page and delivery work.
 
 ---
 

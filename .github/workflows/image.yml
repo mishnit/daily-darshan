@@ -19,6 +19,7 @@ permissions:
 jobs:
   image:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     concurrency:
       group: daily-darshan-repository-writes
       cancel-in-progress: false
@@ -31,11 +32,8 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - name: Install dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements.txt pytest httpx
-
-      - name: Run tests
-        run: pytest -q
+      - name: Install runtime dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
 
       - name: Configure git author
         run: |

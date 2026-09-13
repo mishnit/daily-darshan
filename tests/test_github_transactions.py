@@ -4,6 +4,7 @@ import requests
 import pytest
 
 from adapters.github import GitHubApiRepository
+from adapters.repo_sync import RepoSync
 
 
 class Response:
@@ -68,6 +69,19 @@ def test_git_reads_batch_from_one_snapshot():
     files = repo.read_files(["subscribers.csv", "payments.csv"])
     assert files == {"subscribers.csv": b"original", "payments.csv": b"original"}
     assert server.read_refs == ["base", "base"]
+
+
+def test_reposync_reuses_unchanged_remote_snapshot(tmp_path):
+    server = GitServer()
+    repo = GitHubApiRepository("owner/repo", session=server)
+    sync = RepoSync(repo, str(tmp_path), ["subscribers.csv"], enabled=True)
+
+    sync.pull(strict=True)
+    assert (tmp_path / "subscribers.csv").read_bytes() == b"original"
+    assert server.read_refs == ["base"]
+
+    sync.pull(strict=True)
+    assert server.read_refs == ["base"]
 
 
 def test_git_commits_multiple_csv_files_atomically():

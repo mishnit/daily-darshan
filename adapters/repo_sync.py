@@ -60,6 +60,11 @@ class RepoSync:
         if hasattr(self._github, "begin_snapshot"):
             self._github.begin_snapshot()
         readable = [rel for rel in self._tracked if rel not in self._dirty]
+        if (getattr(self._github, "snapshot_unchanged", False)
+                and all(rel in self._baseline for rel in readable)):
+            # This process already has the exact immutable branch snapshot.
+            # Avoid re-downloading every CSV after our own previous commit.
+            return
         contents = None
         if hasattr(self._github, "read_files"):
             try:

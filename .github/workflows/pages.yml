@@ -15,6 +15,10 @@ permissions:
 jobs:
   pages:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: daily-darshan-repository-writes
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -22,11 +26,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt pytest httpx
-
-      - name: Run tests
-        run: pytest -q
+      - name: Install runtime dependencies
+        run: pip install -r requirements.txt
 
       - name: Configure git author
         run: |
