@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-def test_renewal_and_delivery_are_serialized_without_blocking_runner_sleep():
+def test_renewal_and_delivery_are_serialized_with_a_gap():
     workflow = Path(".github/workflows/delivery.yml").read_text(encoding="utf-8")
 
     renewal = workflow.index("- name: Send renewal reminders")
