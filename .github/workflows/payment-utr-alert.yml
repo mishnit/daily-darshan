@@ -1,0 +1,113 @@
+name: Pending Payment UTR Alert
+
+on:
+  schedule:
+    # GitHub cron is UTC. 15:30 UTC = 21:00 IST.
+    - cron: "30 15 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pending-payment-utr-alert
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find today's payments awaiting UTR
+        id: pending
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import csv
+          import os
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          today = datetime.now(ZoneInfo("Asia/Kolkata"))
+          reference_prefix = f"DD{today:%y%m%d}"
+          with Path("csv/payments.csv").open(encoding="utf-8", newline="") as handle:
+              rows = list(csv.DictReader(handle))
+          pending = [
+              row for row in rows
+              if row.get("reference_id", "").startswith(reference_prefix)
+              and row.get("status", "").strip().upper() == "PENDING"
+              and not row.get("utr", "").strip()
+          ]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"count={len(pending)}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(f"## Payments awaiting UTR for {today:%Y-%m-%d} IST\n\n")
+              summary.write(f"Count: **{len(pending)}**\n")
+              if pending:
+                  references = ", ".join(row["reference_id"] for row in pending)
+                  summary.write(f"\nReferences: {references}\n")
+          PY
+
+      - name: Send WhatsApp alert
+        if: steps.pending.outputs.count != '0'
+        env:
+          WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+          ALERT_TO: "919535507255"
+          PENDING_COUNT: ${{ steps.pending.outputs.count }}
+          RUN_SUFFIX: ${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          test -n "$WHATSAPP_ACCESS_TOKEN" || {
+            echo "::error::WHATSAPP_ACCESS_TOKEN is missing"
+            exit 1
+          }
+          test -n "$WHATSAPP_PHONE_NUMBER_ID" || {
+            echo "::error::WHATSAPP_PHONE_NUMBER_ID is missing"
+            exit 1
+          }
+
+          payload="$(
+            jq -n \
+              --arg to "$ALERT_TO" \
+              --arg count "$PENDING_COUNT" \
+              --arg run_suffix "$RUN_SUFFIX" \
+              '{
+                messaging_product: "whatsapp",
+                to: $to,
+                type: "template",
+                template: {
+                  name: "daily_darshan_ops_alert",
+                  language: { code: "en" },
+                  components: [
+                    {
+                      type: "body",
+                      parameters: [
+                        { type: "text", text: "Payment UTR reminder" },
+                        { type: "text", text: ($count + " new payment(s) awaiting UTR") }
+                      ]
+                    },
+                    {
+                      type: "button",
+                      sub_type: "url",
+                      index: "0",
+                      parameters: [
+                        { type: "text", text: $run_suffix }
+                      ]
+                    }
+                  ]
+                }
+              }'
+          )"
+
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "https://graph.facebook.com/v22.0/${WHATSAPP_PHONE_NUMBER_ID}/messages" \
+            --header "Authorization: Bearer ${WHATSAPP_ACCESS_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data "$payload"

@@ -602,6 +602,7 @@ template is attempted per subscriber per date.
 | Workflow | Schedule (UTC) | Local time | Does |
 |----------|----------------|------------|------|
 | `image.yml` | `1 3 * * *` | 08:31 IST target | Test → verify GPG signing → prune operational logs → fetch all configured sources, store the largest valid canonical image, regenerate pages, expire lapsed subscribers, prune inactive pages and old images, then commit. Historical backfill misses warn and continue; today's image is mandatory. |
+| `payment-utr-alert.yml` | `30 15 * * *` | 21:00 IST target | If any payment created today is still `PENDING` with an empty UTR, send one admin WhatsApp alert through `daily_darshan_ops_alert`. No alert is sent when the count is zero. Also supports manual dispatch. |
 | `deploy-pages.yml` | After successful `Daily Image` completion; manual on demand | After image preparation | Publish the current default branch's `docs/` exactly once. A failed/cancelled or non-default-branch image run fails this gate and cannot trigger delivery. |
 | `delivery.yml` | After successful `Deploy Daily Darshan Pages`; manual on demand | After publication | Validate WhatsApp secrets → test → verify GPG signing → prune logs → run an idempotent expiry safety sweep → send renewal reminders → deliver today's published personalized page link → signed commits. |
 | `pages.yml` | Manual only | On demand | Regenerate pages using today's selected stored image, or the latest valid earlier image for that same source. No remote image fetching. |
