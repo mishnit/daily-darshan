@@ -175,19 +175,26 @@ Use this sequence when validating a release end to end:
   A legacy SUCCESS payment without markers fails closed: reconcile whether it was applied before
   retrying. If already applied, add its reference to the subscriber marker and mark it APPLIED;
   only mark activation_state PENDING after proving it has never granted an entitlement.
-- Configure and approve `daily_darshan_welcome` separately from
-  `daily_darshan_delivery_update`. Activation queues one task per payment in `csv/welcomes.csv`,
-  committed with activation/page state. After publication, delivery runs `scheduler.py welcome`.
-  The worker checks consent and public page metadata before sending, using a separate ledger.
+- Welcome, renewal and delivery use the approved `daily_darshan_delivery_update` template.
+  Activation queues one task per applied payment in `csv/welcomes.csv`, committed with activation
+  state. After publication, delivery runs `scheduler.py welcome`. The worker also idempotently
+  creates a missing welcome row for every ACTIVE subscriber `applied_payment_refs` value. This
+  supports manual CSV activation provided the reference is genuine and the existing
+  `subscription_id` is preserved. The worker checks consent and public page metadata before sending.
+  Welcome outcome remains in `welcomes.csv`, but it reserves the shared date+mobile `sentlog.csv`
+  slot before contacting Meta, so welcome, renewal and delivery cannot all send on the same day.
   QUEUED/FAILED tasks can retry; PENDING/UNKNOWN tasks require evidence-based reconciliation.
   Never clear an uncertain reservation merely because it is old. Welcome errors are surfaced
   after the remaining delivery steps, so other eligible subscribers can still be processed.
   For a manual retry after publication, run `python scheduler.py welcome` from an up-to-date
   main checkout with the normal WhatsApp credentials and signing setup.
+  When activating through `subscribers.csv`, set `status=ACTIVE`, retain the mobile's existing
+  `subscription_id`, and append the genuine reference to semicolon-separated
+  `applied_payment_refs`. Do not create another subscriber row or page ID for the same mobile.
 - Production webhook replies are persisted in `csv/reply_outbox.csv` with conversation state
   before contacting Meta. Subsequent webhook processing drains queued/failed replies; uncertain
-  attempts remain blocked. `Retry WhatsApp Replies` calls Render every five minutes (GitHub
-  scheduling is best-effort) and can also be run manually. Set repository variable
+  attempts remain blocked. `Retry WhatsApp Replies` is currently manual-only and calls Render
+  when dispatched. Set repository variable
   `WEBHOOK_BASE_URL=https://daily-darshan-webhook.onrender.com` and repository secret
   `WHATSAPP_APP_SECRET` to the same app secret configured in Render. Deploy the new Render
   code before enabling the workflow; the endpoint rejects unsigned and stale requests.
@@ -254,9 +261,9 @@ Acceptance checks for edge cases:
 
 No new secrets or Meta templates are required for these changes. Review requests need regular
 administrator attention; no automatic payment approval or reconciliation is introduced.
-Activation/renewal approval
-continues to queue the separate `daily_darshan_welcome` status confirmation after publication.
-The welcome is independent of the maximum-one-per-day renewal-or-delivery notification.
+Activation/renewal approval continues to queue a welcome-status record after publication using
+`daily_darshan_delivery_update`. Welcome, renewal and delivery retain separate audit CSVs but
+share the maximum-one-per-day date+mobile reservation in `sentlog.csv`.
 Run `pytest -q` including `tests/test_product_journey.py`; live acceptance must additionally
 exercise each menu using the configured production sender and verify Meta callbacks.
 After a valid 12-digit UTR, verify the reply names the reference, requests time for admin

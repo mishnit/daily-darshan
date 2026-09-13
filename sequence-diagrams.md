@@ -216,8 +216,8 @@ sequenceDiagram
     User->>Web: sends MENU / Radhe Radhe
     Web->>State: clear awaiting-name flag only
     Web-->>User: Status-aware menu with subscription and payment actions
-    Note over Web,User: New users View plans; expired users View renewal plans
-    Note over Web,User: Active users Extend plan using only larger plans; largest plan has no extension action
+    Note over Web,User: New users View plans and expired users View renewal plans
+    Note over Web,User: Active users Extend plan using only larger plans and the largest plan has no extension action
     Note over Web,User: Subscription status includes the current plan type
     Note over Web,User: Active opted-out users Resume messages without payment
 
@@ -351,7 +351,7 @@ sequenceDiagram
     end
     Sub->>Local: write subscribers.csv  📝 LOCAL
     CLI->>Local: queue payment-keyed welcome in welcomes.csv
-    Note over CLI,WA: Separate activation confirmation, never consumes sentlog daily slot
+    Note over CLI,WA: applied_payment_refs is the idempotent welcome-task key
     CLI->>Local: render THIS subscriber's page (write_page, one page)  📝 LOCAL
     alt --commit
         CLI->>Repo: git commit + push (payments, subscribers, welcomes, logs, this page)
@@ -416,25 +416,25 @@ sequenceDiagram
     participant Sched as scheduler.py
     participant Repo as sentlog.csv
 
-    Admin->>Repo: commit activation, page and welcome task
+    Admin->>Repo: commit ACTIVE subscriber and applied payment reference
+    Sched->>Repo: create missing payment-keyed welcomes.csv task if needed
     Note over Sched,Repo: Deploy page, then check publication and consent
     Sched->>Repo: persist publication_verified after published page check
-    Sched->>Repo: persist welcome reservation
-    Sched->>WA: daily_darshan_welcome(name, subscription_id)
-    WA->>User: Your VIP Seva subscription is active
-    Note over Repo: Welcome is not written to the date+mobile delivery ledger
+    alt shared date and mobile slot is free
+        Sched->>Repo: reserve welcome slot as PENDING
+        Sched->>WA: daily_darshan_delivery_update(name, subscription_id)
+        WA->>User: Subscription or delivery status update
+        Sched->>Repo: update welcomes and sentlog outcome
+        Note over User,Repo: SENT, PENDING or UNKNOWN blocks renewal and delivery today
+    else slot was already used today
+        Note over User,Repo: Keep welcome QUEUED for the next run or day
+    end
 
-    Sched->>Repo: reserve date+mobile = PENDING
-    Sched->>WA: daily_darshan_delivery_update(name, subscription_id)
-    WA->>User: Today's Daily Darshan page is ready
-    Sched->>Repo: update reservation = SENT / FAILED / UNKNOWN
-
-    alt renewal is due on same date
-        Sched->>Repo: renewal competes for the same reservation
-        Note over User,Repo: At most one renewal-or-delivery contact per subscriber/date
-    else welcome is retried
-        Sched->>WA: retry queued or definitively failed welcome only
-        Note over User,Repo: Welcome retry does not suppress delivery
+    alt welcome failed definitively
+        Sched->>Repo: mark welcome and shared slot FAILED
+        Note over User,Repo: Renewal or delivery may use the released slot
+    else welcome was accepted or uncertain
+        Note over User,Repo: At most one welcome, renewal or delivery contact per day
     end
 ```
 

@@ -314,15 +314,24 @@ def _prepare_contact_safety(container, git):
 
 
 def run_welcome(container: Container, git: LocalGitRepository, on_date: date) -> int:
-    from application.welcome_service import drain_welcomes
+    from application.welcome_service import drain_welcomes, queue_missing_welcomes
     from adapters.published_page import PublishedPageChecker
-    path = container.config["paths"].get("welcomes_csv", "csv/welcomes.csv")
+    paths = container.config["paths"]
+    welcome_path = paths.get("welcomes_csv", "csv/welcomes.csv")
+    sentlog_path = paths["sentlog_csv"]
+    persist = lambda: git.commit(
+        [welcome_path, sentlog_path], "Persist activation welcome and daily contact slot"
+    )
+    container.sentlog.persist = persist
+    queued, conflicts = queue_missing_welcomes(container)
+    if queued:
+        persist()
     failures = drain_welcomes(
-        container, on_date, lambda: git.commit([path], "Persist activation welcome outbox"),
+        container, on_date, persist,
         PublishedPageChecker(container.config.get("delivery", {}).get("page_base_url", "")),
     )
-    print(f"[welcome] unresolved={failures}")
-    return int(bool(failures))
+    print(f"[welcome] queued={queued} conflicts={conflicts} unresolved={failures}")
+    return int(bool(failures or conflicts))
 
 
 def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -> int:

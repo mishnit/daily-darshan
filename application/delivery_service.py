@@ -60,9 +60,9 @@ class DeliveryService:
     def send_welcome(self, subscriber) -> WhatsAppResult:
         """Send the activation confirmation, independent of daily delivery.
 
-        Welcome messages never write the daily ``sentlog`` and therefore cannot
-        suppress today's darshan or renewal reminder. Call this only after an
-        admin has verified payment and activated the subscriber.
+        The welcome worker owns the shared daily ``sentlog`` reservation; this
+        transport primitive only calls Meta. Call it only after activation,
+        publication and daily-slot checks have succeeded.
         """
         if not subscriber.opt_in:
             return WhatsAppResult(ok=False, error="consent:subscriber opted out")

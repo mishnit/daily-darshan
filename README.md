@@ -495,16 +495,20 @@ Details:
   The direct-send/non-production path uses rollback, with STOP/UTR acknowledgement retries
   retained in `reply_retries.csv`; it is not the production delivery ordering.
 - Meta delivery-status callbacks reconcile an initially accepted template send. A later `failed`
-  status changes matching renewal/delivery ledger rows to `FAILED`, reopening the daily slot.
+  status changes matching welcome/renewal/delivery ledger rows to `FAILED`, reopening the daily slot.
   `message_statuses.csv` retains callbacks that arrive before the ledger. Positive delivered/read
   evidence wins over delayed failure callbacks; `SENT` alone means API acceptance, not delivery.
 - Activation remains admin-verified out-of-band (see Admin Operations); the name/plan captured
   here is what later fills the daily utility template and the per-subscriber page greeting.
 - The subscriber page explicitly confirms that the subscription is active and welcomes the user.
-  WhatsApp uses a separate approved `daily_darshan_welcome` activation template. It never
-  consumes the daily renewal/delivery contact slot. Daily delivery and renewal continue using
-  `daily_darshan_delivery_update`.
+  Welcome, renewal and delivery use `daily_darshan_delivery_update`, while their audit records
+  remain in separate CSV ledgers. A welcome consumes the same date+mobile contact slot, ensuring
+  at most one of those three messages reaches a subscriber per day.
   Admin verification queues a welcome in `csv/welcomes.csv` rather than sending immediately.
+  The welcome worker also creates any missing task for an ACTIVE subscriber's semicolon-separated
+  `applied_payment_refs`, so a careful manual CSV activation remains recoverable and idempotent.
+  The subscriber's existing `subscription_id` is preserved across activation and renewal, keeping
+  one stable `docs/<subscription_id>/index.html` page for that mobile number.
   Commit/push and publish the page first; the delivery workflow drains the welcome outbox.
   Repeated verification reuses the same payment-keyed task. Opted-out recipients are cancelled.
   Production webhook replies likewise use a durable `csv/reply_outbox.csv` before sending.
@@ -519,7 +523,7 @@ Details:
   Customers can send MENU and select Payment instructions or Payment status without
   creating another payment or extending a subscription. Continue, Resend and Back are not
   shown or advertised; legacy commands/buttons remain accepted for older messages.
-  The `Retry WhatsApp Replies` workflow wakes Render every five minutes to retry eligible
+  The manually dispatched `Retry WhatsApp Replies` workflow wakes Render to retry eligible
   outbox entries. Conversation versions and subscriber/payment fingerprints cancel stale
   instructions, and a 23-hour expiry protects the reply window. See DEPLOYMENT.md for the
   required WEBHOOK_BASE_URL variable and WHATSAPP_APP_SECRET repository secret.
@@ -538,15 +542,15 @@ Details:
 | UTR received | Conversational acknowledgement, awaiting admin verification | Does not activate or consume the daily slot |
 | Payment approved, not activated | Payment status says activation is being completed | No welcome yet |
 | Activation or renewal applied, publication unconfirmed | Payment status says page preparation/publication awaits confirmation | Payment-keyed welcome stays queued |
-| Published page verified | Separate `daily_darshan_welcome`, language `en` | One task per approved payment; repeats do not extend twice |
+| Published page verified | `daily_darshan_delivery_update`, language `en` | Welcome takes the subscriber's shared daily contact slot |
 | Daily renewal reminder due in 3, 2 or 1 days | `daily_darshan_delivery_update`, language `en` | Shares the subscriber/date reservation with daily delivery |
 | Daily delivery eligible | Same delivery-update template, personalised page button | Skips if renewal/delivery already holds that day's slot |
 
-The workflow runs welcome, renewal reminder, then daily delivery. Welcome does **not**
-consume the daily slot: a subscriber may receive a welcome plus one daily message on the
-same day. There is no dedicated welcome-to-delivery spacing; the configured gap only applies
-between renewal and delivery phases. A welcome failure is surfaced after allowing the daily
-phases to run. Publication confirmation does not mean a welcome was delivered.
+The workflow runs welcome, renewal reminder, then daily delivery. The first accepted or uncertain
+send consumes the shared daily slot, so later phases skip that subscriber. A definitively failed
+welcome releases the slot so renewal or delivery can provide a same-day fallback. If an earlier
+renewal/delivery already used today's slot, a queued welcome waits for the next delivery run/day.
+Publication confirmation does not mean a welcome was delivered.
 
 Definitively failed renewal attempts allow delivery fallback; PENDING/UNKNOWN attempts hold
 the slot pending reconciliation. API acceptance is not delivery confirmation. Typed STOP
@@ -563,9 +567,8 @@ verify the exact PR head in CI; local tests do not verify live Meta/Render deliv
 > approved template with buttons; within the window (the normal case, since the user just
 > messaged) the free-form interactive menu is used.
 
-The current configuration uses `daily_darshan_delivery_update` with language `en` for scheduled
-delivery and renewal reminders. Activation uses the separate `daily_darshan_welcome` template;
-both templates send the customer name as body `{{1}}`
+The current configuration uses `daily_darshan_delivery_update` with language `en` for welcome,
+scheduled delivery and renewal reminders. All three sends use the customer name as body `{{1}}`
 and the subscription ID as dynamic URL-button `{{1}}`; configure that button URL as
 `https://vipseva.com/{{1}}`. The renewal send deliberately uses the same delivery-status copy
 and does not include the expiry date.
@@ -585,12 +588,12 @@ default. If no reminder is sent, delivery starts immediately. Set the GitHub Act
 variable `WHATSAPP_MESSAGE_GAP_SECONDS` to another non-negative whole number to change the
 workflow-wide pause; `0` proceeds directly to delivery.
 
-Renewal and delivery share the `sentlog.csv` daily contact ledger. A successful renewal reminder
-uses that subscriber's one WhatsApp contact slot for the date, so the later delivery phase skips
-only that subscriber while continuing for other eligible subscribers. A failed reminder does not
-consume the slot, allowing delivery to proceed. This per-subscriber rule applies across scheduled
-and manual reruns: at most one successful renewal-or-delivery message is attempted per subscriber
-per date after its successful send has been persisted.
+Welcome, renewal and delivery share the `sentlog.csv` daily contact ledger while retaining their
+separate welcome/renewal audit CSVs. A successful welcome or renewal uses that subscriber's one
+WhatsApp contact slot for the date, so later phases skip only that subscriber while continuing for
+others. A definitive failure releases the slot, allowing the next phase to proceed. This rule
+applies across scheduled and manual reruns: at most one accepted or uncertain business-initiated
+template is attempted per subscriber per date.
 
 ---
 
@@ -738,6 +741,23 @@ payment (Tech Doc §6/§15).
   Legacy verified payments without markers require reconciliation before reapplication; see
   [release and recovery checklist](./DEPLOYMENT.md#safety-changes-release-and-recovery-checklist).
 - Prefer the CLI over manual payment/subscriber edits so entitlement markers remain consistent.
+- **Manual subscription activation:** use this recovery path only after independently verifying the
+  payment. Update the subscriber's existing row in `csv/subscribers.csv` as follows:
+  1. Set `status` to `ACTIVE` and enter the verified plan, start date and end date.
+  2. Preserve the existing `subscription_id`; never create a second subscriber row or page ID for
+     the same mobile number.
+  3. Append the verified payment reference to the semicolon-separated `applied_payment_refs` field.
+     Do not remove references that have already been applied.
+  4. Commit and push `csv/subscribers.csv` to `main`, then manually run **Regenerate Daily Pages**.
+  5. Wait for the automatically chained **Deploy Daily Darshan Pages** and **Daily Delivery**
+     workflows. During Daily Delivery's welcome phase, the worker creates any missing
+     payment-keyed `csv/welcomes.csv` row as `QUEUED`, verifies the public subscriber page and
+     sends the welcome if that subscriber's daily contact slot is available. The regeneration
+     workflow itself does not create or send the welcome.
+
+  If today's contact slot was already used by a welcome, renewal or delivery, the welcome remains
+  `QUEUED` for a later eligible run. Check `csv/welcomes.csv`, `csv/sentlog.csv` and the Daily
+  Delivery logs before retrying; do not blindly resend `PENDING` or `UNKNOWN` attempts.
 - **Override the daily image:** replace `docs/images/YYYY-MM-DD.jpg` and commit.
 - Git history serves as the audit trail for all of the above.
 

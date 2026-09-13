@@ -103,3 +103,18 @@ def test_operator_docs_do_not_restore_obsolete_crons_or_legacy_pages_mode():
     for obsolete in ("04:49", "05:04", "10:19", "10:34", "[3,1]"):
         assert obsolete not in docs
     assert "*Deploy from a branch*" not in docs
+
+
+def test_mermaid_sequence_diagrams_do_not_use_statement_delimiters_in_text():
+    """A semicolon in sequence text starts a new Mermaid statement on GitHub."""
+    lines = Path("sequence-diagrams.md").read_text(encoding="utf-8").splitlines()
+    inside_mermaid = False
+    for line in lines:
+        if line.strip() == "```mermaid":
+            inside_mermaid = True
+            continue
+        if inside_mermaid and line.strip() == "```":
+            inside_mermaid = False
+            continue
+        if inside_mermaid:
+            assert ";" not in line
