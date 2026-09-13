@@ -1,2 +1,2 @@
-reference_id,mobile,status,whatsapp_message_id,error
-DD2609130001,919108711599,QUEUED,,
+reference_id,mobile,status,whatsapp_message_id,error,publication_verified
+DD2609130001,919108711599,DELIVERED,wamid.HBgMOTE5MTA4NzExNTk5FQIAERgSQTU5MzlDOTFGQTA0MTEwMEYyAA==,,true
