@@ -1,6 +1,9 @@
 name: Pending Payment UTR Alert
 
 on:
+  schedule:
+    # GitHub cron is UTC. 15:30 UTC = 21:00 IST.
+    - cron: "30 15 * * *"
   workflow_dispatch:
 
 permissions:
