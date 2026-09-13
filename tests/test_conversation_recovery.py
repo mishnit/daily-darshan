@@ -30,7 +30,7 @@ def test_menu_recovery_choices_route_to_existing_commands(container, choice):
     payment = container.payment_service.create_payment("9199", "monthly")
     main._send_menu(container, "9199")
     assert [r[0] for r in calls[-1][3]] == [
-        "CTA_STATUS", "CTA_CONTINUE", "CTA_RENEW", "CTA_STOP", "CTA_HELP", "CTA_RESEND", "CTA_BACK"]
+        "CTA_PAYMENT", "CTA_RENEW"]
     main._handle_message(container, "9199", "button", "CTA_" + choice)
     assert len(container.payments.all()) == 1
     if choice != "BACK":

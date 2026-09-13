@@ -212,10 +212,10 @@ sequenceDiagram
     participant Web as Webhook
     participant State as Subscriber/payment state
 
-    User->>Web: sends BACK / MENU / Radhe Radhe
+    User->>Web: sends MENU / Radhe Radhe
     Web->>State: clear awaiting-name flag only
-    Web-->>User: Status-aware menu with Continue, Resend and Back
-    Note over Web,User: New users Subscribe, expired users Renew, active users Renew or extend
+    Web-->>User: Status-aware menu with subscription and payment actions
+    Note over Web,User: New users View plans, expired users View renewal plans, active users Renew or extend
     Note over Web,User: Active opted-out users Resume messages without payment
 
     User->>Web: taps CTA_SUBSCRIBE
@@ -267,6 +267,16 @@ sequenceDiagram
     User->>Web: taps stale plan or sends a different UTR during review
     Web-->>User: payment under review, do not pay again
     Note over Web,State: no checkout replacement or UTR overwrite
+    alt Admin rejects payment
+        State-->>Web: FAILED payment
+        Web-->>User: Rejection notice and Payment status, resolve with administrator before paying again
+    else Approved but activation incomplete
+        State-->>Web: SUCCESS with activation pending
+        Web-->>User: Approved, activation being completed
+    else Activated but publication unconfirmed
+        State-->>Web: APPLIED payment, publication not verified
+        Web-->>User: Approved, page being prepared
+    end
 ```
 
 ---
@@ -387,6 +397,7 @@ sequenceDiagram
 
     Admin->>Repo: commit activation, page and welcome task
     Note over Sched,Repo: Deploy page, then check publication and consent
+    Sched->>Repo: persist publication_verified after published page check
     Sched->>Repo: persist welcome reservation
     Sched->>WA: daily_darshan_welcome(name, subscription_id)
     WA->>User: Your VIP Seva subscription is active
@@ -475,7 +486,7 @@ sequenceDiagram
     else State changed or reply window expired
         Web->>Repo: Cancel obsolete reply
     end
-    User->>Web: CONTINUE or RESEND
+    User->>Web: MENU then Payment instructions or Payment status
     Web->>Repo: Read existing payment and advance conversation version
     Web->>Repo: Commit fresh reply using existing reference
     Web->>Meta: Send current instructions

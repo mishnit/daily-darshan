@@ -366,9 +366,9 @@ never guesses intent from free text. **Free text is accepted only for the user's
 
 ```
 User: Radhe Radhe                                       ← inbound greeting
-Bot:  🙏 Welcome to Daily Darshan! What would you like to do?
-      [ Open menu ] → Subscription status, Subscribe, Continue, Help, Resend, Back
-User: (taps Subscribe)
+Bot:  🙏 Radhe Radhe! Choose an option below.
+      [ Open menu ] → View plans
+User: (taps View plans)
 Bot:  Choose your Daily Darshan plan:                   ← list message
       • Starter — ₹9 · 3 days
       • Weekly  — ₹69 · 30 days
@@ -407,15 +407,23 @@ Bot:  Radhe Radhe Deep Ji! Renewing your monthly plan.   ← stored name reused
 
 Details:
 
-- Active opted-in subscribers see Subscription status, Renew / extend, Stop messages and
-  recovery/help options. New users see Subscribe; expired users see Renew. Active opted-out
-  users see Resume messages: explicit consent restores delivery without another payment.
+- New users see View plans, not Subscription status. Incomplete signup returns to the
+  missing name or consent step when the user sends MENU / Radhe Radhe.
+- Active users see Subscription status and Renew / extend. Expired users see an expiry
+  notice and View renewal plans. Active opted-out users additionally see Resume messages:
+  explicit consent restores delivery without another payment.
+- Help, Stop messages, Continue, Resend and Back are not menu options. Typed STOP and the
+  consent disclosure's No thanks button still revoke consent without removing paid days.
 - An unpaid checkout shows Payment instructions and Change plan. After UTR submission,
   Payment status replaces purchase actions; stale purchase taps and repeated/different UTRs
   cannot replace the payment under review. Contact the administrator for UTR corrections.
-- Continue/Resend resumes a pending renewal before showing active subscription status.
-  STATUS reports entitlement, consent and any pending payment separately. BACK navigates
-  without cancelling payments or changing paid dates. Help is guidance, not a support ticket.
+- Payment instructions/Payment status opens the current checkout or review details.
+  STATUS reports entitlement, consent and any pending payment separately. Send MENU for
+  available actions. Existing subscribers retain Subscription status while paying or renewing.
+- Rejected payments show Payment status and require administrator resolution before another
+  checkout. Approval without activation says activation is being completed. After activation,
+  page publication remains awaiting confirmation until the welcome worker verifies publication.
+  Publication is independent of whether Meta accepts/delivers the welcome message.
 - UTR text may be 12 digits or `UTR: 123456789012`. Image/document captions in that format
   are accepted; screenshots without a valid UTR caption prompt the user to send it as text.
   No OCR or automatic payment approval is performed.
@@ -443,9 +451,11 @@ Details:
   across webhook calls without server-side session state.
 - Re-delivered webhooks are deduped on WhatsApp `message.id`. A fresh tap has a new ID and is
   a new action. Restart words such as `Radhe Radhe`, `RENEW` and `MENU` are not stored as names.
-- Failed conversational replies roll back that message's state. **STOP and received UTR are
-  exceptions:** the customer instruction is retained and `reply_retries.csv` stores only its
-  failed acknowledgement. Redelivery retries that reply without reapplying the instruction.
+- In production (`github_api` persistence), conversational state and reply-outbox entries
+  are committed before sending. A failed commit restores local state and sends nothing.
+  Failed sends retain committed state and are retried only when safe and still relevant.
+  The direct-send/non-production path uses rollback, with STOP/UTR acknowledgement retries
+  retained in `reply_retries.csv`; it is not the production delivery ordering.
 - Meta delivery-status callbacks reconcile an initially accepted template send. A later `failed`
   status changes matching renewal/delivery ledger rows to `FAILED`, reopening the daily slot.
   `message_statuses.csv` retains callbacks that arrive before the ledger. Positive delivered/read
@@ -468,15 +478,42 @@ Details:
   WhatsApp/browser versions may omit the caption when sharing a file; it can be copied manually.
   This does not prevent someone copying their personal URL from the address bar. After changing
   the renderer, regenerate subscriber pages and deploy Pages to publish the new share controls.
-  Customers can send CONTINUE, STATUS or RESEND to recover their current step without
-  creating another payment or extending a subscription. Repeated recovery requests have
-  a 30-second cooldown. BACK from name capture returns to plans; other steps return to menu.
+  Customers can send MENU and select Payment instructions or Payment status without
+  creating another payment or extending a subscription. Continue, Resend and Back are not
+  shown or advertised; legacy commands/buttons remain accepted for older messages.
   The `Retry WhatsApp Replies` workflow wakes Render every five minutes to retry eligible
   outbox entries. Conversation versions and subscriber/payment fingerprints cancel stale
   instructions, and a 23-hour expiry protects the reply window. See DEPLOYMENT.md for the
   required WEBHOOK_BASE_URL variable and WHATSAPP_APP_SECRET repository secret.
   Both renewal and delivery check the public page's subscription ID, date and expiry metadata
   before sending. Missing, legacy or stale pages must be regenerated and deployed first.
+
+### Welcome and daily-message coordination
+
+| Event | Message and ordering | Retry / daily-slot rule |
+| --- | --- | --- |
+| UTR received | Conversational acknowledgement, awaiting admin verification | Does not activate or consume the daily slot |
+| Payment approved, not activated | Payment status says activation is being completed | No welcome yet |
+| Activation or renewal applied, publication unconfirmed | Payment status says page preparation/publication awaits confirmation | Payment-keyed welcome stays queued |
+| Published page verified | Separate `daily_darshan_welcome`, language `en` | One task per approved payment; repeats do not extend twice |
+| Daily renewal reminder due in 3, 2 or 1 days | `daily_darshan_delivery_update`, language `en` | Shares the subscriber/date reservation with daily delivery |
+| Daily delivery eligible | Same delivery-update template, personalised page button | Skips if renewal/delivery already holds that day's slot |
+
+The workflow runs welcome, renewal reminder, then daily delivery. Welcome does **not**
+consume the daily slot: a subscriber may receive a welcome plus one daily message on the
+same day. There is no dedicated welcome-to-delivery spacing; the configured gap only applies
+between renewal and delivery phases. A welcome failure is surfaced after allowing the daily
+phases to run. Publication confirmation does not mean a welcome was delivered.
+
+Definitively failed renewal attempts allow delivery fallback; PENDING/UNKNOWN attempts hold
+the slot pending reconciliation. API acceptance is not delivery confirmation. Typed STOP
+blocks business-initiated messages but preserves entitlement; restoring consent does not
+automatically revive an already-cancelled welcome task.
+
+Regression coverage: `tests/test_product_journey.py`, `tests/test_welcome_outbox.py`,
+`tests/test_conversation_recovery.py`, `tests/test_audit_regressions.py`,
+`tests/test_delivery.py` and `tests/test_renewal.py`. Run the full suite before merge and
+verify the exact PR head in CI; local tests do not verify live Meta/Render delivery.
 
 > **WhatsApp note:** interactive buttons/list messages are free-form inside the 24-hour
 > user-initiated window. To send the initial menu to a user who hasn't messaged in 24h, use an
