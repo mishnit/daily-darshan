@@ -61,6 +61,15 @@ def test_git_reads_one_snapshot_even_if_branch_advances():
     assert server.read_refs == ["base", "base"]
 
 
+def test_git_reads_batch_from_one_snapshot():
+    server = GitServer()
+    repo = GitHubApiRepository("owner/repo", session=server)
+    repo.begin_snapshot()
+    files = repo.read_files(["subscribers.csv", "payments.csv"])
+    assert files == {"subscribers.csv": b"original", "payments.csv": b"original"}
+    assert server.read_refs == ["base", "base"]
+
+
 def test_git_commits_multiple_csv_files_atomically():
     server = GitServer()
     repo = GitHubApiRepository("owner/repo", session=server)

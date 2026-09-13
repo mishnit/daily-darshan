@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -185,6 +186,23 @@ class GitHubApiRepository(GitHubRepositoryPort):
             return None
         resp.raise_for_status()
         return base64.b64decode(resp.json()["content"])
+
+    def read_files(self, paths: list[str]) -> dict[str, bytes | None]:
+        """Read one immutable snapshot with bounded concurrent HTTP requests.
+
+        Every Contents API request is pinned to ``_base_commit``, so parallel
+        reads cannot mix branch revisions.  Results are returned only after all
+        requests complete; RepoSync can therefore apply the snapshot locally
+        as one unit in strict mode.
+        """
+        if self._base_commit is None:
+            self.begin_snapshot()
+        if not paths:
+            return {}
+        workers = min(6, len(paths))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            contents = list(pool.map(self.read_file, paths))
+        return dict(zip(paths, contents))
 
     def write_file(self, path: str, content: bytes, message: str) -> None:
         """Buffer bytes for the next atomic Git tree commit."""
