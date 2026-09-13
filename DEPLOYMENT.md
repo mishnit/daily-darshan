@@ -224,7 +224,8 @@ consent. Expired users receive Renew with all configured plans. Active users out
 three-day renewal window receive Extend plan with only plans strictly larger than their current
 plan; the largest active plan has no extension action. Active users inside the three-day window
 receive Renew with their current plan plus larger plans, including Yearly renewal for a Yearly
-subscriber.
+subscriber. When no larger plan exists, the CTA description is “Renew your current plan”;
+otherwise it is “Renew or choose a larger plan.”
 Active opted-out users additionally receive Resume messages. Only existing dated subscriptions have a
 Subscription status menu option. Help, Stop messages, Continue, Resend and Back are hidden.
 Subscription status includes the current plan type. Typed STOP and consent No thanks remain
@@ -270,8 +271,9 @@ Activation/renewal approval continues to queue a welcome-status record after pub
 share the maximum-one-per-day date+mobile reservation in `sentlog.csv`.
 Run `pytest -q` including `tests/test_product_journey.py`; live acceptance must additionally
 exercise each menu using the configured production sender and verify Meta callbacks.
-After a valid 12-digit UTR, verify the reply names the reference, requests time for admin
-review, and says not to pay again. Production saves that acknowledgement in the outbox
+After a valid 12-digit UTR, verify the reply names the latest UTR and payment reference, says it
+replaced the previous UTR (if any), requests admin verification within 24 hours, and says not to
+pay again. Production saves that acknowledgement in the outbox
 before sending; retrying the same inbound message must not duplicate it. If the live user
 still receives nothing, inspect reply_outbox status/error and the configured sender ID.
 - Reconcile PENDING/UNKNOWN sends against provider evidence before any manual change. A failed

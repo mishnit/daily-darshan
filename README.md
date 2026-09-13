@@ -388,9 +388,10 @@ Bot:  Radhe Radhe Deep Ji! Plan: monthly
       After paying, reply with your payment reference and 12-digit UTR.
       Example: UTR DD2608190001 123456789012
 User: UTR DD2608190001 123456789012                     ← free text (UTR)
-Bot:  Thanks! We received your UTR for DD2608190001.
-      Please allow us some time to verify your payment. An admin will review it
-      and activate your subscription once approved. You do not need to pay again. 🙏
+Bot:  Your latest UTR 123456789012 for payment DD2608190001 has been recorded.
+      It replaced the previous UTR (if any) and is now awaiting admin verification.
+      We aim to review it within 24 hours. You do not need to pay again.
+      Please send MENU to check payment status.
 ```
 
 Returning subscriber (Extend plan outside the renewal window, Renew near expiry or after expiry):
@@ -407,6 +408,26 @@ Bot:  Radhe Radhe Deep Ji! Renewing your yearly plan.   ← stored name reused
       Example: UTR DD2608190002 123456789012
 ```
 
+### Menu state examples and recovery
+
+The menu is rebuilt from the current subscriber and payment rows on every recognized command.
+The following examples describe the exact plan actions and safe recovery from an unexpected input:
+
+| State | User sends or taps | Expected menu/list | Unexpected input recovery |
+|---|---|---|---|
+| New user | `Hi`, `Hello`, `Radhe Radhe`, `MENU`, `PAYMENT` | `View plans`; selecting it lists Starter, Weekly, Monthly and Yearly | A question or plan name reopens the menu; it never creates a payment |
+| Active Starter, expiry beyond 3 days | `MENU` → `Extend plan` | Weekly, Monthly and Yearly only | `RENEW` reopens the same menu; a stale smaller-plan CTA is rejected |
+| Active Weekly, expiry beyond 3 days | `MENU` → `Extend plan` | Monthly and Yearly only | `PAYMENT` opens the current checkout status/instructions without replacing it |
+| Active Monthly, expiry within 3 days | `MENU` → `Renew` | Monthly and Yearly | Invalid UTR leaves checkout unchanged and asks for `UTR <reference> <12 digits>` |
+| Active Yearly, expiry within 3 days | `MENU` → `Renew` | Yearly only; description says “Renew your current plan” | `Extend plan` is not offered; an old Extend CTA is revalidated and rejected |
+| Active Yearly, expiry beyond 3 days | `MENU` | Subscription status only | `RENEW` reopens the menu but cannot create an unavailable upgrade |
+| Expired subscriber | `MENU` or `RENEW` | `Subscription status` + `Renew`; all configured plans | A stale CTA returns to the current menu; no entitlement changes before admin approval |
+
+For any state, `Hi`, `Hello`, `Radhe Radhe`, `MENU`, `RENEW`, `SUBSCRIBE`, `PAYMENT`, `PAYMENT STATUS`
+and `PAYMENT INSTRUCTIONS` return to navigation. A valid name is captured only while the name
+prompt is active; a valid UTR is processed only against an open payment. `STOP`, `UNSUBSCRIBE` and
+`CANCEL` remain case-insensitive opt-out commands, and `STATUS` returns status directly.
+
 Details:
 
 - New users see View plans, not Subscription status. Incomplete signup returns to the
@@ -419,8 +440,9 @@ Details:
   renewal window they see Extend plan, whose list contains only plans strictly larger than their
   current plan; subscribers already on the largest plan see no plan CTA. Inside the three-day
   window they see Renew, whose list contains their current plan plus larger plans (including
-  Yearly subscribers renewing Yearly). Expired users see Subscription status and Renew, with all
-  configured plans available. Active opted-out users additionally see Resume messages: explicit
+  Yearly subscribers renewing Yearly). A Yearly subscriber's row is described as
+  “Renew your current plan”; plans with larger choices use “Renew or choose a larger plan.”
+  Expired users see Subscription status and Renew, with all configured plans available. Active opted-out users additionally see Resume messages: explicit
   consent restores delivery without another payment.
 - Help, Stop messages, Continue, Resend and Back are not menu options. Typed STOP and the
   consent disclosure's No thanks button still revoke consent without removing paid days.
@@ -431,7 +453,9 @@ Details:
   creates a new checkout; a customer who already paid must confirm the older paid-against
   reference as `UTR <reference> <12-digit UTR>` and must not pay again.
 - Sending a reference-qualified UTR again for the same payment corrects and replaces the
-  previously stored UTR; it never activates the subscription without administrator approval.
+  previously stored UTR. The acknowledgement names the latest UTR and payment reference,
+  confirms that it is awaiting admin verification within 24 hours, and tells the user to send
+  MENU for payment status; it never activates the subscription without administrator approval.
 - If administrators approve multiple genuine payments, every payment reference is applied
   once and contributes its purchased days. The subscriber retains the longest approved plan
   as the active plan, so approving a smaller payment later cannot downgrade the plan label.

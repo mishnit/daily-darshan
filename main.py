@@ -438,6 +438,14 @@ def _is_expiring_soon(c, mobile: str) -> bool:
     return 0 <= remaining <= int(window)
 
 
+def _shows_subscription_status(c, subscriber) -> bool:
+    """Only active or date-expired subscribers get a status menu row."""
+    if not subscriber or not subscriber.end_date:
+        return False
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    return subscriber.status.value == "ACTIVE" or subscriber.end_date < today
+
+
 def _eligible_plan_names(c, mobile: str) -> list[str]:
     """Plans selectable from the menu for this subscriber's entitlement state."""
     sub = c.subscribers.find(mobile)
@@ -462,7 +470,7 @@ def _send_menu(c, mobile: str) -> None:
     larger_plans = _larger_plan_names(c, mobile) if active else []
     expiring_soon = _is_expiring_soon(c, mobile)
     eligible_plans = _eligible_plan_names(c, mobile)
-    rows = [("CTA_STATUS", "Subscription status", "Check your subscription")] if sub and sub.end_date else []
+    rows = [("CTA_STATUS", "Subscription status", "Check your subscription")] if _shows_subscription_status(c, sub) else []
     body = "🙏 Radhe Radhe! Choose an option below."
     locked_payment = bool(payment and payment.status.value != "PENDING")
     if sub and (not sub.end_date or payment) and not locked_payment and (sub.awaiting_name or not sub.name):
@@ -478,9 +486,10 @@ def _send_menu(c, mobile: str) -> None:
                      "View your payment details"))
         if payment.status.value == "PENDING" and (not active or eligible_plans):
             label = "Renew" if (sub and sub.end_date) else "Change plan"
-            description = "Renew or choose a larger plan" if active and expiring_soon else (
-                "Choose a larger plan" if active else "Choose a different plan"
-            )
+            if active and expiring_soon:
+                description = "Renew or choose a larger plan" if larger_plans else "Renew your current plan"
+            else:
+                description = "Choose a larger plan" if active else "Choose a different plan"
             rows.append(("CTA_RENEW", label, description))
         if reviewing:
             body = _payment_status_text(c, payment)
@@ -490,8 +499,11 @@ def _send_menu(c, mobile: str) -> None:
         if not sub.opt_in:
             rows.append(("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
         if eligible_plans:
-            rows.append(("CTA_RENEW", "Renew" if expiring_soon else "Extend plan",
-                         "Renew or choose a larger plan" if expiring_soon else "Choose a larger plan"))
+            if expiring_soon:
+                description = "Renew or choose a larger plan" if larger_plans else "Renew your current plan"
+                rows.append(("CTA_RENEW", "Renew", description))
+            else:
+                rows.append(("CTA_RENEW", "Extend plan", "Choose a larger plan"))
     else:
         rows.append(("CTA_RENEW", "Renew", "Renew your subscription") if sub and sub.end_date
                     else ("CTA_SUBSCRIBE", "View plans", "Choose a plan"))
@@ -759,14 +771,16 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         if payment.utr and not referenced_utr:
             _resume_conversation(c, mobile)
             return
+        latest_utr = text
         c.payment_service.record_utr(
             payment.reference_id, text, reconcile_checkout=bool(referenced_utr)
         )
         _send_intent_reply(c,
             mobile,
-            f"Thanks! We received your UTR for {payment.reference_id}. "
-            "Please allow us some time to verify your payment. An admin will review it "
-            "and activate your subscription once approved. You do not need to pay again. 🙏",
+            f"Your latest UTR {latest_utr} for payment {payment.reference_id} has been recorded.\n"
+            "It replaced the previous UTR (if any) and is now awaiting admin verification.\n"
+            "We aim to review it within 24 hours. You do not need to pay again.\n"
+            "Please send MENU to check payment status.",
         )
         return
 

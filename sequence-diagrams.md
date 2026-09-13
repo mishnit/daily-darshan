@@ -264,7 +264,7 @@ sequenceDiagram
         User->>Web: UTR DD2609130001 123456789012
         Web->>State: validate ownership and restore original checkout for review
     end
-    Web-->>User: UTR received with reference, allow time for admin review, do not pay again
+    Web-->>User: latest UTR and reference recorded, review within 24 hours, do not pay again
     alt acknowledgement fails
         Web->>State: retain UTR + store acknowledgement in reply_retries.csv
         Web-->>User: HTTP 503, Meta may redeliver
@@ -299,6 +299,60 @@ action leaves checkout unchanged. Admin `reopen-payment --no-payment-confirmed` 
 rejection only when no payment occurred. A real payment must be verified against its original
 reference instead. Daily publication checks additionally inspect the displayed image date;
 welcome/renewal publication checks remain independent. Obsolete activation welcomes are cancelled.
+
+### 3c. Menu options by entitlement and expiry
+
+This diagram uses short participant names and one action per line so GitHub Mermaid renders it
+consistently. The menu is derived from persisted state each time; unexpected text or stale buttons
+return the user to a safe step without changing payment or entitlement.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User
+    participant Webhook
+    participant State
+
+    User->>Webhook: sends Hi or MENU
+    Webhook->>State: read subscriber and checkout
+    alt new user
+        Webhook-->>User: View plans
+        User->>Webhook: selects View plans
+        Webhook-->>User: Starter Weekly Monthly Yearly
+        User->>Webhook: sends unexpected question
+        Webhook-->>User: menu again no payment created
+    else active starter or weekly beyond three days
+        Webhook-->>User: Subscription status and Extend plan
+        User->>Webhook: selects Extend plan
+        Webhook-->>User: only larger plans
+        User->>Webhook: sends RENEW or PAYMENT
+        Webhook-->>User: same current menu or checkout status
+    else active monthly within three days
+        Webhook-->>User: Subscription status and Renew
+        User->>Webhook: selects Renew
+        Webhook-->>User: current Monthly and larger plans
+        User->>Webhook: sends invalid UTR
+        Webhook-->>User: request UTR reference and twelve digits
+        User->>Webhook: retries valid UTR
+        Webhook->>State: attach UTR to pending payment
+    else active yearly within three days
+        Webhook-->>User: Subscription status and Renew
+        User->>Webhook: selects Renew
+        Webhook-->>User: Yearly only renew your current plan
+        User->>Webhook: taps old Extend plan
+        Webhook-->>User: menu again no entitlement change
+    else active yearly beyond three days
+        Webhook-->>User: Subscription status only
+        User->>Webhook: sends RENEW
+        Webhook-->>User: subscription status only
+    else expired subscriber
+        Webhook-->>User: Subscription status and Renew
+        User->>Webhook: selects Renew
+        Webhook-->>User: all configured plans
+        User->>Webhook: sends PAYMENT
+        Webhook-->>User: payment instructions or payment status
+    end
+```
 
 ---
 
