@@ -57,8 +57,7 @@
   },
   "persistence": {
     "mode": "github_api",
-    "branch": "main",
-    "quiet_window_utc": { "start": "", "end": "" }
+    "branch": "main"
   },
   "delivery": {
     "mode": "utility_template",

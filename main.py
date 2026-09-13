@@ -193,8 +193,6 @@ def _process_payload(c, payload: dict) -> None:
         production = c.config.get("persistence", {}).get("mode") == "github_api"
         if production and not c.repo_sync.enabled:
             raise RuntimeError("Durable persistence is unavailable")
-        if c.repo_sync.enabled and c.repo_sync.in_quiet_window():
-            raise RuntimeError("Persistence quiet window; retry later")
         c.repo_sync.pull(strict=True)
         snapshot = _snapshot_webhook_state(c)
         client = c.whatsapp

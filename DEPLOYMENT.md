@@ -263,6 +263,8 @@ still receives nothing, inspect reply_outbox status/error and the configured sen
 - Reconcile PENDING/UNKNOWN sends against provider evidence before any manual change. A failed
   outcome push may leave the reservation ID without a provider ID; do not assume no send occurred.
   This is duplicate prevention under uncertainty, not guaranteed exactly-once delivery.
+- Webhook persistence has no clock-based quiet window. It remains available during scheduled
+  and manual workflows; repository conflicts fail closed with 503 so Meta can retry safely.
 - Callback records can precede send records and are reconciled on later webhook/delivery runs.
   A delivered/read callback must not be reversed by a delayed failed callback.
 
