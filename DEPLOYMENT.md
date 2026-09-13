@@ -271,8 +271,9 @@ Activation/renewal approval continues to queue a welcome-status record after pub
 share the maximum-one-per-day date+mobile reservation in `sentlog.csv`.
 Run `pytest -q` including `tests/test_product_journey.py`; live acceptance must additionally
 exercise each menu using the configured production sender and verify Meta callbacks.
-After a valid 12-digit UTR, verify the reply names the reference, requests time for admin
-review, and says not to pay again. Production saves that acknowledgement in the outbox
+After a valid 12-digit UTR, verify the reply names the latest UTR and payment reference, says it
+replaced the previous UTR (if any), requests admin verification within 24 hours, and says not to
+pay again. Production saves that acknowledgement in the outbox
 before sending; retrying the same inbound message must not duplicate it. If the live user
 still receives nothing, inspect reply_outbox status/error and the configured sender ID.
 - Reconcile PENDING/UNKNOWN sends against provider evidence before any manual change. A failed

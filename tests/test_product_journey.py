@@ -74,7 +74,8 @@ def test_payment_review_cannot_be_replaced_by_stale_cta(container, action):
     main._handle_message(container, "9199", "text", f"UTR {paid.reference_id} 123456789012")
     assert container.payments.find(paid.reference_id).status == PaymentStatus.PENDING
     assert container.payments.find(replacement.reference_id).status == PaymentStatus.SUPERSEDED
-    assert "admin will review" in container.whatsapp.sent[-1]["message"]
+    assert "awaiting admin verification" in container.whatsapp.sent[-1]["message"]
+    assert "within 24 hours" in container.whatsapp.sent[-1]["message"]
 
 
 def test_payment_status_during_review_explains_reference_qualified_utr(container):
@@ -98,7 +99,10 @@ def test_reference_qualified_utr_correction_overwrites_previous_value(container)
     main._handle_message(container, "9199", "text", f"UTR {payment.reference_id} 123456789012")
     main._handle_message(container, "9199", "text", f"UTR {payment.reference_id} 999999999999")
     assert container.payments.find(payment.reference_id).utr == "999999999999"
-    assert "admin will review" in container.whatsapp.sent[-1]["message"]
+    assert "Your latest UTR 999999999999 for payment" in container.whatsapp.sent[-1]["message"]
+    assert "It replaced the previous UTR (if any)" in container.whatsapp.sent[-1]["message"]
+    assert "awaiting admin verification" in container.whatsapp.sent[-1]["message"]
+    assert "within 24 hours" in container.whatsapp.sent[-1]["message"]
 
 
 @pytest.mark.parametrize("action", ["CTA_SUBSCRIBE", "CTA_RENEW", "CTA_BACK"])

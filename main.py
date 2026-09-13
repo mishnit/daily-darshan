@@ -771,14 +771,16 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         if payment.utr and not referenced_utr:
             _resume_conversation(c, mobile)
             return
+        latest_utr = text
         c.payment_service.record_utr(
             payment.reference_id, text, reconcile_checkout=bool(referenced_utr)
         )
         _send_intent_reply(c,
             mobile,
-            f"Thanks! We received your UTR for {payment.reference_id}. "
-            "Please allow us some time to verify your payment. An admin will review it "
-            "and activate your subscription once approved. You do not need to pay again. 🙏",
+            f"Your latest UTR {latest_utr} for payment {payment.reference_id} has been recorded.\n"
+            "It replaced the previous UTR (if any) and is now awaiting admin verification.\n"
+            "We aim to review it within 24 hours. You do not need to pay again.\n"
+            "Please send MENU to check payment status.",
         )
         return
 

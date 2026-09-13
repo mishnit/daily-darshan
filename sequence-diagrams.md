@@ -264,7 +264,7 @@ sequenceDiagram
         User->>Web: UTR DD2609130001 123456789012
         Web->>State: validate ownership and restore original checkout for review
     end
-    Web-->>User: UTR received with reference, allow time for admin review, do not pay again
+    Web-->>User: latest UTR and reference recorded, review within 24 hours, do not pay again
     alt acknowledgement fails
         Web->>State: retain UTR + store acknowledgement in reply_retries.csv
         Web-->>User: HTTP 503, Meta may redeliver

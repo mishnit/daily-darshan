@@ -281,11 +281,12 @@ def test_production_utr_ack_is_persisted_and_sent_once(container, text):
     assert container.payments.find(payment.reference_id).utr == "123456789012"
     assert len(container.whatsapp.sent) == 1
     message = container.whatsapp.sent[0]["message"]
-    assert "Please allow us some time" in message
-    assert "admin will review" in message
+    assert "within 24 hours" in message
+    assert "awaiting admin verification" in message
+    assert "within 24 hours" in message
     assert payment.reference_id in message
     assert commits[0][0]["status"] == "QUEUED"
-    assert "Please allow us some time" in json.loads(commits[0][0]["arguments"])[0][1]
+    assert "within 24 hours" in json.loads(commits[0][0]["arguments"])[0][1]
 
 
 def test_screenshot_requests_utr_text_without_recording_payment(container):

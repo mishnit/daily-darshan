@@ -388,9 +388,10 @@ Bot:  Radhe Radhe Deep Ji! Plan: monthly
       After paying, reply with your payment reference and 12-digit UTR.
       Example: UTR DD2608190001 123456789012
 User: UTR DD2608190001 123456789012                     ← free text (UTR)
-Bot:  Thanks! We received your UTR for DD2608190001.
-      Please allow us some time to verify your payment. An admin will review it
-      and activate your subscription once approved. You do not need to pay again. 🙏
+Bot:  Your latest UTR 123456789012 for payment DD2608190001 has been recorded.
+      It replaced the previous UTR (if any) and is now awaiting admin verification.
+      We aim to review it within 24 hours. You do not need to pay again.
+      Please send MENU to check payment status.
 ```
 
 Returning subscriber (Extend plan outside the renewal window, Renew near expiry or after expiry):
@@ -452,7 +453,9 @@ Details:
   creates a new checkout; a customer who already paid must confirm the older paid-against
   reference as `UTR <reference> <12-digit UTR>` and must not pay again.
 - Sending a reference-qualified UTR again for the same payment corrects and replaces the
-  previously stored UTR; it never activates the subscription without administrator approval.
+  previously stored UTR. The acknowledgement names the latest UTR and payment reference,
+  confirms that it is awaiting admin verification within 24 hours, and tells the user to send
+  MENU for payment status; it never activates the subscription without administrator approval.
 - If administrators approve multiple genuine payments, every payment reference is applied
   once and contributes its purchased days. The subscriber retains the longest approved plan
   as the active plan, so approving a smaller payment later cannot downgrade the plan label.
