@@ -752,7 +752,9 @@ def _send_payment_instructions(c, mobile, payment, returning=False):
         f"{header}"
         f"Pay via UPI:\n{intent}\n\n"
         f"Reference: {payment.reference_id}\n"
-        f"After paying, reply with your 12-digit UTR. If you changed plans, send UTR {payment.reference_id} followed by your 12-digit UTR. "
+        f"After paying, reply with your payment reference and 12-digit UTR.\n"
+        f"Example: UTR {payment.reference_id} 123456789012\n"
+        f"If you changed plans, use the reference from the instructions you paid against. "
         "If you already paid against older instructions, use that older reference; do not pay again.",
     )
     _require_send(result, "payment instruction")

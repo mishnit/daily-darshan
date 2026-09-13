@@ -385,8 +385,9 @@ Bot:  Radhe Radhe Deep Ji! Plan: monthly
       Amount: ₹199
       Pay via UPI: upi://pay?...
       Reference: DD2608190001
-      After paying, reply with your 12-digit UTR.
-User: 123456789012                                      ← free text (UTR)
+      After paying, reply with your payment reference and 12-digit UTR.
+      Example: UTR DD2608190001 123456789012
+User: UTR DD2608190001 123456789012                     ← free text (UTR)
 Bot:  Thanks! We received your UTR for DD2608190001.
       Please allow us some time to verify your payment. An admin will review it
       and activate your subscription once approved. You do not need to pay again. 🙏
@@ -402,7 +403,8 @@ Bot:  Radhe Radhe Deep Ji! Renewing your monthly plan.   ← stored name reused
       Amount: ₹199
       Pay via UPI: upi://pay?...
       Reference: DD2608190002
-      After paying, reply with your 12-digit UTR.
+      After paying, reply with your payment reference and 12-digit UTR.
+      Example: UTR DD2608190002 123456789012
 ```
 
 Details:
