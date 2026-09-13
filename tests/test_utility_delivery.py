@@ -385,6 +385,59 @@ def test_page_renderer_write_all_counts_only_valid(tmp_path):
     assert len(written) == 2
 
 
+def test_page_renderer_writes_only_canonical_active_row_for_mobile(tmp_path):
+    r = PageRenderer(image_public_base="https://u.github.io/dd")
+    subs = [
+        Subscriber(mobile="1", plan="monthly", status=SubscriberStatus.EXPIRED,
+                   subscription_id="old-page"),
+        Subscriber(mobile="1", plan="yearly", status=SubscriberStatus.ACTIVE,
+                   subscription_id="current-page"),
+    ]
+
+    written = r.write_all(subs, date(2026, 8, 19), root=str(tmp_path))
+
+    assert written == [r.page_path("current-page")]
+    assert not (tmp_path / r.page_path("old-page")).exists()
+
+
+def test_page_renderer_rejects_multiple_active_rows_for_one_mobile_before_writing(tmp_path):
+    r = PageRenderer(image_public_base="https://u.github.io/dd")
+    subs = [
+        Subscriber(mobile="1", plan="monthly", status=SubscriberStatus.ACTIVE,
+                   subscription_id="first"),
+        Subscriber(mobile="1", plan="yearly", status=SubscriberStatus.ACTIVE,
+                   subscription_id="second"),
+    ]
+
+    with pytest.raises(ValueError, match="multiple ACTIVE subscriber rows"):
+        r.write_all(subs, date(2026, 8, 19), root=str(tmp_path))
+    assert not (tmp_path / "docs").exists()
+
+
+def test_page_renderer_rejects_subscription_id_shared_by_different_users(tmp_path):
+    r = PageRenderer(image_public_base="https://u.github.io/dd")
+    subs = [
+        Subscriber(mobile="1", plan="monthly", status=SubscriberStatus.ACTIVE,
+                   subscription_id="shared"),
+        Subscriber(mobile="2", plan="monthly", status=SubscriberStatus.ACTIVE,
+                   subscription_id="shared"),
+    ]
+
+    with pytest.raises(ValueError, match="assigned to multiple mobiles"):
+        r.write_all(subs, date(2026, 8, 19), root=str(tmp_path))
+    assert not (tmp_path / "docs").exists()
+
+
+def test_page_renderer_rejects_active_subscriber_without_page_id(tmp_path):
+    r = PageRenderer(image_public_base="https://u.github.io/dd")
+    sub = Subscriber(mobile="1", plan="monthly", status=SubscriberStatus.ACTIVE,
+                     subscription_id="")
+
+    with pytest.raises(ValueError, match="has no subscription_id"):
+        r.write_all([sub], date(2026, 8, 19), root=str(tmp_path))
+    assert not (tmp_path / "docs").exists()
+
+
 # ------------------------- migration ------------------------- #
 
 def test_backfill_assigns_ids_to_idless_rows(repos, monkeypatch):
