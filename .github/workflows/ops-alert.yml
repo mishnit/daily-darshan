@@ -1,0 +1,67 @@
+name: Daily Darshan Ops Alerts
+
+on:
+  workflow_run:
+    workflows:
+      - Daily Image
+      - Daily Delivery
+    types: [completed]
+
+permissions:
+  actions: read
+
+jobs:
+  alert:
+    if: >-
+      github.event.workflow_run.conclusion != 'success' &&
+      github.event.workflow_run.head_branch == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send WhatsApp failure alert
+        env:
+          WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+          ALERT_TO: "919535507255"
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+
+          url = (
+              "https://graph.facebook.com/v22.0/"
+              + os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+              + "/messages"
+          )
+
+          payload = {
+              "messaging_product": "whatsapp",
+              "to": os.environ["ALERT_TO"],
+              "type": "template",
+              "template": {
+                  "name": "daily_darshan_ops_alert",
+                  "language": {"code": "en"},
+                  "components": [{
+                      "type": "body",
+                      "parameters": [
+                          {"type": "text", "text": os.environ["WORKFLOW_NAME"]},
+                          {"type": "text", "text": os.environ["RUN_CONCLUSION"]},
+                          {"type": "text", "text": os.environ["RUN_URL"]},
+                      ],
+                  }],
+              },
+          }
+
+          request = urllib.request.Request(
+              url,
+              data=json.dumps(payload).encode(),
+              headers={
+                  "Authorization": "Bearer " + os.environ["WHATSAPP_ACCESS_TOKEN"],
+                  "Content-Type": "application/json",
+              },
+          )
+
+          with urllib.request.urlopen(request, timeout=30) as response:
+              print("Alert sent:", response.status)
+          PY
