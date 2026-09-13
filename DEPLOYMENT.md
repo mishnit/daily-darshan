@@ -176,7 +176,7 @@ Use this sequence when validating a release end to end:
   A legacy SUCCESS payment without markers fails closed: reconcile whether it was applied before
   retrying. If already applied, add its reference to the subscriber marker and mark it APPLIED;
   only mark activation_state PENDING after proving it has never granted an entitlement.
-- Welcome, renewal and delivery use the approved `daily_darshan_delivery_update` template.
+- Welcome, renewal and delivery use the approved `daily_darshan_delivery_update1` template.
   Activation queues one task per applied payment in `csv/welcomes.csv`, committed with activation
   state. After publication, delivery runs `scheduler.py welcome`. The worker also idempotently
   creates a missing welcome row for every ACTIVE subscriber `applied_payment_refs` value. This
@@ -263,7 +263,7 @@ Acceptance checks for edge cases:
 No new secrets or Meta templates are required for these changes. Review requests need regular
 administrator attention; no automatic payment approval or reconciliation is introduced.
 Activation/renewal approval continues to queue a welcome-status record after publication using
-`daily_darshan_delivery_update`. Welcome, renewal and delivery retain separate audit CSVs but
+`daily_darshan_delivery_update1`. Welcome, renewal and delivery retain separate audit CSVs but
 share the maximum-one-per-day date+mobile reservation in `sentlog.csv`.
 Run `pytest -q` including `tests/test_product_journey.py`; live acceptance must additionally
 exercise each menu using the configured production sender and verify Meta callbacks.
@@ -323,7 +323,7 @@ depends on Meta's assigned category and current country rate; verify both in Wha
 3. **Submit and get the template approved** in WhatsApp Manager (see caveat below). Suggested body:
    > "Radhe Radhe {{1}} Ji, Your Daily Darshan delivery status has been updated. It is your personalised link. Do not share this link with others."
 
-   Use template name `daily_darshan_delivery_update`, language `en`, body variable
+   Use template name `daily_darshan_delivery_update1`, language `en`, body variable
    `{{1}}` for the customer name, and a dynamic **Visit website** button labelled
    **Daily Darshan** with URL `https://vipseva.com/{{1}}`. The button's `{{1}}` receives
    only the subscriber's unguessable subscription ID; Meta appends it to the URL prefix.
