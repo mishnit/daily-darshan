@@ -1,5 +1,29 @@
 # Daily Darshan — Sequence Diagrams
 
+## Webhook snapshot and bounded reply processing
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Web as Webhook
+    participant Git as Git main
+    participant Meta
+    User->>Web: Inbound message
+    Web->>Git: Read branch head and immutable snapshot
+    Note over Web,Git: Reuse only a successfully loaded baseline and unchanged blobs
+    Web->>Web: Apply state and reserve up to five replies for this customer
+    Web->>Git: Commit state and reservations
+    Git-->>Web: Commit accepted
+    Web->>Meta: Send reserved replies
+    Meta-->>Web: Acceptance or definitive failure or ambiguous result
+    Web->>Git: Persist results
+    Note over Web,Git: Ambiguous sends remain blocked for reconciliation
+```
+
+The retry endpoint uses the same bounded preparation across customers. A status-only
+callback does not drain unrelated replies. Commit failures before sending abort the
+send; failures after sending require reconciliation rather than blind retries.
+
 These diagrams show **when** each operation runs and **at what stage it writes to
 local disk vs. the shared GitHub repo (`main` branch)**.
 
