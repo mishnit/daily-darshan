@@ -418,6 +418,10 @@ def _send_menu(c, mobile: str) -> None:
     """Show actions appropriate to entitlement and the current checkout."""
     sub = c.subscribers.find(mobile)
     payment = _checkout_payment(c, mobile)
+    # An abandoned unpaid checkout may outlive a deleted subscriber row.
+    # Restart signup, but retain payment evidence and reviewed/approved states.
+    if not sub and payment and payment.status.value == "PENDING" and not payment.utr:
+        payment = None
     rows = [("CTA_STATUS", "Subscription status", "Check your subscription")] if sub and sub.end_date else []
     body = "🙏 Radhe Radhe! Choose an option below."
     if payment:

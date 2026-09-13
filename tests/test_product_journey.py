@@ -168,6 +168,46 @@ def test_new_user_menu_and_incomplete_signup(container):
     assert container.payments.all() == []
 
 
+def test_orphaned_unpaid_checkout_restarts_signup_without_deleting_payment(container):
+    import main
+    container.whatsapp = FakeWhatsApp()
+    payment = container.payment_service.create_payment("9199", "yearly")
+    before = payment.to_row()
+    main._send_menu(container, "9199")
+    assert container.whatsapp.sent[-1]["rows"] == ["CTA_SUBSCRIBE"]
+    assert "Payment instructions" not in container.whatsapp.sent[-1]["body"]
+    assert container.payments.find(payment.reference_id).to_row() == before
+    # An old Payment instructions button must also lead to plan selection.
+    main._handle_message(container, "9199", "button", "CTA_PAYMENT")
+    assert "PLAN_yearly" in container.whatsapp.sent[-1]["rows"]
+    main._handle_message(container, "9199", "button", "PLAN_yearly")
+    assert container.subscribers.find("9199").awaiting_name
+    main._handle_message(container, "9199", "text", "Nitin")
+    assert container.whatsapp.sent[-1]["buttons"] == ["CTA_OPTIN_AGREE", "CTA_STOP"]
+    main._handle_message(container, "9199", "button", "CTA_OPTIN_AGREE")
+    assert payment.reference_id in container.whatsapp.sent[-1]["message"]
+    assert len(container.payments.all()) == 1
+
+
+@pytest.mark.parametrize("status,utr", [("PENDING", "123456789012"), ("FAILED", ""), ("SUCCESS", "")])
+def test_orphaned_payment_evidence_keeps_status_and_blocks_purchase(container, status, utr):
+    import main
+    from domain.enums import PaymentStatus
+    container.whatsapp = FakeWhatsApp()
+    payment = container.payment_service.create_payment("9199", "yearly")
+    payment.status = PaymentStatus(status)
+    payment.utr = utr
+    container.payments.update(payment)
+    before = payment.to_row()
+    main._send_menu(container, "9199")
+    assert container.whatsapp.sent[-1]["rows"] == ["CTA_PAYMENT"]
+    for cta in ["CTA_SUBSCRIBE", "CTA_RENEW", "PLAN_monthly"]:
+        main._handle_message(container, "9199", "button", cta)
+        assert payment.reference_id in container.whatsapp.sent[-1]["message"]
+    assert container.subscribers.find("9199") is None
+    assert [p.to_row() for p in container.payments.all()] == [before]
+
+
 @pytest.mark.parametrize("cta", ["PLAN_yearly", "CTA_SUBSCRIBE", "CTA_RENEW", "CTA_OPTIN_AGREE", "CTA_PAYMENT"])
 def test_rejected_payment_requires_admin_resolution(container, cta):
     import main

@@ -409,6 +409,10 @@ Details:
 
 - New users see View plans, not Subscription status. Incomplete signup returns to the
   missing name or consent step when the user sends MENU / Radhe Radhe.
+- If a subscriber record is missing but an old PENDING payment without UTR remains,
+  show View plans and require name/consent again. Menu navigation preserves the payment;
+  selecting the same plan reuses its reference. Submitted UTR, rejected and approved
+  payments remain status-only until resolved, even without a subscriber record.
 - Active users see Subscription status and Renew / extend. Expired users see an expiry
   notice and View renewal plans. Active opted-out users additionally see Resume messages:
   explicit consent restores delivery without another payment.
