@@ -741,6 +741,23 @@ payment (Tech Doc §6/§15).
   Legacy verified payments without markers require reconciliation before reapplication; see
   [release and recovery checklist](./DEPLOYMENT.md#safety-changes-release-and-recovery-checklist).
 - Prefer the CLI over manual payment/subscriber edits so entitlement markers remain consistent.
+- **Manual subscription activation:** use this recovery path only after independently verifying the
+  payment. Update the subscriber's existing row in `csv/subscribers.csv` as follows:
+  1. Set `status` to `ACTIVE` and enter the verified plan, start date and end date.
+  2. Preserve the existing `subscription_id`; never create a second subscriber row or page ID for
+     the same mobile number.
+  3. Append the verified payment reference to the semicolon-separated `applied_payment_refs` field.
+     Do not remove references that have already been applied.
+  4. Commit and push `csv/subscribers.csv` to `main`, then manually run **Regenerate Daily Pages**.
+  5. Wait for the automatically chained **Deploy Daily Darshan Pages** and **Daily Delivery**
+     workflows. During Daily Delivery's welcome phase, the worker creates any missing
+     payment-keyed `csv/welcomes.csv` row as `QUEUED`, verifies the public subscriber page and
+     sends the welcome if that subscriber's daily contact slot is available. The regeneration
+     workflow itself does not create or send the welcome.
+
+  If today's contact slot was already used by a welcome, renewal or delivery, the welcome remains
+  `QUEUED` for a later eligible run. Check `csv/welcomes.csv`, `csv/sentlog.csv` and the Daily
+  Delivery logs before retrying; do not blindly resend `PENDING` or `UNKNOWN` attempts.
 - **Override the daily image:** replace `docs/images/YYYY-MM-DD.jpg` and commit.
 - Git history serves as the audit trail for all of the above.
 
