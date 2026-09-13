@@ -278,7 +278,8 @@ def test_page_metadata_and_actual_activation_confirmation(container):
     sub = Subscriber("9199", "monthly", status=SubscriberStatus.ACTIVE,
                      subscription_id="opaque", end_date=date(2026, 8, 20))
     page = container.page_renderer.render_html(sub, TODAY, delivered=False)
-    assert "Your Daily Darshan subscription is active. Welcome!" in page
+    assert "Your Daily Darshan subscription is active till 2026-08-20" in page
+    assert "active. Welcome!" not in page
     session = SimpleNamespace(get=lambda *a, **k: SimpleNamespace(status_code=200, text=page))
     check = PublishedPageChecker("https://example.com", session)
     assert check(sub, TODAY)
