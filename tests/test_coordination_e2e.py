@@ -62,8 +62,7 @@ def _machine(tmp_path, name, repo, tracked, clock, plans):
     subs = CSVSubscriberRepository(str(root / "csv" / "subscribers.csv"))
     pays = CSVPaymentRepository(str(root / "csv" / "payments.csv"))
     logs = CSVLogRepository(str(root / "csv" / "logs.csv"))
-    rs = RepoSync(repo, str(root), tracked, enabled=True,
-                  quiet_window=("02:25", "03:10"), clock=clock)
+    rs = RepoSync(repo, str(root), tracked, enabled=True)
     svc = SubscriberService(subs, pays, plans, sentlog=None, logs=logs)
     return rs, svc, {"subscribers": subs, "payments": pays, "logs": logs}
 
@@ -92,8 +91,7 @@ def test_e2e_expiry_preserves_concurrent_webhook_optin(tmp_path, plans):
       - Repo starts with one ACTIVE-but-expired subscriber (9111).
       - Scheduler pulls the repo (sees 9111).
       - Webhook adds a brand-new subscriber (9222) and pushes to the repo
-        (outside the quiet window for this leg, to model an update that landed
-        just before the sweep's write).
+        (to model an update that landed just before the sweep's write).
       - Scheduler runs sweep_expired, which re-reads each candidate fresh, then
         pushes subscribers.csv back.
       - Final repo state must contain BOTH: 9111 EXPIRED and 9222 intact.
@@ -106,9 +104,7 @@ def test_e2e_expiry_preserves_concurrent_webhook_optin(tmp_path, plans):
     )
     _seed_repo(repo, [expired_sub])
 
-    # Scheduler machine (runs at 03:00 UTC -> pushes allowed via git in reality;
-    # here we model its Contents-API-equivalent push as always-on by using a
-    # clock outside the quiet window for its own push leg).
+    # Scheduler machine (runs via git in reality; here we model an equivalent push).
     sched_rs, sched_svc, sched_repos = _machine(
         tmp_path, "scheduler", repo, TRACKED, _clock_at(9, 0), plans)
 
@@ -149,31 +145,17 @@ def test_e2e_expiry_preserves_concurrent_webhook_optin(tmp_path, plans):
 
 
 def test_e2e_webhook_push_deferred_during_job_window(tmp_path, plans):
-    """A webhook write during the 02:25-03:10 window is deferred, so it cannot
-    overwrite the scheduler's in-flight commit; it flushes after the window."""
+    """Webhook persistence is immediate regardless of wall-clock time."""
     repo = FakeRepo()
     _seed_repo(repo, [])
 
-    now = {"t": _clock_at(2, 45)()}     # inside the quiet window
     web_rs, web_svc, web_repos = _machine(
-        tmp_path, "webhook", repo, TRACKED, lambda: now["t"], plans)
+        tmp_path, "webhook", repo, TRACKED, _clock_at(2, 45), plans)
 
     # Webhook handles a subscribe during the window.
     web_rs.pull()
     web_svc.upsert_pending("9555", "monthly", name="Deferred")
-    assert web_rs.push("Webhook during window") == []          # deferred
-    # Repo does not receive the new subscriber while the push is deferred.
-    assert "9555" not in repo.store.get("csv/subscribers.csv", b"").decode()
-
-    # Meanwhile the scheduler commits during the window (models the job write).
-    sched_rs, sched_svc, sched_repos = _machine(
-        tmp_path, "scheduler", repo, TRACKED, _clock_at(9, 0), plans)
-    sched_svc  # unused; scheduler writes directly via repo in reality
-    repo.store["csv/subscribers.csv"] = b"scheduler-wrote-this\n"
-
-    # Window closes: webhook's next push flushes its buffered local state.
-    now["t"] = _clock_at(3, 20)()
-    pushed = web_rs.push("Webhook after window")
+    pushed = web_rs.push("Webhook at scheduled-job time")
     assert "csv/subscribers.csv" in pushed
     assert "9555" in repo.store["csv/subscribers.csv"].decode()
 

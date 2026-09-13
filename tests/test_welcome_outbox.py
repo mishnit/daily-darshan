@@ -100,7 +100,7 @@ def test_production_webhook_commit_failure_sends_nothing(container):
     container.config["persistence"] = {"mode": "github_api"}
     def fail(*args, **kwargs):
         raise RuntimeError("push failed")
-    container.repo_sync = SimpleNamespace(enabled=True, in_quiet_window=lambda: False,
+    container.repo_sync = SimpleNamespace(enabled=True,
         pull=lambda **kw: None, push=fail, abort=lambda: None)
     container.whatsapp = SimpleNamespace(send_buttons=lambda *a: pytest.fail("premature reply"))
     payload = {"entry": [{"changes": [{"value": {"messages": [

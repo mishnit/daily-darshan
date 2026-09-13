@@ -48,4 +48,4 @@ def test_whatsapp_templates_match_documented_meta_configuration():
     assert config["delivery"]["template_lang"] == "en"
     assert config["renewal"]["template_name"] == "daily_darshan_delivery_update"
     assert config["renewal"]["template_lang"] == "en"
-    assert config["persistence"]["quiet_window_utc"] == {"start": "", "end": ""}
+    assert "quiet_window_utc" not in config["persistence"]

@@ -311,8 +311,8 @@ WhatsApp secrets as environment variables on the host.
 > failure before commit leaves the request unacknowledged. This trades latency for durability;
 > slow GitHub/WhatsApp calls can cause redelivery. Interactive replies are not exactly-once.
 > A durable queue remains the recommended upgrade for higher throughput. Production fails
-> closed when persistence is unavailable. If a legacy quiet window is enabled, it returns 503
-> before handling rather than accepting ephemeral deferred writes.
+> closed when persistence is unavailable or a repository conflict prevents a durable commit;
+> it returns 503 so Meta can retry.
 
 Steps:
   1. Push the repo to GitHub.
@@ -693,9 +693,9 @@ Because both write CSVs on `main`, two mechanisms reduce clobbering risk:
    `logs.csv` writes are append-only; scheduled cleanup atomically removes rows outside the
    30-day window.
 
-2. **Optimistic conflict handling.** The webhook now pushes immediately; the quiet window is
-   disabled because event-driven/manual workflows cannot be safely bracketed by a fixed clock
-   window and deferred writes on Render's ephemeral disk can be lost. GitHub API writes reject a
+2. **Optimistic conflict handling.** The webhook pushes immediately. Event-driven/manual workflows
+   cannot be safely bracketed by a fixed clock window, and deferred writes on Render's ephemeral
+   disk can be lost. GitHub API writes reject a
    stale snapshot: one tree commit contains all webhook CSV changes and a non-force branch update
    rejects a concurrent advance. The handler restores its local snapshot and requests redelivery.
    Scheduler pushes pull/rebase once and fail visibly rather than force-pushing.

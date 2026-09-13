@@ -54,7 +54,7 @@ def test_production_utr_ack_is_persisted_and_sent_once(container, text):
     commits = []
     def persist(*args, **kwargs):
         commits.append([dict(row) for row in container.reply_outbox.all()])
-    container.repo_sync = SimpleNamespace(enabled=True, in_quiet_window=lambda: False,
+    container.repo_sync = SimpleNamespace(enabled=True,
         pull=lambda **kw: None, push=persist, abort=lambda: None)
     container.whatsapp = FakeWhatsApp()
     payment = container.payment_service.create_payment("9199", "monthly")

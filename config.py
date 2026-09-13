@@ -184,12 +184,7 @@ class Container:
             paths.get("reply_retries_csv", "csv/reply_retries.csv"),
             paths.get("referrals_csv", "csv/referrals.csv"),
         ]
-        # Quiet window (UTC) during which the webhook defers pushes so it does
-        # not write on top of an in-flight scheduler job. The exact bracket is
-        # configured alongside the actual Actions UTC schedules in config.json.
-        window = persistence.get("quiet_window_utc", {})
-        quiet_window = (window.get("start", ""), window.get("end", ""))
-        return RepoSync(github, self.root, tracked, enabled, quiet_window=quiet_window)
+        return RepoSync(github, self.root, tracked, enabled)
 
     def _build_validator(self) -> ImageValidator:
         v = self.config.get("image_validation", {})

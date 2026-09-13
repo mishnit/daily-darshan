@@ -151,7 +151,7 @@ def test_worker_retries_without_new_customer_message_and_cooldown_keeps_current_
     calls = prepare(container)
     container.payment_service.create_payment("9199", "monthly")
     container.config["persistence"] = {"mode": "github_api"}
-    container.repo_sync = SimpleNamespace(enabled=True, in_quiet_window=lambda: False,
+    container.repo_sync = SimpleNamespace(enabled=True,
         pull=lambda **kw: None, push=lambda *a, **kw: None, abort=lambda: None)
     def reject(*args):
         calls.append(args)

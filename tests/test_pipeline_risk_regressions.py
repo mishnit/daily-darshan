@@ -80,7 +80,7 @@ def test_production_templates_and_immediate_render_persistence_are_configured():
         "template_name": "daily_darshan_delivery_update",
         "template_lang": "en",
     } == config["renewal"]
-    assert config["persistence"]["quiet_window_utc"] == {"start": "", "end": ""}
+    assert "quiet_window_utc" not in config["persistence"]
 
 
 def test_operator_docs_do_not_restore_obsolete_crons_or_legacy_pages_mode():

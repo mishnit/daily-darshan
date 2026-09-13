@@ -28,8 +28,9 @@ Three kinds of flows:
 | Admin verification | `admin.py` (manual) | any | Only with `--commit` |
 | renewal reminder opt-out (STOP) | inside POST | any | Yes (via the POST push) |
 
-The Render quiet window is disabled. Fixed windows cannot cover delayed or manual Actions runs,
-and deferred writes on ephemeral disk can be lost. Writes use optimistic conflict handling.
+Webhook persistence has no clock-based quiet window. Fixed windows cannot cover delayed or
+manual Actions runs, and deferred writes on ephemeral disk can be lost. Repository conflicts
+fail closed and request retry.
 
 ---
 
@@ -518,7 +519,7 @@ sequenceDiagram
   completion triggers one Pages deployment; successful publication triggers delivery.
 - **All webhook operations are event-driven** (no fixed time): verification, subscribe, plan,
   name, opt-in, UTR, opt-out. They publish the state transaction before HTTP acknowledgement.
-  Failures request retries with 503. The quiet window is disabled because manual/delayed workflows
-  cannot be bracketed reliably and Render's deferred local state is ephemeral.
+  Failures request retries with 503. Manual/delayed workflows use repository conflict detection;
+  no fixed time window makes the webhook unavailable.
 - **Admin verification is manual** (run whenever a real payment is confirmed) and only writes
   to the repo when `--commit` is passed.
