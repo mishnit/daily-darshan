@@ -13,6 +13,17 @@ def _workflow(name: str) -> str:
     return (WORKFLOWS / name).read_text(encoding="utf-8")
 
 
+def test_ci_blocks_removed_files_and_test_definitions():
+    ci = _workflow("ci.yml")
+
+    assert "Block removed files and test definitions" in ci
+    assert 'git diff --diff-filter=D --name-status "$BASE_SHA"...HEAD' in ci
+    assert "::error title=Files removed::" in ci
+    assert "Restore them before merging" in ci
+    assert "^-.*def test_|^-.*class Test" in ci
+    assert "::error title=Tests removed::" in ci
+
+
 def test_automatic_chain_publishes_before_whatsapp_delivery():
     image = _workflow("image.yml")
     deploy = _workflow("deploy-pages.yml")

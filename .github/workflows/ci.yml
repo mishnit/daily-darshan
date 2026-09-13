@@ -21,20 +21,24 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -r requirements.txt pytest httpx
-      - name: Alert on removed tests
+      - name: Block removed files and test definitions
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          deleted_files="$(git diff --name-status "$BASE_SHA"...HEAD -- tests/ | awk '$1 == "D"')"
+          deleted_files="$(git diff --diff-filter=D --name-status "$BASE_SHA"...HEAD)"
           removed_tests="$(git diff -U0 "$BASE_SHA"...HEAD -- tests/ | grep -E '^-.*def test_|^-.*class Test' || true)"
-          if [ -n "$deleted_files" ] || [ -n "$removed_tests" ]; then
-            echo "::error title=Tests removed::This pull request deletes test files or test definitions"
-            [ -z "$deleted_files" ] || echo "$deleted_files"
-            [ -z "$removed_tests" ] || echo "$removed_tests"
+          if [ -n "$deleted_files" ]; then
+            echo "::error title=Files removed::This pull request deletes tracked files. Restore them before merging."
+            echo "$deleted_files"
             exit 1
           fi
-          echo "No test files or test definitions were removed."
+          if [ -n "$removed_tests" ]; then
+            echo "::error title=Tests removed::This pull request removes test definitions or test classes"
+            echo "$removed_tests"
+            exit 1
+          fi
+          echo "No tracked files or test definitions were removed."
       - name: Run tests
         run: pytest -q
