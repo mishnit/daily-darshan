@@ -34,9 +34,10 @@ def test_native_share_caption_excludes_personal_page_and_image_url():
     assert "https://vipseva.com/?ref=9199" in parser.text
     assert "private-token" not in parser.text
     assert "/images/" not in parser.text
-    note = '<p class="privacy-note">This page is personal to you. To share Darshan, use the button below.</p>'
+    note = '<p class="privacy-note">This page is personal to you and should not be shared directly. To share Darshan image, use the button below</p>'
     button = '<button id="share-darshan" type="button" hidden>📲 Share Darshan with family &amp; friends on whatsapp</button>'
     assert page.count(note) == 1
+    assert "Your personal page link won't be included" not in page
     assert page.index('class="share"') < page.index(note)
     assert page.split(note, 1)[1].lstrip().startswith(button)
 
