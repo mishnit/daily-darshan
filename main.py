@@ -412,6 +412,22 @@ def _has_active_subscription(c, mobile):
                 and sub.end_date >= today)
 
 
+def _larger_plan_names(c, mobile: str) -> list[str]:
+    """Return configured plans strictly larger than an active subscriber's plan."""
+    sub = c.subscribers.find(mobile)
+    if not _has_active_subscription(c, mobile) or not sub:
+        return list(c.config["plans"])
+    current = c.config["plans"].get(sub.plan)
+    if not current:
+        return []
+    current_rank = (int(current.get("days", 0)), float(current.get("amount", 0)))
+    return [
+        plan
+        for plan, meta in c.config["plans"].items()
+        if (int(meta.get("days", 0)), float(meta.get("amount", 0))) > current_rank
+    ]
+
+
 def _send_menu(c, mobile: str) -> None:
     """Show actions appropriate to entitlement and the current checkout."""
     sub = c.subscribers.find(mobile)
@@ -420,6 +436,8 @@ def _send_menu(c, mobile: str) -> None:
     # Restart signup, but retain payment evidence and reviewed/approved states.
     if not sub and payment and payment.status.value == "PENDING" and not payment.utr:
         payment = None
+    active = _has_active_subscription(c, mobile)
+    larger_plans = _larger_plan_names(c, mobile) if active else []
     rows = [("CTA_STATUS", "Subscription status", "Check your subscription")] if sub and sub.end_date else []
     body = "🙏 Radhe Radhe! Choose an option below."
     locked_payment = bool(payment and payment.status.value != "PENDING")
@@ -434,16 +452,18 @@ def _send_menu(c, mobile: str) -> None:
         reviewing = payment.utr or payment.status.value != "PENDING"
         rows.append(("CTA_PAYMENT", "Payment status" if reviewing else "Payment instructions",
                      "View your payment details"))
-        if payment.status.value == "PENDING":
-            rows.append(("CTA_RENEW", "Change plan", "Choose a different plan"))
+        if payment.status.value == "PENDING" and (not active or larger_plans):
+            rows.append(("CTA_RENEW", "Extend plan" if active else "Change plan",
+                         "Choose a larger plan" if active else "Choose a different plan"))
         if reviewing:
             body = _payment_status_text(c, payment)
             if payment.status.value == "FAILED":
                 rows.append(("CTA_PAYMENT_REVIEW", "Request review", "Ask the administrator to recheck payment"))
-    elif _has_active_subscription(c, mobile):
+    elif active:
         if not sub.opt_in:
             rows.append(("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
-        rows.append(("CTA_RENEW", "Renew / extend", "Add days to your subscription"))
+        if larger_plans:
+            rows.append(("CTA_RENEW", "Extend plan", "Choose a larger plan"))
     else:
         rows.append(("CTA_RENEW", "View renewal plans", "Renew your subscription") if sub and sub.end_date
                     else ("CTA_SUBSCRIBE", "View plans", "Choose a plan"))
@@ -466,12 +486,23 @@ def _send_plan_list(c, mobile: str) -> None:
     if payment and payment.status.value != "PENDING":
         _resume_conversation(c, mobile)
         return
+    plan_names = _larger_plan_names(c, mobile)
+    if _has_active_subscription(c, mobile) and not plan_names:
+        sub = c.subscribers.find(mobile)
+        _require_send(c.whatsapp.send_text(
+            mobile,
+            f"You already have the largest available plan: {sub.plan.capitalize()}. "
+            "Send MENU to check your subscription status.",
+        ), "plan list")
+        return
     rows = []
-    for plan, meta in c.config["plans"].items():
+    for plan in plan_names:
+        meta = c.config["plans"][plan]
         amount = meta.get("amount")
         days = meta.get("days")
         rows.append((f"PLAN_{plan}", plan.capitalize(), f"₹{amount} · {days} days"))
-    result = c.whatsapp.send_list(mobile, "Choose your Daily Darshan plan:", "View plans", rows)
+    prompt = "Choose a larger Daily Darshan plan:" if _has_active_subscription(c, mobile) else "Choose your Daily Darshan plan:"
+    result = c.whatsapp.send_list(mobile, prompt, "View plans", rows)
     _require_send(result, "plan list")
 
 
@@ -593,6 +624,9 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
                 _send_plan_list(c, mobile)
                 return
             sub = c.subscribers.find(mobile)
+            if _has_active_subscription(c, mobile) and plan not in _larger_plan_names(c, mobile):
+                _send_plan_list(c, mobile)
+                return
             if sub and sub.end_date:
                 # A checkout must not alter the paid plan or entitlement before approval.
                 if payment is None or payment.plan != plan:
@@ -719,7 +753,7 @@ def _handle_opt_out(c, mobile: str) -> None:
 
 
 def _handle_renew(c, mobile: str, name: str = "") -> None:
-    """Returning subscribers can choose any plan; do not silently rebuy the old one."""
+    """Active subscribers may extend only to a strictly larger configured plan."""
     _send_plan_list(c, mobile)
 
 
@@ -788,7 +822,8 @@ def _send_subscription_status(c, mobile):
         message = "You do not have a subscription yet. Send MENU to view plans."
     else:
         status = "expired" if sub.is_expired(datetime.now(ZoneInfo("Asia/Kolkata")).date()) else sub.status.value.lower()
-        message = (f"Your Daily Darshan subscription is {status}. Expiry: {sub.end_date or 'not activated'}. "
+        message = (f"Your Daily Darshan subscription is {status}. Current plan: {sub.plan.capitalize()}. "
+                   f"Expiry: {sub.end_date or 'not activated'}. "
                    f"Messages: {'enabled' if sub.opt_in else 'stopped'}. Send MENU for options.")
     payment = _checkout_payment(c, mobile)
     if payment:
@@ -810,10 +845,11 @@ def _payment_status_text(c, payment):
             return f"Payment {ref} is approved. Subscription activation is being completed; please do not pay again."
         return f"Payment {ref} is approved. Your Darshan page is being prepared; publication is awaiting confirmation."
     if payment.utr:
+        plan_action = "Extend plan" if _has_active_subscription(c, payment.mobile) else "Change plan"
         return (f"Payment verification pending for {ref}. Please allow the admin time to verify it. "
                 f"If you have already made payment, please confirm your UTR in this format: "
                 f"UTR {ref} 123456789012 (replace the last 12 digits with your UTR). "
-                "You may choose Change plan, but do not pay again if this payment is already complete.")
+                f"You may choose {plan_action}, but do not pay again if this payment is already complete.")
     return f"Payment {ref} is awaiting payment. Send MENU and select Payment instructions."
 
 
