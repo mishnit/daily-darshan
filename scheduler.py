@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -220,7 +221,8 @@ def run_pages(container: Container, git: LocalGitRepository, on_date: date,
 
     This intentionally does not construct an image collector or fetch any
     remote source. A manual Actions run can therefore repair pages or switch
-    them to another candidate already stored by today's image workflow.
+    them to another stored candidate. Missing/invalid images fall back to the
+    latest valid earlier asset of the same source, without fetching or renaming.
     """
     selected_source = image_source.strip().lower().replace("-", "_") or "canonical"
     if selected_source in {"canonical", "auto"}:
@@ -240,6 +242,36 @@ def run_pages(container: Container, git: LocalGitRepository, on_date: date,
     image_bytes = git.read_file(image_path)
     image = Image(on_date, image_bytes or b"", source=f"stored_{image_label}")
     if not image_bytes or not container.image_validator.validate(image):
+        # Search only retained dated assets for the requested source. Never
+        # relabel yesterday's bytes as today's image or select a future image.
+        images_dir = container.config["paths"]["images_dir"]
+        directory = os.path.join(getattr(container, "root", "."), images_dir)
+        suffix = "" if image_label == "canonical" else "_" + re.escape(image_label)
+        pattern = re.compile(
+            r"^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_)?"
+            + r"(\d{4}-\d{2}-\d{2})" + suffix + r"\.jpg$", re.I)
+        candidates = []
+        for name in sorted(os.listdir(directory)) if os.path.isdir(directory) else []:
+            match = pattern.fullmatch(name)
+            if not match:
+                continue
+            try:
+                stored_date = date.fromisoformat(match.group(1))
+            except ValueError:
+                continue
+            if stored_date < on_date:
+                candidates.append((stored_date, name))
+        for stored_date, name in sorted(candidates, reverse=True):
+            previous_path = os.path.join(images_dir, name)
+            previous_bytes = git.read_file(previous_path)
+            if previous_bytes and container.image_validator.validate(
+                    Image(stored_date, previous_bytes, source=f"stored_{image_label}")):
+                image_path, image_bytes = previous_path, previous_bytes
+                print(f"[pages] using previous image date={stored_date} source={image_label} path={image_path}")
+                break
+        else:
+            image_bytes = None
+    if not image_bytes:
         print(
             f"[pages] FAILED: no valid stored image for source={image_label} at {image_path}",
             file=sys.stderr,
@@ -253,7 +285,7 @@ def run_pages(container: Container, git: LocalGitRepository, on_date: date,
     )
     container.logs.log(
         "PAGES_REGENERATED",
-        details=f"{on_date.isoformat()}:count={len(pages)}:source={image_label}",
+        details=f"{on_date.isoformat()}:count={len(pages)}:source={image_label}:image={image_path}",
     )
     committed = list(pages)
     logs_path = container.config["paths"].get("logs_csv")
