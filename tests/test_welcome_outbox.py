@@ -3,9 +3,11 @@ from types import SimpleNamespace
 import pytest
 import admin
 from application.ports.whatsapp import WhatsAppResult
-from application.welcome_service import drain_welcomes
+from application.welcome_service import drain_welcomes, queue_missing_welcomes
 from application.reply_outbox import QueuedReplies, drain_replies
 from tests.test_admin import container
+from domain.enums import SubscriberStatus
+from domain.subscriber import Subscriber
 
 
 def activate(c, commit=False):
@@ -73,6 +75,75 @@ def test_unknown_welcome_is_not_retried(container, monkeypatch):
     for _ in range(2):
         assert drain_welcomes(container, date.today(), lambda: None, lambda *a: True) == 1
     assert len(calls) == 1
+
+
+def test_manual_active_applied_reference_queues_welcome_once_and_preserves_page(container):
+    subscription_id = "stable-personal-page"
+    container.subscribers.append(Subscriber(
+        mobile="9199", plan="monthly", status=SubscriberStatus.ACTIVE,
+        start_date=date.today(), end_date=date.today(), opt_in=True,
+        subscription_id=subscription_id, name="Nitin",
+        applied_payment_refs="DD2609130001",
+    ))
+    assert queue_missing_welcomes(container) == (1, 0)
+    assert queue_missing_welcomes(container) == (0, 0)
+    assert container.welcomes.find("DD2609130001")["status"] == "QUEUED"
+    assert container.subscribers.find("9199").subscription_id == subscription_id
+
+
+def test_unapplied_manual_welcome_is_cancelled_instead_of_blocking(container, monkeypatch):
+    container.subscribers.append(Subscriber(
+        mobile="9199", plan="monthly", status=SubscriberStatus.ACTIVE,
+        start_date=date.today(), end_date=date.today(), opt_in=True,
+        subscription_id="stable", name="Nitin",
+    ))
+    container.welcomes.upsert("not-applied", {
+        "reference_id": "not-applied", "mobile": "9199", "status": "QUEUED",
+    })
+    monkeypatch.setattr(container.delivery_service, "send_welcome", lambda *_: pytest.fail("must not send"))
+    assert drain_welcomes(container, date.today(), lambda: None, lambda *_: True) == 0
+    row = container.welcomes.find("not-applied")
+    assert row["status"] == "CANCELLED"
+    assert "not applied" in row["error"]
+
+
+def test_successful_welcome_consumes_shared_daily_contact_slot(container, monkeypatch):
+    admin.cmd_verify(container, activate(container))
+    monkeypatch.setattr(
+        container.delivery_service, "send_welcome",
+        lambda *_: WhatsAppResult(ok=True, message_id="wamid.welcome"),
+    )
+    assert drain_welcomes(container, date.today(), lambda: None, lambda *_: True) == 0
+    assert container.welcomes.all()[0]["status"] == "SENT"
+    assert container.sentlog.was_sent(date.today(), "9199")
+    assert container.sentlog.all()[0]["image"].startswith("welcome:")
+
+    container.message_statuses.record("wamid.welcome", "delivered")
+    drain_welcomes(container, date.today(), lambda: None, lambda *_: True)
+    assert container.welcomes.all()[0]["status"] == "DELIVERED"
+    assert container.sentlog.all()[0]["status"] == "DELIVERED"
+
+
+def test_definitive_welcome_failure_releases_daily_contact_slot(container, monkeypatch):
+    admin.cmd_verify(container, activate(container))
+    monkeypatch.setattr(
+        container.delivery_service, "send_welcome",
+        lambda *_: WhatsAppResult(ok=False, error="template rejected"),
+    )
+    assert drain_welcomes(container, date.today(), lambda: None, lambda *_: True) == 1
+    assert container.welcomes.all()[0]["status"] == "FAILED"
+    assert not container.sentlog.was_sent(date.today(), "9199")
+
+
+def test_queued_welcome_waits_when_daily_slot_is_already_used(container, monkeypatch):
+    admin.cmd_verify(container, activate(container))
+    container.sentlog.append({
+        "date": date.today().isoformat(), "mobile": "9199", "image": "renewal:1_DAY",
+        "whatsapp_message_id": "wamid.renewal", "status": "SENT",
+    })
+    monkeypatch.setattr(container.delivery_service, "send_welcome", lambda *_: pytest.fail("must wait"))
+    assert drain_welcomes(container, date.today(), lambda: None, lambda *_: True) == 0
+    assert container.welcomes.all()[0]["status"] == "QUEUED"
 
 
 def test_reply_reservation_failure_prevents_network(container):
