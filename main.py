@@ -424,7 +424,7 @@ def _send_menu(c, mobile: str) -> None:
         payment = None
     rows = [("CTA_STATUS", "Subscription status", "Check your subscription")] if sub and sub.end_date else []
     body = "🙏 Radhe Radhe! Choose an option below."
-    locked_payment = bool(payment and (payment.utr or payment.status.value != "PENDING"))
+    locked_payment = bool(payment and payment.status.value != "PENDING")
     if sub and (not sub.end_date or payment) and not locked_payment and (sub.awaiting_name or not sub.name):
         c.subscriber_service.set_awaiting_name(mobile, True)
         body = "🙏 What name should we greet you by? Reply with your name, or choose another plan."
@@ -436,9 +436,9 @@ def _send_menu(c, mobile: str) -> None:
         reviewing = payment.utr or payment.status.value != "PENDING"
         rows.append(("CTA_PAYMENT", "Payment status" if reviewing else "Payment instructions",
                      "View your payment details"))
-        if not reviewing:
+        if payment.status.value == "PENDING":
             rows.append(("CTA_RENEW", "Change plan", "Choose a different plan"))
-        else:
+        if reviewing:
             body = _payment_status_text(c, payment)
             if payment.status.value == "FAILED":
                 rows.append(("CTA_PAYMENT_REVIEW", "Request review", "Ask the administrator to recheck payment"))
@@ -465,7 +465,7 @@ def _send_menu(c, mobile: str) -> None:
 def _send_plan_list(c, mobile: str) -> None:
     """Send the plan catalog as a tappable list (ids = PLAN_<plan>)."""
     payment = _checkout_payment(c, mobile)
-    if payment and (payment.utr or payment.status.value != "PENDING"):
+    if payment and payment.status.value != "PENDING":
         _resume_conversation(c, mobile)
         return
     rows = []
@@ -527,7 +527,7 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
     # ---------------- Button / list taps (CTAs) ---------------- #
     if kind == "button":
         payment = _checkout_payment(c, mobile)
-        if (payment and (payment.utr or payment.status.value != "PENDING")
+        if (payment and payment.status.value != "PENDING"
                 and (value in {"CTA_SUBSCRIBE", "CTA_RENEW"} or value.startswith("PLAN_"))):
             _resume_conversation(c, mobile)
             return
@@ -688,7 +688,7 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         if payment is None:
             _send_menu(c, mobile)
             return
-        if payment.utr:
+        if payment.utr and not referenced_utr:
             _resume_conversation(c, mobile)
             return
         c.payment_service.record_utr(
@@ -731,7 +731,7 @@ def _start_payment(c, mobile: str, plan: str, returning: bool = False) -> None:
     `returning=True` uses renewal wording for an existing subscriber.
     """
     payment = _checkout_payment(c, mobile)
-    if payment and (payment.utr or payment.status.value != "PENDING"):
+    if payment and payment.status.value != "PENDING":
         _require_send(c.whatsapp.send_text(mobile, _payment_status_text(c, payment)), "payment status")
         return
     if payment is None or payment.plan != plan:
@@ -812,7 +812,10 @@ def _payment_status_text(c, payment):
             return f"Payment {ref} is approved. Subscription activation is being completed; please do not pay again."
         return f"Payment {ref} is approved. Your Darshan page is being prepared; publication is awaiting confirmation."
     if payment.utr:
-        return f"Payment verification pending for {ref}. Please allow the admin time to verify your UTR; please do not pay again."
+        return (f"Payment verification pending for {ref}. Please allow the admin time to verify it. "
+                f"If you have already made payment, please confirm your UTR in this format: "
+                f"UTR {ref} 123456789012 (replace the last 12 digits with your UTR). "
+                "You may choose Change plan, but do not pay again if this payment is already complete.")
     return f"Payment {ref} is awaiting payment. Send MENU and select Payment instructions."
 
 
