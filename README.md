@@ -471,7 +471,7 @@ Details:
   Repeated verification reuses the same payment-keyed task. Opted-out recipients are cancelled.
   Production webhook replies likewise use a durable `csv/reply_outbox.csv` before sending.
   Both outboxes retain ambiguous attempts for reconciliation instead of blindly resending.
-  Subscriber pages encourage sharing through “Share Darshan with family & friends”.
+  Subscriber pages encourage sharing through “Share Darshan with family & friends on whatsapp”.
   On supported HTTPS browsers the native share sheet receives the actual image file and
   a VIP Seva referral caption, never the subscriber page URL. Users select WhatsApp.
   Download-image, copy-caption and explicitly labelled link-only fallbacks remain available.
