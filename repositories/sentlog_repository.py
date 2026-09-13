@@ -57,8 +57,10 @@ class CSVSentLogRepository(SentLogRepositoryPort):
         return False
 
     def prune_before(self, cutoff: date) -> int:
-        """Remove delivery entries older than cutoff, keeping malformed rows."""
+        """Remove old resolved entries; retain ambiguous attempts for reconciliation."""
         def keep(row: dict) -> bool:
+            if row.get("status") in {"PENDING", "UNKNOWN"}:
+                return True
             try:
                 return date.fromisoformat(row.get("date", "")) >= cutoff
             except (TypeError, ValueError):

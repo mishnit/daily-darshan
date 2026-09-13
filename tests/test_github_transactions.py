@@ -60,6 +60,28 @@ class GitServer:
         return Response({"object": {"sha": self.head}})
 
 
+def test_failed_commit_lookup_does_not_poison_snapshot(monkeypatch):
+    server = GitServer()
+    repo = GitHubApiRepository("owner/repo", session=server)
+    repo.begin_snapshot()
+    server.head = "next"
+    original = server.get
+
+    def fail_commit(url, **kwargs):
+        if "git/commits/" in url:
+            return Response(status=503)
+        return original(url, **kwargs)
+
+    monkeypatch.setattr(server, "get", fail_commit)
+    with pytest.raises(requests.HTTPError):
+        repo.begin_snapshot()
+    assert repo._base_commit == "base"
+    monkeypatch.setattr(server, "get", original)
+    repo.begin_snapshot()
+    assert repo._base_commit == "next"
+    assert not repo.snapshot_unchanged
+
+
 def test_git_reads_one_snapshot_even_if_branch_advances():
     server = GitServer()
     repo = GitHubApiRepository("owner/repo", session=server)

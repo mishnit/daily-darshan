@@ -163,11 +163,11 @@ class GitHubApiRepository(GitHubRepositoryPort):
         self._snapshot_unchanged = bool(
             previous_commit == next_commit and self._base_tree
         )
-        self._base_commit = next_commit
         if self._snapshot_unchanged:
             return
-        commit = self._api("get", f"git/commits/{self._base_commit}")
+        commit = self._api("get", f"git/commits/{next_commit}")
         self._base_tree = commit["tree"]["sha"]
+        self._base_commit = next_commit
 
     @property
     def snapshot_unchanged(self) -> bool:
