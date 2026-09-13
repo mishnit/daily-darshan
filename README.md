@@ -425,6 +425,11 @@ Details:
   UTR format so the customer can identify the checkout actually paid. Choosing another plan
   creates a new checkout; a customer who already paid must confirm the older paid-against
   reference as `UTR <reference> <12-digit UTR>` and must not pay again.
+- Sending a reference-qualified UTR again for the same payment corrects and replaces the
+  previously stored UTR; it never activates the subscription without administrator approval.
+- If administrators approve multiple genuine payments, every payment reference is applied
+  once and contributes its purchased days. The subscriber retains the longest approved plan
+  as the active plan, so approving a smaller payment later cannot downgrade the plan label.
 - Payment instructions/Payment status opens the current checkout or review details.
   STATUS reports entitlement, consent and any pending payment separately. Send MENU for
   available actions. Existing subscribers retain Subscription status while paying or renewing.

@@ -79,6 +79,17 @@ def test_payment_status_during_review_explains_reference_qualified_utr(container
     assert "Change plan" in message
 
 
+def test_reference_qualified_utr_correction_overwrites_previous_value(container):
+    import main
+    setup_sub(container)
+    main._handle_message(container, "9199", "button", "PLAN_monthly")
+    payment = container.payments.all()[0]
+    main._handle_message(container, "9199", "text", f"UTR {payment.reference_id} 123456789012")
+    main._handle_message(container, "9199", "text", f"UTR {payment.reference_id} 999999999999")
+    assert container.payments.find(payment.reference_id).utr == "999999999999"
+    assert "admin will review" in container.whatsapp.sent[-1]["message"]
+
+
 @pytest.mark.parametrize("action", ["CTA_SUBSCRIBE", "CTA_RENEW", "CTA_BACK"])
 def test_review_state_legacy_navigation_is_not_blocked(container, action):
     import main
