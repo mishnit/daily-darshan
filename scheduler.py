@@ -308,7 +308,8 @@ def _prepare_contact_safety(container, git):
     container.sentlog.persist = lambda: git.commit(files, "Persist daily WhatsApp contact slot")
     from adapters.published_page import PublishedPageChecker
     checker = PublishedPageChecker(container.config.get("delivery", {}).get("page_base_url", ""))
-    container.delivery_service.publication_check = checker
+    container.delivery_service.publication_check = PublishedPageChecker(
+        container.config.get("delivery", {}).get("page_base_url", ""), require_current_image=True)
     container.renewal_service.publication_check = checker
 
 

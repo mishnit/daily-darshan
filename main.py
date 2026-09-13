@@ -424,7 +424,15 @@ def _send_menu(c, mobile: str) -> None:
         payment = None
     rows = [("CTA_STATUS", "Subscription status", "Check your subscription")] if sub and sub.end_date else []
     body = "🙏 Radhe Radhe! Choose an option below."
-    if payment:
+    locked_payment = bool(payment and (payment.utr or payment.status.value != "PENDING"))
+    if sub and (not sub.end_date or payment) and not locked_payment and (sub.awaiting_name or not sub.name):
+        c.subscriber_service.set_awaiting_name(mobile, True)
+        body = "🙏 What name should we greet you by? Reply with your name, or choose another plan."
+        rows.append(("CTA_SUBSCRIBE", "Change plan", "Choose a different plan"))
+    elif sub and not sub.opt_in and not sub.end_date and not locked_payment:
+        _request_opt_in(c, mobile)
+        return
+    elif payment:
         reviewing = payment.utr or payment.status.value != "PENDING"
         rows.append(("CTA_PAYMENT", "Payment status" if reviewing else "Payment instructions",
                      "View your payment details"))
@@ -432,22 +440,19 @@ def _send_menu(c, mobile: str) -> None:
             rows.append(("CTA_RENEW", "Change plan", "Choose a different plan"))
         else:
             body = _payment_status_text(c, payment)
+            if payment.status.value == "FAILED":
+                rows.append(("CTA_PAYMENT_REVIEW", "Request review", "Ask the administrator to recheck payment"))
     elif _has_active_subscription(c, mobile):
         if not sub.opt_in:
             rows.append(("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
         rows.append(("CTA_RENEW", "Renew / extend", "Add days to your subscription"))
-    elif sub and not sub.end_date and (sub.awaiting_name or not sub.name):
-        c.subscriber_service.set_awaiting_name(mobile, True)
-        body = "🙏 What name should we greet you by? Reply with your name, or choose another plan."
-        rows.append(("CTA_SUBSCRIBE", "Change plan", "Choose a different plan"))
-    elif sub and not sub.end_date and not sub.opt_in:
-        _request_opt_in(c, mobile)
-        return
     else:
         rows.append(("CTA_RENEW", "View renewal plans", "Renew your subscription") if sub and sub.end_date
                     else ("CTA_SUBSCRIBE", "View plans", "Choose a plan"))
         if sub and sub.is_expired(datetime.now(ZoneInfo("Asia/Kolkata")).date()):
             body = f"Your subscription expired on {sub.end_date}. Choose a renewal plan."
+    if _has_active_subscription(c, mobile) and not sub.opt_in and not any(r[0] == "CTA_RESUME_MESSAGES" for r in rows):
+        rows.append(("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
     result = c.whatsapp.send_list(
         mobile,
         body,
@@ -532,11 +537,31 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         if value == "CTA_PAYMENT":
             _resume_conversation(c, mobile)
             return
+        if value == "CTA_PAYMENT_REVIEW":
+            if payment and payment.status.value == "FAILED":
+                c.logs.log("PAYMENT_REVIEW_REQUESTED", mobile, payment.reference_id)
+                _require_send(wa.send_text(mobile, f"Your review request for {payment.reference_id} has been recorded for the administrator. Please allow time for verification and do not pay again."), "review request")
+            else:
+                _send_menu(c, mobile)
+            return
         if value == "CTA_HELP":
             _send_menu(c, mobile)
             return
         if value == "CTA_RESUME_MESSAGES":
-            _request_opt_in(c, mobile)
+            if _has_active_subscription(c, mobile):
+                result = wa.send_buttons(mobile,
+                    "Do you agree to receive Daily Darshan and subscription updates again? Reply STOP anytime to opt out. Your paid dates will not change.",
+                    [("CTA_RESUME_AGREE", "I agree"), ("CTA_STOP", "No thanks")])
+                _require_send(result, "resume consent")
+            else:
+                _send_menu(c, mobile)
+            return
+        if value == "CTA_RESUME_AGREE":
+            if _has_active_subscription(c, mobile):
+                svc.grant_opt_in(mobile, "whatsapp_resume")
+                _require_send(wa.send_text(mobile, "Daily Darshan messages are enabled. Your paid subscription and any payment under review are unchanged. 🙏"), "consent restored")
+            else:
+                _send_menu(c, mobile)
             return
         if value in {"CTA_CONTINUE", "CTA_RESEND", "CTA_BACK"}:
             _handle_message(c, mobile, "text", value.removeprefix("CTA_"), name)
@@ -591,6 +616,7 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
 
     # ---------------- Free text (name / UTR / STOP only) ---------------- #
     text = value.strip()
+    referenced_utr = re.fullmatch(r"UTR\s+(DD\d{10})\s+(\d{12})", text, re.IGNORECASE)
     utr_text = re.fullmatch(r"UTR\s*[:#-]?\s*(\d{12})", text, re.IGNORECASE)
     if utr_text:
         text = utr_text.group(1)
@@ -629,25 +655,45 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         return
 
     # (a) Awaiting the user's name -> capture it (a UTR is never a name).
-    if svc.is_awaiting_name(mobile) and not _UTR_RE.match(text):
-        if text:
+    if svc.is_awaiting_name(mobile) and not _UTR_RE.match(text) and not referenced_utr:
+        if (not any(ch.isalpha() for ch in text) or any(ch.isdigit() for ch in text) or "?" in text
+                or re.match(r"^(?:UTR\b|PAYMENT\b|HOW\s|WHAT\s|HELP\b)", text, re.IGNORECASE)):
+            _require_send(wa.send_text(mobile, "Please reply with your name using letters, not a payment reference or question. Send MENU for your options. 🙏"), "name request")
+        else:
             svc.set_name(mobile, text)
             svc.set_awaiting_name(mobile, False)
             _after_name_or_optin(c, mobile, returning=False)
-        else:
-            _require_send(wa.send_text(mobile, "Please reply with the name we should greet you by 🙏"), "name request")
         return
 
     # (b) UTR submission.
-    if _UTR_RE.match(text):
+    if _UTR_RE.match(text) or referenced_utr:
         payment = _latest_pending_payment(c, mobile)
+        if referenced_utr:
+            reference, text = referenced_utr.groups()
+            payment = c.payments.find(reference.upper())
+            if not payment or payment.mobile != mobile or payment.status.value not in {"PENDING", "SUPERSEDED"}:
+                _require_send(wa.send_text(mobile, "That reference is not an open payment for your account. Send MENU to check payment status."), "payment reference")
+                return
+            other_review = any(p.mobile == mobile and p.reference_id != payment.reference_id
+                               and p.status.value == "PENDING" and p.utr for p in c.payments.all())
+            if other_review:
+                _require_send(wa.send_text(mobile, "Another payment is under review. Please wait for administrator verification and do not pay again."), "payment review")
+                return
+        elif payment and payment.utr:
+            _resume_conversation(c, mobile)
+            return
+        elif any(p.mobile == mobile and p.status.value == "SUPERSEDED" for p in c.payments.all()):
+            _require_send(wa.send_text(mobile, "You have changed checkout plans. To match your payment correctly, send UTR followed by the reference from the instructions you paid against and your 12-digit UTR, for example: UTR DD2609130001 123456789012. Do not pay again."), "payment reference")
+            return
         if payment is None:
             _send_menu(c, mobile)
             return
         if payment.utr:
             _resume_conversation(c, mobile)
             return
-        c.payment_service.record_utr(payment.reference_id, text)
+        c.payment_service.record_utr(
+            payment.reference_id, text, reconcile_checkout=bool(referenced_utr)
+        )
         _send_intent_reply(c,
             mobile,
             f"Thanks! We received your UTR for {payment.reference_id}. "
@@ -708,7 +754,8 @@ def _send_payment_instructions(c, mobile, payment, returning=False):
         f"{header}"
         f"Pay via UPI:\n{intent}\n\n"
         f"Reference: {payment.reference_id}\n"
-        f"After paying, reply with your 12-digit UTR.",
+        f"After paying, reply with your 12-digit UTR. If you changed plans, send UTR {payment.reference_id} followed by your 12-digit UTR. "
+        "If you already paid against older instructions, use that older reference; do not pay again.",
     )
     _require_send(result, "payment instruction")
 
@@ -756,8 +803,8 @@ def _default_plan(c) -> str:
 def _payment_status_text(c, payment):
     ref = payment.reference_id
     if payment.status.value == "FAILED":
-        return (f"Payment {ref} was rejected. Please contact the VIP Seva administrator with this reference "
-                "and your payment proof to resolve it before making another payment.")
+        return (f"Payment {ref} was rejected. Send MENU and select Request review to ask the administrator to recheck it. "
+                "Keep your payment proof and do not pay again until the payment is resolved.")
     if payment.status.value == "SUCCESS":
         if payment.activation_state != "APPLIED":
             return f"Payment {ref} is approved. Subscription activation is being completed; please do not pay again."
@@ -774,6 +821,12 @@ def _checkout_payment(c, mobile):
         return None
     payment = max(payments, key=lambda p: (p.created_at.isoformat() if p.created_at else "", p.reference_id))
     if payment.status.value == "SUCCESS" and payment.activation_state == "APPLIED":
+        sub = c.subscribers.find(mobile)
+        if sub and (
+            sub.status.value != "ACTIVE"
+            or sub.is_expired(datetime.now(ZoneInfo("Asia/Kolkata")).date())
+        ):
+            return None
         welcome = c.welcomes.find(payment.reference_id)
         if welcome and (welcome.get("publication_verified") == "true" or welcome.get("status") in {"PENDING", "UNKNOWN", "SENT", "DELIVERED", "READ"}):
             return None

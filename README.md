@@ -428,6 +428,28 @@ Details:
   checkout. Approval without activation says activation is being completed. After activation,
   page publication remains awaiting confirmation until the welcome worker verifies publication.
   Publication is independent of whether Meta accepts/delivers the welcome message.
+- **Hi / Hello / Radhe Radhe / MENU never resets signup or payment.** During name entry the
+  missing-name prompt is shown again; during consent the disclosure is shown; while awaiting
+  UTR the existing checkout options are shown. A submitted UTR stays under review. Navigation
+  is never saved as a name and never creates a replacement payment.
+- **Changed-plan payment matching:** after a checkout has been superseded, a bare UTR is
+  ambiguous and is not recorded. Send `UTR <original-reference> <12-digit-UTR>`, using the
+  reference from the instructions actually paid against, e.g. `UTR DD2609130001 123456789012`.
+  The original plan/reference is restored for review and other unpaid pending checkouts are
+  superseded. References belonging to another sender or already verified/rejected are refused.
+  An existing payment under review cannot be displaced. Admin still checks actual amount/proof.
+- Payment instructions never bypass missing name or consent. Numeric/payment-looking names
+  and questions are rejected with a name prompt; valid names remain title-cased.
+- An active opted-out user always has Resume messages, even during payment review. Its
+  separate consent action changes consent only, not checkout, UTR or entitlement.
+- Rejected users can select Request review. This records `PAYMENT_REVIEW_REQUESTED` in the
+  operational log and acknowledges the request; it does not automatically notify an admin or
+  approve payment. Administrators inspect `list-rejected` and logs. A new checkout is unlocked
+  only after `reopen-payment <reference> --no-payment-confirmed --commit`, or the original
+  payment is verified after proof review. The explicit flag must never be used if payment occurred.
+- A newly verified purchase can reactivate a CANCELLED subscriber once, starting a fresh term
+  from the current IST date without silently restoring consent. Old cancelled/paused/expired
+  activation welcomes are cancelled rather than announcing an active subscription.
 - UTR text may be 12 digits or `UTR: 123456789012`. Image/document captions in that format
   are accepted; screenshots without a valid UTR caption prompt the user to send it as text.
   No OCR or automatic payment approval is performed.
@@ -491,6 +513,11 @@ Details:
   required WEBHOOK_BASE_URL variable and WHATSAPP_APP_SECRET repository secret.
   Both renewal and delivery check the public page's subscription ID, date and expiry metadata
   before sending. Missing, legacy or stale pages must be regenerated and deployed first.
+  Daily delivery additionally verifies the actual image URL on the published page has today's
+  dated filename. Regenerated pages using an earlier image remain viewable but cannot pass
+  this daily-delivery check. Welcome and renewal retain their separate publication rules.
+  Queued status replies include welcome/publication state in their freshness fingerprint,
+  preventing a delayed preparation message after publication has been confirmed.
 
 ### Welcome and daily-message coordination
 

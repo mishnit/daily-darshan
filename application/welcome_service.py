@@ -17,6 +17,12 @@ def drain_welcomes(container, on_date, persist, publication_check):
         if row["status"] not in {"QUEUED", "FAILED", "CANCELLED"}:
             continue
         sub = container.subscribers.find(row["mobile"])
+        if sub and (sub.status.value != "ACTIVE" or not sub.end_date or sub.end_date < on_date):
+            if row["status"] != "CANCELLED":
+                row.update(status="CANCELLED", error="Activation welcome obsolete: subscription is not active and unexpired")
+                container.welcomes.upsert(row["reference_id"], row)
+                persist()
+            continue
         published = bool(sub and row["reference_id"] in sub.applied_payment_refs.split(";")
                          and publication_check(sub, on_date))
         if published and row.get("publication_verified") != "true":
