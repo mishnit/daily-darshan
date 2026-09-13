@@ -91,6 +91,27 @@ def test_active_menu_labels_extension_and_hides_it_for_largest_plan(container):
     ]
 
 
+def test_yearly_payment_status_does_not_offer_extend_plan(container):
+    """The largest active plan must not advertise an unavailable upgrade."""
+    import main
+    from domain.enums import PaymentStatus
+
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    container.config["plans"]["yearly"] = {"amount": 699, "days": 365}
+    container.subscribers.append(Subscriber(
+        "9199", "yearly", status=SubscriberStatus.ACTIVE,
+        end_date=today + timedelta(days=30), opt_in=True,
+    ))
+    payment = container.payment_service.create_payment("9199", "yearly", today)
+    payment.utr = "123456789012"
+    payment.status = PaymentStatus.PENDING
+    container.payments.update(payment)
+
+    message = main._payment_status_text(container, payment)
+    assert "Extend plan" not in message
+    assert "No larger plan is currently available" in message
+
+
 def test_active_plan_list_contains_only_strictly_larger_plans(container):
     import main
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date()

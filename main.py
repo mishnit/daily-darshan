@@ -845,11 +845,20 @@ def _payment_status_text(c, payment):
             return f"Payment {ref} is approved. Subscription activation is being completed; please do not pay again."
         return f"Payment {ref} is approved. Your Darshan page is being prepared; publication is awaiting confirmation."
     if payment.utr:
-        plan_action = "Extend plan" if _has_active_subscription(c, payment.mobile) else "Change plan"
+        active = _has_active_subscription(c, payment.mobile)
+        if active:
+            larger_plans = _larger_plan_names(c, payment.mobile)
+            plan_action = (
+                "You may choose Extend plan for a larger plan."
+                if larger_plans
+                else "No larger plan is currently available; send MENU to check your subscription status."
+            )
+        else:
+            plan_action = "You may choose Change plan."
         return (f"Payment verification pending for {ref}. Please allow the admin time to verify it. "
                 f"If you have already made payment, please confirm your UTR in this format: "
                 f"UTR {ref} 123456789012 (replace the last 12 digits with your UTR). "
-                f"You may choose {plan_action}, but do not pay again if this payment is already complete.")
+                f"{plan_action} Do not pay again if this payment is already complete.")
     return f"Payment {ref} is awaiting payment. Send MENU and select Payment instructions."
 
 
