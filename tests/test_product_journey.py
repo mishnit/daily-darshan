@@ -59,7 +59,9 @@ def test_active_continue_shows_renewal_checkout_not_only_subscription_status(con
     main._handle_message(container, "9199", "button", "PLAN_yearly")
     payment = container.payments.all()[0]
     main._resume_conversation(container, "9199")
-    assert payment.reference_id in container.whatsapp.sent[-1]["message"]
+    payment_message = container.whatsapp.sent[-1]["message"]
+    assert payment.reference_id in payment_message
+    assert f"Example: UTR {payment.reference_id} 123456789012" in payment_message
     main._send_subscription_status(container, "9199")
     assert "active" in container.whatsapp.sent[-1]["message"]
     assert payment.reference_id in container.whatsapp.sent[-1]["message"]
