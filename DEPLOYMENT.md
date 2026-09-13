@@ -228,7 +228,29 @@ The webhook never performs a network publication check while replying.
 Rejected payments remain blocked for user checkout until administrator resolution. Verify
 the original payment using `admin.py verify <reference> --activate --commit` only after
 validating payment proof. If no payment occurred, an administrator must explicitly reconcile
-the rejected record before opening another checkout; rejection alone is not permission to pay again.
+  the rejected record before opening another checkout; rejection alone is not permission to pay again.
+Use `python admin.py list-rejected` and inspect `PAYMENT_REVIEW_REQUESTED` events in logs daily.
+The customer Request review action records a request, not an automatic admin notification.
+If proof validates a payment, verify its original reference. Only after confirming no payment
+occurred, run `python admin.py reopen-payment <reference> --no-payment-confirmed --commit`.
+This preserves the old row as SUPERSEDED and permits a fresh checkout; it does not erase UTRs.
+
+Acceptance checks for edge cases:
+
+- Send Hi, Hello, Radhe Radhe and MENU while awaiting name, consent, UTR and admin review.
+  Confirm the relevant options reappear without changing plan/reference/UTR/consent.
+- Change plans, then submit a bare UTR: it must request the original reference, not attach
+  to the newest plan. `UTR <reference> <12 digits>` restores the paid-against checkout for review.
+- STOP during renewal review, then Resume messages and I agree: only consent changes.
+- Reject numeric/payment-looking names. Missing name/consent takes priority over unpaid checkout.
+- Verify a new payment for CANCELLED status twice: exactly one fresh term, no consent grant.
+- Delay welcome until after expiry/cancellation: no outdated activation welcome is sent.
+- Regenerate with an older image then create today's canonical image without rerendering:
+  daily delivery must still fail the published page's actual-image-date check.
+- Confirm a queued 'preparing page' reply is cancelled when publication state changes.
+
+No new secrets or Meta templates are required for these changes. Review requests need regular
+administrator attention; no automatic payment approval or reconciliation is introduced.
 Activation/renewal approval
 continues to queue the separate `daily_darshan_welcome` status confirmation after publication.
 The welcome is independent of the maximum-one-per-day renewal-or-delivery notification.

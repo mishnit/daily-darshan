@@ -200,7 +200,7 @@ def test_orphaned_payment_evidence_keeps_status_and_blocks_purchase(container, s
     container.payments.update(payment)
     before = payment.to_row()
     main._send_menu(container, "9199")
-    assert container.whatsapp.sent[-1]["rows"] == ["CTA_PAYMENT"]
+    assert container.whatsapp.sent[-1]["rows"] == ["CTA_PAYMENT"] + (["CTA_PAYMENT_REVIEW"] if status == "FAILED" else [])
     for cta in ["CTA_SUBSCRIBE", "CTA_RENEW", "PLAN_monthly"]:
         main._handle_message(container, "9199", "button", cta)
         assert payment.reference_id in container.whatsapp.sent[-1]["message"]

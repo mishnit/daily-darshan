@@ -250,8 +250,17 @@ sequenceDiagram
     participant Web as Webhook
     participant State as Payment state
 
+    User->>Web: sends Hi or MENU while awaiting UTR
+    Web->>State: read current checkout without resetting it
+    Web-->>User: Payment instructions or Payment status
     User->>Web: sends a 12-digit UTR
-    Web->>State: attach UTR to latest PENDING payment, keep status PENDING
+    alt No superseded checkout exists
+        Web->>State: attach UTR to current pending payment
+    else Checkout was changed
+        Web-->>User: request original reference and 12-digit UTR
+        User->>Web: UTR DD2609130001 123456789012
+        Web->>State: validate ownership and restore original checkout for review
+    end
     Web-->>User: UTR received with reference, allow time for admin review, do not pay again
     alt acknowledgement fails
         Web->>State: retain UTR + store acknowledgement in reply_retries.csv
@@ -269,7 +278,9 @@ sequenceDiagram
     Note over Web,State: no checkout replacement or UTR overwrite
     alt Admin rejects payment
         State-->>Web: FAILED payment
-        Web-->>User: Rejection notice and Payment status, resolve with administrator before paying again
+        Web-->>User: Rejection notice, Payment status and Request review
+        User->>Web: Request review
+        Web->>State: log PAYMENT_REVIEW_REQUESTED without approving payment
     else Approved but activation incomplete
         State-->>Web: SUCCESS with activation pending
         Web-->>User: Approved, activation being completed
@@ -278,6 +289,13 @@ sequenceDiagram
         Web-->>User: Approved, page being prepared
     end
 ```
+
+Navigation during name/consent shows the missing prompt without saving the greeting as a
+name. Active opted-out users retain Resume messages even during payment review; its consent
+action leaves checkout unchanged. Admin `reopen-payment --no-payment-confirmed` resolves
+rejection only when no payment occurred. A real payment must be verified against its original
+reference instead. Daily publication checks additionally inspect the displayed image date;
+welcome/renewal publication checks remain independent. Obsolete activation welcomes are cancelled.
 
 ---
 

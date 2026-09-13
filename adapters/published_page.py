@@ -1,5 +1,7 @@
 """Fail closed when a personalized page is missing or stale on the public site."""
 from html.parser import HTMLParser
+import re
+from urllib.parse import urlparse, unquote
 import requests
 
 
@@ -7,17 +9,21 @@ class _Metadata(HTMLParser):
     def __init__(self):
         super().__init__()
         self.values = {}
+        self.images = []
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         if tag == "meta":
             self.values[attrs.get("name")] = attrs.get("content")
+        if tag == "img":
+            self.images.append(attrs.get("src", ""))
 
 
 class PublishedPageChecker:
-    def __init__(self, base_url, session=None):
+    def __init__(self, base_url, session=None, *, require_current_image=False):
         self.base = base_url.rstrip("/")
         self.session = session or requests.Session()
+        self.require_current_image = require_current_image
 
     def __call__(self, subscriber, on_date):
         if not self.base.startswith("https://") or not subscriber.subscription_id:
@@ -31,6 +37,11 @@ class PublishedPageChecker:
                 return False
             parser = _Metadata()
             parser.feed(response.text)
+            if self.require_current_image:
+                pattern = re.compile(r"^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_)?"
+                                     + re.escape(on_date.isoformat()) + r"(?:_[a-z0-9_-]+)?\.jpg$", re.I)
+                if not parser.images or not pattern.fullmatch(unquote(urlparse(parser.images[0]).path).rsplit("/", 1)[-1]):
+                    return False
             return all(parser.values.get(key) == value for key, value in {
                 "darshan-subscription": subscriber.subscription_id,
                 "darshan-date": on_date.isoformat(),

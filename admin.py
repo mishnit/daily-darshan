@@ -99,6 +99,17 @@ def _verify_locked(container: Container, args) -> int:
             already = existing is not None and existing.status.value in ("ACTIVE", "PAUSED", "EXPIRED")
             if reference_id in applied:
                 action = "Already activated"
+            elif sub.status.value == "CANCELLED":
+                # A newly verified payment explicitly reactivates a cancelled
+                # account. It does not implicitly restore WhatsApp consent.
+                from datetime import datetime, timedelta
+                from zoneinfo import ZoneInfo
+                from domain.enums import SubscriberStatus
+                sub.plan = payment.plan
+                sub.start_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+                sub.end_date = sub.start_date + timedelta(days=container.payment_service.plan_days(payment.plan))
+                sub.status = SubscriberStatus.ACTIVE
+                action = "Reactivated"
             elif already or args.renew:
                 sub.plan = payment.plan
                 sub.renew(container.payment_service.plan_days(payment.plan))
@@ -169,12 +180,41 @@ def cmd_reject(container: Container, args) -> int:
     return 0
 
 
+def cmd_reopen_payment(container: Container, args) -> int:
+    """Release a rejected checkout only after an administrator confirms no payment."""
+    from repositories.state_lock import state_lock
+    with state_lock(container.root):
+        payment = container.payments.find(args.reference_id)
+        if not payment or payment.status != PaymentStatus.FAILED or not args.no_payment_confirmed:
+            print("ERROR: requires a FAILED payment and --no-payment-confirmed", file=sys.stderr)
+            return 1
+        payment.status = PaymentStatus.SUPERSEDED
+        container.payments.update(payment)
+        container.logs.log("PAYMENT_REJECTION_RESOLVED", payment.mobile, payment.reference_id)
+        if args.commit:
+            _commit(container, f"Resolve rejected payment {payment.reference_id}")
+        return 0
+
+
+def cmd_list_rejected(container: Container, args) -> int:
+    for payment in container.payments.all():
+        if payment.status == PaymentStatus.FAILED:
+            print(payment.reference_id, payment.mobile, payment.plan, payment.utr or "(no UTR)")
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # CLI wiring
 # --------------------------------------------------------------------------- #
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="admin.py", description="Daily Darshan admin CLI")
     sub = parser.add_subparsers(dest="command", required=True)
+    p_reopen = sub.add_parser("reopen-payment", help="Resolve rejection after confirming no payment occurred")
+    p_reopen.add_argument("reference_id")
+    p_reopen.add_argument("--no-payment-confirmed", action="store_true")
+    p_reopen.add_argument("--commit", action="store_true")
+    p_reopen.set_defaults(func=cmd_reopen_payment)
+    sub.add_parser("list-rejected", help="Review rejected checkouts; review requests are recorded in logs").set_defaults(func=cmd_list_rejected)
 
     p_list = sub.add_parser("list-pending", help="List payments awaiting verification")
     p_list.set_defaults(func=cmd_list_pending)

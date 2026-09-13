@@ -99,14 +99,24 @@ class PaymentService:
             currency=self._upi.get("currency", "INR"),
         )
 
-    def record_utr(self, reference_id: str, utr: str) -> Payment:
+    def record_utr(self, reference_id: str, utr: str, *, reconcile_checkout: bool = False) -> Payment:
         payment = self._payments.find(reference_id)
         if payment is None:
             raise PaymentError(f"Payment not found: {reference_id}")
         if not is_valid_utr(utr):
             raise PaymentError(f"Invalid UTR: {utr!r}")
+        if reconcile_checkout and any(
+            p.mobile == payment.mobile
+            and p.reference_id != reference_id
+            and p.status == PaymentStatus.PENDING
+            and p.utr
+            for p in self._payments.all()
+        ):
+            raise PaymentError("Another payment is already under review")
         payment.record_utr(utr)
         self._payments.update(payment)
+        if reconcile_checkout:
+            self._supersede_pending(payment.mobile, keep_reference_id=reference_id)
         self._log("PAYMENT_UTR_RECEIVED", payment.mobile, f"{reference_id}:{utr}")
         return payment
 
