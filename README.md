@@ -393,10 +393,10 @@ Bot:  Thanks! We received your UTR for DD2608190001.
       and activate your subscription once approved. You do not need to pay again. 🙏
 ```
 
-Returning subscriber (Extend plan while active, Renew after expiry):
+Returning subscriber (Extend plan outside the renewal window, Renew near expiry or after expiry):
 
 ```
-User: (taps Extend plan while on Monthly)
+User: (taps Extend plan while on Monthly, expiry beyond 3 days)
 Bot:  Choose a larger Daily Darshan plan.
 User: (selects Yearly)
 Bot:  Radhe Radhe Deep Ji! Renewing your yearly plan.   ← stored name reused
@@ -415,15 +415,17 @@ Details:
   show View plans and require name/consent again. Menu navigation preserves the payment;
   selecting the same plan reuses its reference. Rejected and approved payments remain
   status-only until resolved, even without a subscriber record.
-- Active users see Subscription status (including their current plan) and Extend plan. The
-  extension list contains only plans strictly larger than their current plan; subscribers already
-  on the largest plan do not see Extend plan. Expired users see an expiry notice and View renewal
-  plans. Active opted-out users additionally see Resume messages: explicit consent restores
-  delivery without another payment.
+- Active users see Subscription status (including their current plan). Outside the three-day
+  renewal window they see Extend plan, whose list contains only plans strictly larger than their
+  current plan; subscribers already on the largest plan see no plan CTA. Inside the three-day
+  window they see Renew, whose list contains their current plan plus larger plans (including
+  Yearly subscribers renewing Yearly). Expired users see Subscription status and Renew, with all
+  configured plans available. Active opted-out users additionally see Resume messages: explicit
+  consent restores delivery without another payment.
 - Help, Stop messages, Continue, Resend and Back are not menu options. Typed STOP and the
   consent disclosure's No thanks button still revoke consent without removing paid days.
-- An unpaid checkout shows Payment instructions and Change plan for new/expired users, or Extend
-  plan for active users when a larger plan exists. After UTR submission, Payment status and the
+- An unpaid checkout shows Payment instructions and Change plan for new users, Renew for existing
+  subscribers, and Extend plan/Renew for active users according to the renewal window. After UTR submission, Payment status and the
   applicable plan action remain available. Status repeats the reference-qualified
   UTR format so the customer can identify the checkout actually paid. Choosing another plan
   creates a new checkout; a customer who already paid must confirm the older paid-against
@@ -476,8 +478,9 @@ Details:
   typed text shows the CTA menu.
 - **Name capture is explicit** (WhatsApp profile name is unreliable). If the inbound webhook
   already carries a profile name, the prompt is skipped and that name is used.
-- **Renewal offers all configured plans**, reuses the stored name and gates payment instructions
-  on consent. A returning user's selected plan is stored in the pending payment; their paid
+- **Renewal offers the current plan plus larger plans inside the three-day window, and all
+  configured plans after expiry**, reuses the stored name and gates payment instructions on
+  consent. An extension outside the window offers only larger plans. A returning user's selected plan is stored in the pending payment; their paid
   plan and dates change only on admin approval. On admin verification, renewal
   **extends from the current expiry date** (not from today) so remaining days are never lost
   (Tech Doc §29). Renew from an unknown mobile falls back to the plan list.

@@ -327,7 +327,7 @@ def test_page_renderer_uses_opaque_daily_image_name():
         "\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/?ref=9199"
     )
     assert f"https://wa.me/?text={quote(share_text, safe='')}" in html_text
-    assert "Bring today's Darshan to someone you love" in html_text
+    assert "Bring today's Darshan to someone you love" not in html_text
     assert ">Share on WhatsApp (link only)</a>" in html_text
 
 

@@ -50,6 +50,20 @@ def test_greeting_reopens_relevant_step_without_reset(container, greeting, stage
             assert container.payments.find(p.reference_id).utr == '123456789012'
 
 
+def test_payment_keyword_reopens_menu_while_name_is_requested(container):
+    prepare(container)
+    sub = container.subscribers.find('9199')
+    sub.name = ''
+    sub.awaiting_name = True
+    container.subscribers.update(sub)
+    container.whatsapp = FakeWhatsApp()
+
+    main._handle_message(container, '9199', 'text', 'payment')
+
+    assert container.whatsapp.sent[-1]['type'] == 'list'
+    assert container.whatsapp.sent[-1]['rows'] == ['CTA_SUBSCRIBE']
+
+
 def test_original_payment_reference_required_after_plan_change(container):
     prepare(container)
     old = container.payment_service.create_payment('9199', 'monthly')

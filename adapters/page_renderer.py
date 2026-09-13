@@ -80,7 +80,6 @@ _TEMPLATE = """<!DOCTYPE html>
            onerror="this.onerror=null; this.src='{fallback_url}';">
     </div>
     <div class="share">
-      <p><strong>Bring today's Darshan to someone you love 🙏</strong></p>
       <p class="privacy-note">This page is personal to you and should not be shared directly. To share Darshan image, use the button below</p>
       <button id="share-darshan" type="button" hidden>📲 Share Darshan with family &amp; friends on whatsapp</button>
       <p id="share-status" role="status" aria-live="polite"></p>

@@ -220,13 +220,16 @@ Use this sequence when validating a release end to end:
   and state; a missing/expired CTA shows the menu.
 
 Menu verification: new users receive View plans only; incomplete signup returns to name or
-consent. Expired users receive View renewal plans. Active users receive Extend plan with only
-plans strictly larger than their current plan; the largest active plan has no extension action.
+consent. Expired users receive Renew with all configured plans. Active users outside the
+three-day renewal window receive Extend plan with only plans strictly larger than their current
+plan; the largest active plan has no extension action. Active users inside the three-day window
+receive Renew with their current plan plus larger plans, including Yearly renewal for a Yearly
+subscriber.
 Active opted-out users additionally receive Resume messages. Only existing dated subscriptions have a
 Subscription status menu option. Help, Stop messages, Continue, Resend and Back are hidden.
 Subscription status includes the current plan type. Typed STOP and consent No thanks remain
-supported. Unpaid checkout shows payment instructions plus Change plan for non-active users or
-Extend plan for active users when a larger plan exists. UTR review retains the applicable plan
+supported. Unpaid checkout shows payment instructions plus Change plan for new users, Renew for
+expired users, and Extend plan/Renew for active users according to the renewal window. UTR review retains the applicable plan
 action while stale plan taps are revalidated against the current entitlement. Verify active renewal
 leaves the current paid plan/dates unchanged until admin approval, and extends from expiry.
 Resume messages requires consent but no payment. STOP changes consent, not paid dates.
