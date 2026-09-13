@@ -36,6 +36,19 @@ def test_automatic_chain_publishes_before_whatsapp_delivery():
     assert deploy.count("actions/deploy-pages@v4") == 1
 
 
+def test_pending_utr_alert_runs_at_9pm_ist_and_only_alerts_for_missing_utr():
+    workflow = _workflow("payment-utr-alert.yml")
+
+    assert 'cron: "30 15 * * *"' in workflow
+    assert "workflow_dispatch:" in workflow
+    assert 'ZoneInfo("Asia/Kolkata")' in workflow
+    assert 'row.get("status", "").strip().upper() == "PENDING"' in workflow
+    assert 'not row.get("utr", "").strip()' in workflow
+    assert "if: steps.pending.outputs.count != '0'" in workflow
+    assert 'name: "daily_darshan_ops_alert"' in workflow
+    assert '${{ github.repository }}/actions/runs/${{ github.run_id }}' in workflow
+
+
 def test_render_and_ordinary_main_pushes_cannot_deploy_pages():
     deploy = _workflow("deploy-pages.yml")
 

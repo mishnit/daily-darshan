@@ -104,6 +104,7 @@ Only Daily Image has a cron; successful completion advances through the gated ch
 | Workflow | Cron (UTC) | Local time | Action |
 |----------|-----------|------------|--------|
 | **Daily Image** (`image.yml`) | `1 3 * * *` | 08:31 IST target | Prune logs, store UUID-prefixed candidates/canonical image, regenerate pages, expire subscribers and prune inactive pages/old images → signed commits |
+| **Pending Payment UTR Alert** (`payment-utr-alert.yml`) | `30 15 * * *` | 21:00 IST target | Send one administrator alert when payments created today remain `PENDING` without a UTR; skip silently when none qualify |
 | **Deploy Daily Darshan Pages** (`deploy-pages.yml`) | Event-driven | After successful image | Publish `docs/` once through GitHub Actions |
 | **Daily Delivery** (`delivery.yml`) | Event-driven | After successful Pages deployment | Renewal reminder or today's published page link, at most one successful contact per subscriber/date |
 
