@@ -44,8 +44,10 @@ def test_whatsapp_templates_match_documented_meta_configuration():
 
     config = json.loads(Path("config.json").read_text(encoding="utf-8"))
 
-    assert config["delivery"]["template_name"] == "daily_darshan_delivery_update"
+    assert config["delivery"]["template_name"] == "daily_darshan_delivery_update1"
     assert config["delivery"]["template_lang"] == "en"
-    assert config["renewal"]["template_name"] == "daily_darshan_delivery_update"
+    assert config["delivery"]["welcome_template_name"] == "daily_darshan_delivery_update1"
+    assert config["delivery"]["welcome_template_lang"] == "en"
+    assert config["renewal"]["template_name"] == "daily_darshan_delivery_update1"
     assert config["renewal"]["template_lang"] == "en"
     assert "quiet_window_utc" not in config["persistence"]

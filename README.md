@@ -501,7 +501,7 @@ Details:
 - Activation remains admin-verified out-of-band (see Admin Operations); the name/plan captured
   here is what later fills the daily utility template and the per-subscriber page greeting.
 - The subscriber page explicitly confirms that the subscription is active and welcomes the user.
-  Welcome, renewal and delivery use `daily_darshan_delivery_update`, while their audit records
+  Welcome, renewal and delivery use `daily_darshan_delivery_update1`, while their audit records
   remain in separate CSV ledgers. A welcome consumes the same date+mobile contact slot, ensuring
   at most one of those three messages reaches a subscriber per day.
   Admin verification queues a welcome in `csv/welcomes.csv` rather than sending immediately.
@@ -547,8 +547,8 @@ Details:
 | UTR received | Conversational acknowledgement, awaiting admin verification | Does not activate or consume the daily slot |
 | Payment approved, not activated | Payment status says activation is being completed | No welcome yet |
 | Activation or renewal applied, publication unconfirmed | Payment status says page preparation/publication awaits confirmation | Payment-keyed welcome stays queued |
-| Published page verified | `daily_darshan_delivery_update`, language `en` | Welcome takes the subscriber's shared daily contact slot |
-| Daily renewal reminder due in 3, 2 or 1 days | `daily_darshan_delivery_update`, language `en` | Shares the subscriber/date reservation with daily delivery |
+| Published page verified | `daily_darshan_delivery_update1`, language `en` | Welcome takes the subscriber's shared daily contact slot |
+| Daily renewal reminder due in 3, 2 or 1 days | `daily_darshan_delivery_update1`, language `en` | Shares the subscriber/date reservation with daily delivery |
 | Daily delivery eligible | Same delivery-update template, personalised page button | Skips if renewal/delivery already holds that day's slot |
 
 The workflow runs welcome, renewal reminder, then daily delivery. The first accepted or uncertain
@@ -572,7 +572,7 @@ verify the exact PR head in CI; local tests do not verify live Meta/Render deliv
 > approved template with buttons; within the window (the normal case, since the user just
 > messaged) the free-form interactive menu is used.
 
-The current configuration uses `daily_darshan_delivery_update` with language `en` for welcome,
+The current configuration uses `daily_darshan_delivery_update1` with language `en` for welcome,
 scheduled delivery and renewal reminders. All three sends use the customer name as body `{{1}}`
 and the subscription ID as dynamic URL-button `{{1}}`; configure that button URL as
 `https://vipseva.com/{{1}}`. The renewal send deliberately uses the same delivery-status copy

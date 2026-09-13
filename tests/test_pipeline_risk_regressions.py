@@ -99,11 +99,13 @@ def test_production_templates_and_immediate_render_persistence_are_configured():
     config = json.loads(Path("config.json").read_text(encoding="utf-8"))
 
     assert config["delivery"] | {
-        "template_name": "daily_darshan_delivery_update",
+        "template_name": "daily_darshan_delivery_update1",
         "template_lang": "en",
+        "welcome_template_name": "daily_darshan_delivery_update1",
+        "welcome_template_lang": "en",
     } == config["delivery"]
     assert config["renewal"] | {
-        "template_name": "daily_darshan_delivery_update",
+        "template_name": "daily_darshan_delivery_update1",
         "template_lang": "en",
     } == config["renewal"]
     assert "quiet_window_utc" not in config["persistence"]
