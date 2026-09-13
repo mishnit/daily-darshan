@@ -140,6 +140,10 @@ class CSVRepository:
 
     def update(self, key, record: dict) -> bool:
         """Replace the row whose key_field == key. Returns True if updated."""
+        with self._exclusive_lock():
+            return self._update_unlocked(key, record)
+
+    def _update_unlocked(self, key, record: dict) -> bool:
         key = str(key)
         rows = self.all()
         updated = False
@@ -153,8 +157,9 @@ class CSVRepository:
         return updated
 
     def upsert(self, key, record: dict) -> None:
-        if not self.update(key, record):
-            self.append(record)
+        with self._exclusive_lock():
+            if not self._update_unlocked(key, record):
+                self._append_unlocked(record)
 
     def delete(self, key) -> bool:
         """Remove the row for key. Returns whether a row was removed."""
