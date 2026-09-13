@@ -128,6 +128,54 @@ def test_active_plan_list_contains_only_strictly_larger_plans(container):
     assert container.whatsapp.sent[-1]["rows"] == ["PLAN_yearly"]
 
 
+@pytest.mark.parametrize("current,expected", [
+    ("starter", ["PLAN_weekly", "PLAN_monthly", "PLAN_yearly"]),
+    ("weekly", ["PLAN_monthly", "PLAN_yearly"]),
+    ("monthly", ["PLAN_yearly"]),
+    ("yearly", []),
+])
+def test_each_active_plan_only_offers_strictly_larger_plans(container, current, expected):
+    """Plan navigation must never offer the current or a smaller plan."""
+    import main
+
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    container.config["plans"] = {
+        "starter": {"amount": 9, "days": 3},
+        "weekly": {"amount": 69, "days": 30},
+        "monthly": {"amount": 199, "days": 90},
+        "yearly": {"amount": 699, "days": 365},
+    }
+    container.subscribers.append(Subscriber(
+        "9199", current, status=SubscriberStatus.ACTIVE,
+        end_date=today + timedelta(days=30), opt_in=True,
+    ))
+    container.whatsapp = FakeWhatsApp()
+
+    main._send_plan_list(container, "9199")
+
+    if expected:
+        assert container.whatsapp.sent[-1]["rows"] == expected
+    else:
+        assert "largest available plan" in container.whatsapp.sent[-1]["message"]
+
+
+def test_new_user_plan_list_offers_all_configured_plans(container):
+    import main
+
+    container.config["plans"] = {
+        "starter": {"amount": 9, "days": 3},
+        "weekly": {"amount": 69, "days": 30},
+        "monthly": {"amount": 199, "days": 90},
+        "yearly": {"amount": 699, "days": 365},
+    }
+    container.whatsapp = FakeWhatsApp()
+    main._send_plan_list(container, "9199")
+
+    assert container.whatsapp.sent[-1]["rows"] == [
+        "PLAN_starter", "PLAN_weekly", "PLAN_monthly", "PLAN_yearly",
+    ]
+
+
 def test_subscription_status_includes_current_plan(container):
     import main
     container.subscriber_service.upsert_pending("9199", "monthly", "Nitin")
