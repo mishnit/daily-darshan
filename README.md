@@ -578,6 +578,15 @@ and the subscription ID as dynamic URL-button `{{1}}`; configure that button URL
 `https://vipseva.com/{{1}}`. The renewal send deliberately uses the same delivery-status copy
 and does not include the expiry date.
 
+Template media headers are optional and controlled independently in `config.json`. Keep
+`delivery.template_header`, `delivery.welcome_template_header` and
+`renewal.template_header` set to `none` for templates without a header. After Meta approves a
+template with a dynamic **Image** header, set the applicable template name and change only its
+header setting to `image`. The sender then prepends today's validated, publicly deployed canonical
+image as the Meta header component while retaining the existing body-name and URL-button values.
+An image-header send fails closed when today's image is missing rather than reserving or sending an
+invalid template. This permits delivery, welcome and renewal to adopt media templates separately.
+
 Subscriber pages show a **Renew on WhatsApp** CTA from the largest configured
 `renewal.reminder_days` value through the post-expiry page grace period. The link opens
 `renewal.whatsapp_number` with `RENEW` prefilled; use international digits without `+`.

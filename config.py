@@ -116,6 +116,8 @@ class Container:
             template_lang=delivery_cfg.get("template_lang", "en"),
             welcome_template_name=delivery_cfg.get("welcome_template_name", ""),
             welcome_template_lang=delivery_cfg.get("welcome_template_lang", "en"),
+            template_header=delivery_cfg.get("template_header", "none"),
+            welcome_template_header=delivery_cfg.get("welcome_template_header", "none"),
             page_base_url=delivery_cfg.get("page_base_url", ""),
         )
         renewal_cfg = self.config.get("renewal", {})
@@ -128,6 +130,7 @@ class Container:
             template_lang=renewal_cfg.get("template_lang", "en"),
             logs=self.logs,
             sentlog=self.sentlog,
+            template_header=renewal_cfg.get("template_header", "none"),
         )
 
         # Image pipeline

@@ -144,17 +144,27 @@ class MetaWhatsAppClient(WhatsAppClientPort):
         body_params: list[str],
         lang: str = "en",
         url_button_param: str | None = None,
+        header_image_url: str | None = None,
     ) -> WhatsAppResult:
-        """Send an approved template with body and optional dynamic URL values.
+        """Send an approved template with optional header/body/button values.
 
         Meta numbers parameters independently within each component. The first
         body value fills body ``{{1}}``; ``url_button_param`` fills ``{{1}}``
         in the first dynamic URL button.
         """
-        components = [{
+        components = []
+        if header_image_url is not None:
+            components.append({
+                "type": "header",
+                "parameters": [{
+                    "type": "image",
+                    "image": {"link": str(header_image_url)},
+                }],
+            })
+        components.append({
             "type": "body",
             "parameters": [{"type": "text", "text": str(p)} for p in body_params],
-        }]
+        })
         if url_button_param is not None:
             components.append({
                 "type": "button",

@@ -40,6 +40,8 @@ class DeliveryService:
         page_base_url: str = "",
         welcome_template_name: str = "",
         welcome_template_lang: str = "en",
+        template_header: str = "none",
+        welcome_template_header: str = "none",
     ):
         self._subscribers = subscribers
         self._sentlog = sentlog
@@ -56,8 +58,25 @@ class DeliveryService:
         self.publication_check = None
         self._welcome_template_name = welcome_template_name
         self._welcome_template_lang = welcome_template_lang
+        self._template_header = self._validate_template_header(template_header)
+        self._welcome_template_header = self._validate_template_header(welcome_template_header)
 
-    def send_welcome(self, subscriber) -> WhatsAppResult:
+    @staticmethod
+    def _validate_template_header(value: str) -> str:
+        normalized = str(value or "none").strip().lower()
+        if normalized not in {"none", "image"}:
+            raise ValueError("template header must be 'none' or 'image'")
+        return normalized
+
+    @property
+    def welcome_requires_image_header(self) -> bool:
+        return self._welcome_template_header == "image"
+
+    @property
+    def requires_image_header(self) -> bool:
+        return self._template_header == "image"
+
+    def send_welcome(self, subscriber, header_image_url: str | None = None) -> WhatsAppResult:
         """Send the activation confirmation, independent of daily delivery.
 
         The welcome worker owns the shared daily ``sentlog`` reservation; this
@@ -68,10 +87,13 @@ class DeliveryService:
             return WhatsAppResult(ok=False, error="consent:subscriber opted out")
         if not self._welcome_template_name:
             return WhatsAppResult(ok=False, error="config:welcome_template_name is required")
+        if self.welcome_requires_image_header and not header_image_url:
+            return WhatsAppResult(ok=False, error="config:welcome template image header requires today's image URL")
         name = sanitize_display_name(subscriber.name, "devotee")
         return self._whatsapp.send_template_params(
             subscriber.mobile, self._welcome_template_name, [name],
             self._welcome_template_lang, url_button_param=subscriber.subscription_id,
+            header_image_url=header_image_url if self.welcome_requires_image_header else None,
         )
 
     def _retry(self, send) -> WhatsAppResult:
@@ -98,22 +120,27 @@ class DeliveryService:
 
         delivery_mode:
           - "utility_template": send an approved parameterized template whose
-            dynamic URL button receives the subscription id. No image is
-            attached to the WhatsApp message; the image lives on the page.
+            dynamic URL button receives the subscription id. An image header
+            is included only when that template's config selects ``image``.
           - "image" (default): send the image inline. Prefers Meta media upload
             (private-repo safe), falls back to image_url.
         """
         if self._mode == "utility_template":
-            return self._deliver_template(on_date)
+            return self._deliver_template(on_date, image_url)
         return self._deliver_image(on_date, image_url, image_bytes)
 
     # ------------------------------------------------------------------ #
     # Utility-template mode (per-subscriber page URL)
     # ------------------------------------------------------------------ #
-    def _deliver_template(self, on_date: date) -> DeliveryReport:
+    def _deliver_template(self, on_date: date, image_url: str | None = None) -> DeliveryReport:
         report = DeliveryReport()
         if not self._template_name or not self._page_base_url:
             self._log("DELIVERY_ABORTED", "", "template_name/page_base_url not configured")
+            return report
+        if self._template_header == "image" and not image_url:
+            self._log("DELIVERY_ABORTED", "", "template image header requires today's image URL")
+            report.failed = 1
+            report.failures.append("configuration")
             return report
 
         for sub in self._subscribers.all():
@@ -148,6 +175,7 @@ class DeliveryService:
                 [name],
                 self._template_lang,
                 url_button_param=sub.subscription_id,
+                header_image_url=image_url if self._template_header == "image" else None,
             ))
             self._sentlog.complete(reservation, result)
             if result.ok:

@@ -58,8 +58,9 @@ class WhatsAppClientPort(ABC):
         body_params: list[str],
         lang: str = "en",
         url_button_param: str | None = None,
+        header_image_url: str | None = None,
     ) -> WhatsAppResult:
-        """Send an approved template with body and optional URL-button variables.
+        """Send a template with optional image-header and URL-button variables.
 
         Default: not supported. The Meta adapter overrides this.
         """

@@ -44,7 +44,9 @@ def queue_missing_welcomes(container):
     return queued, conflicts
 
 
-def drain_welcomes(container, on_date, persist, publication_check):
+def drain_welcomes(
+    container, on_date, persist, publication_check, header_image_url=None
+):
     failures = 0
     sentlog = getattr(container, "sentlog", None)
     ledgers = [container.welcomes]
@@ -106,7 +108,10 @@ def drain_welcomes(container, on_date, persist, publication_check):
                 continue
         persist()
         try:
-            result = container.delivery_service.send_welcome(sub)
+            if header_image_url is None:
+                result = container.delivery_service.send_welcome(sub)
+            else:
+                result = container.delivery_service.send_welcome(sub, header_image_url)
         except Exception:
             # Both persisted reservations remain blocking if transport crashed.
             failures += 1

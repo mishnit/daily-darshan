@@ -124,6 +124,24 @@ def test_successful_welcome_consumes_shared_daily_contact_slot(container, monkey
     assert container.sentlog.all()[0]["status"] == "DELIVERED"
 
 
+def test_welcome_passes_configured_image_header(container, monkeypatch):
+    admin.cmd_verify(container, activate(container))
+    calls = []
+    monkeypatch.setattr(
+        container.delivery_service, "send_welcome",
+        lambda sub, image_url: calls.append((sub.mobile, image_url))
+        or WhatsAppResult(ok=True, message_id="wamid.header"),
+    )
+
+    result = drain_welcomes(
+        container, date.today(), lambda: None, lambda *_: True,
+        header_image_url="https://vipseva.com/images/today.jpg",
+    )
+
+    assert result == 0
+    assert calls == [("9199", "https://vipseva.com/images/today.jpg")]
+
+
 def test_definitive_welcome_failure_releases_daily_contact_slot(container, monkeypatch):
     admin.cmd_verify(container, activate(container))
     monkeypatch.setattr(

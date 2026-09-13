@@ -47,6 +47,21 @@ def _fallback_public_url(config: dict) -> str:
     return f"https://raw.githubusercontent.com/{repo}/{branch}/{images_dir}/{fallback}"
 
 
+def _validated_template_image_url(container: Container, git: LocalGitRepository, on_date: date):
+    """Return today's public canonical-image URL, or None when it is not valid."""
+    try:
+        image_path = container.image_service.canonical_path(on_date, create=False)
+    except TypeError:
+        image_path = container.image_service.canonical_path(on_date)
+    image_bytes = git.read_file(image_path)
+    image = Image(on_date, image_bytes or b"", source="stored_canonical")
+    if not image_bytes or not container.image_validator.validate(image):
+        return None
+    return container.page_renderer.image_url(
+        on_date, image_name=os.path.basename(image_path)
+    )
+
+
 def _render_pages(container: Container, on_date: date, source: str = "",
                   image_path: str | None = None) -> list[str]:
     """Generate per-subscriber static pages for on_date. Returns paths written."""
@@ -323,12 +338,19 @@ def run_welcome(container: Container, git: LocalGitRepository, on_date: date) ->
         [welcome_path, sentlog_path], "Persist activation welcome and daily contact slot"
     )
     container.sentlog.persist = persist
+    header_image_url = None
+    if container.delivery_service.welcome_requires_image_header:
+        header_image_url = _validated_template_image_url(container, git, on_date)
+        if not header_image_url:
+            print("[welcome] FAILED: configured image header requires today's valid image", file=sys.stderr)
+            return 1
     queued, conflicts = queue_missing_welcomes(container)
     if queued:
         persist()
     failures = drain_welcomes(
         container, on_date, persist,
         PublishedPageChecker(container.config.get("delivery", {}).get("page_base_url", "")),
+        header_image_url=header_image_url,
     )
     print(f"[welcome] queued={queued} conflicts={conflicts} unresolved={failures}")
     return int(bool(failures or conflicts))
@@ -354,7 +376,13 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
                 file=sys.stderr,
             )
             return 1
-        report = container.delivery_service.deliver(on_date)
+        if getattr(container.delivery_service, "requires_image_header", False):
+            image_url = container.page_renderer.image_url(
+                on_date, image_name=os.path.basename(image_path)
+            )
+            report = container.delivery_service.deliver(on_date, image_url=image_url)
+        else:
+            report = container.delivery_service.deliver(on_date)
     else:
         try:
             image_path = container.image_service.canonical_path(on_date, create=False)
@@ -395,7 +423,13 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
 
 def run_renewal(container: Container, git: LocalGitRepository, on_date: date) -> int:
     _prepare_contact_safety(container, git)
-    report = container.renewal_service.run(on_date)
+    header_image_url = None
+    if container.renewal_service.requires_image_header:
+        header_image_url = _validated_template_image_url(container, git, on_date)
+        if not header_image_url:
+            print("[renewal] FAILED: configured image header requires today's valid image", file=sys.stderr)
+            return 1
+    report = container.renewal_service.run(on_date, header_image_url=header_image_url)
     git.commit([container.config["paths"]["renewals_csv"],
                 container.config["paths"]["sentlog_csv"],
                 container.config["paths"]["logs_csv"]],

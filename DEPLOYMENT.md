@@ -331,6 +331,19 @@ depends on Meta's assigned category and current country rate; verify both in Wha
    Renewal uses this same template and language with the same customer-name and URL-button
    parameters. It intentionally does not submit the expiry date as another body variable.
 
+   Templates without media headers use `template_header: "none"` (the default). To switch an
+   approved template to a dynamic Meta **Image** header without another code change, update its
+   template name and set the matching configuration field to `"image"`:
+
+   - `delivery.template_header` for daily delivery
+   - `delivery.welcome_template_header` for activation welcomes
+   - `renewal.template_header` for renewal reminders
+
+   The header receives today's publicly deployed canonical image URL. The body and URL-button
+   parameters do not change. Do not set `image` until the corresponding Meta template is approved
+   with an Image header; a header mismatch is rejected by Meta. A missing/invalid daily image
+   fails the configured media-header phase before a WhatsApp send is attempted.
+
 4. **Backfill subscription ids** for any existing subscribers (new signups get one automatically):
    ```bash
    python -m migrations.backfill_subscription_ids --commit
