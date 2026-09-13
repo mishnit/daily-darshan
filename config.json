@@ -61,8 +61,8 @@
   },
   "delivery": {
     "mode": "utility_template",
-    "template_name": "daily_darshan_delivery_update",
-    "welcome_template_name": "daily_darshan_delivery_update",
+    "template_name": "daily_darshan_delivery_update1",
+    "welcome_template_name": "daily_darshan_delivery_update1",
     "welcome_template_lang": "en",
     "template_lang": "en",
     "template_header": "none",
@@ -81,7 +81,7 @@
   "renewal": {
     "reminder_days": [3, 2, 1],
     "whatsapp_number": "916361699109",
-    "template_name": "daily_darshan_delivery_update",
+    "template_name": "daily_darshan_delivery_update1",
     "template_lang": "en",
     "template_header": "none"
   }
