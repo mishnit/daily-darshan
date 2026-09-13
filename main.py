@@ -242,7 +242,7 @@ def _process_messages(c, payload: dict) -> bool:
             kind, value = _extract_input(message)
             if mobile and value:
                 state = c.conversations.find(mobile) or {"mobile": mobile, "version": "0", "last_recovery": "0"}
-                recovery = ((kind == "text" and value.strip().upper() in {"CONTINUE", "STATUS", "RESEND"})
+                recovery = ((kind == "text" and value.strip().upper() in {"CONTINUE", "RESEND"})
                             or (kind == "button" and value in {"CTA_CONTINUE", "CTA_RESEND"}))
                 if (recovery
                         and time.time() - float(state.get("last_recovery") or 0) < 30):
@@ -415,13 +415,26 @@ def _has_active_subscription(c, mobile):
 
 
 def _send_menu(c, mobile: str) -> None:
-    """Show one purchase action only to users without an active entitlement."""
+    """Show actions appropriate to entitlement and the current checkout."""
     sub = c.subscribers.find(mobile)
-    rows = []
-    if not _has_active_subscription(c, mobile):
+    payment = _latest_pending_payment(c, mobile)
+    rows = [("CTA_STATUS", "Subscription status", "Check your subscription")]
+    if payment:
+        rows.append(("CTA_CONTINUE", "Payment status" if payment.utr else "Payment instructions",
+                     "Review in progress" if payment.utr else "Continue your payment"))
+        if not payment.utr:
+            rows.append(("CTA_RENEW", "Change plan", "Choose a different plan"))
+    elif _has_active_subscription(c, mobile):
+        rows.append(("CTA_RENEW", "Renew / extend", "Add days to your subscription") if sub.opt_in
+                    else ("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
+    else:
         rows.append(("CTA_RENEW", "Renew", "Renew your subscription") if sub and sub.end_date
                     else ("CTA_SUBSCRIBE", "Subscribe", "Choose a plan"))
-    rows.extend([("CTA_CONTINUE", "Continue", "Resume your current step"),
+    if sub and sub.opt_in:
+        rows.append(("CTA_STOP", "Stop messages", "Keep your paid subscription"))
+    if not payment:
+        rows.append(("CTA_CONTINUE", "Continue", "Resume your current step"))
+    rows.extend([("CTA_HELP", "Help", "Get help with your subscription"),
                  ("CTA_RESEND", "Resend", "Get your current instructions again"),
                  ("CTA_BACK", "Back", "Return to the previous options")])
     result = c.whatsapp.send_list(
@@ -436,8 +449,9 @@ def _send_menu(c, mobile: str) -> None:
 
 def _send_plan_list(c, mobile: str) -> None:
     """Send the plan catalog as a tappable list (ids = PLAN_<plan>)."""
-    if _has_active_subscription(c, mobile):
-        _send_menu(c, mobile)
+    payment = _latest_pending_payment(c, mobile)
+    if payment and payment.utr:
+        _resume_conversation(c, mobile)
         return
     rows = []
     for plan, meta in c.config["plans"].items():
@@ -466,16 +480,22 @@ def _after_name_or_optin(c, mobile: str, returning: bool) -> None:
     if sub is None:
         _send_menu(c, mobile)
         return
+    if not sub.name:
+        c.subscriber_service.set_awaiting_name(mobile, True)
+        _require_send(c.whatsapp.send_text(mobile, "🙏 What name should we greet you by?"), "name request")
+        return
     if not sub.opt_in:
         _request_opt_in(c, mobile)
         return
-    _start_payment(c, mobile, sub.plan or _default_plan(c), returning=returning)
+    payment = _latest_pending_payment(c, mobile)
+    _start_payment(c, mobile, payment.plan if payment else sub.plan or _default_plan(c),
+                   returning=sub.end_date is not None)
 
 
 def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> None:
     """CTA-driven conversation state machine with explicit opt-in/opt-out.
 
-    Buttons/list ids: CTA_SUBSCRIBE -> plans; CTA_RENEW -> renew;
+    Buttons/list ids: CTA_SUBSCRIBE/CTA_RENEW -> plans;
     PLAN_<plan> -> chosen plan; CTA_OPTIN_AGREE -> record consent + pay;
     CTA_STOP -> opt out. Free text ONLY for name (when awaiting) and 12-digit
     UTR (and STOP-family keywords). Phone is implicit.
@@ -491,9 +511,21 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
 
     # ---------------- Button / list taps (CTAs) ---------------- #
     if kind == "button":
-        if (_has_active_subscription(c, mobile)
+        payment = _latest_pending_payment(c, mobile)
+        if (payment and payment.utr
                 and (value in {"CTA_SUBSCRIBE", "CTA_RENEW"} or value.startswith("PLAN_"))):
             _resume_conversation(c, mobile)
+            return
+        if value == "CTA_STATUS":
+            _send_subscription_status(c, mobile)
+            return
+        if value == "CTA_HELP":
+            _require_send(wa.send_text(mobile, "Reply CONTINUE for your current step or BACK for options. "
+                "If payment is under review, please allow the admin time to verify it; do not pay again. "
+                "If it remains unresolved, contact the VIP Seva administrator. This menu does not create a support ticket."), "help")
+            return
+        if value == "CTA_RESUME_MESSAGES":
+            _request_opt_in(c, mobile)
             return
         if value in {"CTA_CONTINUE", "CTA_RESEND", "CTA_BACK"}:
             _handle_message(c, mobile, "text", value.removeprefix("CTA_"), name)
@@ -513,16 +545,28 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
                 _send_menu(c, mobile)
                 return
             svc.grant_opt_in(mobile, "whatsapp_cta")
+            if _has_active_subscription(c, mobile) and not _latest_pending_payment(c, mobile):
+                _require_send(wa.send_text(mobile,
+                    "Daily Darshan messages are enabled. Your paid subscription is unchanged. 🙏"), "consent restored")
+                return
             # Returning = already had subscription dates before this checkout.
             returning = sub.end_date is not None
-            _start_payment(c, mobile, sub.plan or _default_plan(c), returning=returning)
+            _after_name_or_optin(c, mobile, returning=returning)
             return
         if value.startswith("PLAN_"):
             plan = value[len("PLAN_"):]
             if plan not in c.config["plans"]:
                 _send_plan_list(c, mobile)
                 return
-            svc.upsert_pending(mobile, plan, name)
+            sub = c.subscribers.find(mobile)
+            if sub and sub.end_date:
+                # A checkout must not alter the paid plan or entitlement before approval.
+                if payment is None or payment.plan != plan:
+                    c.payment_service.create_payment(mobile, plan)
+            else:
+                svc.upsert_pending(mobile, plan, name if not sub or not sub.name else "")
+                if payment and payment.plan != plan:
+                    c.payment_service.create_payment(mobile, plan)
             sub = c.subscribers.find(mobile)
             if not sub.name:
                 svc.set_awaiting_name(mobile, True)
@@ -540,7 +584,10 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
     if utr_text:
         text = utr_text.group(1)
 
-    if text.upper() in {"CONTINUE", "STATUS", "RESEND"}:
+    if text.upper() == "STATUS":
+        _send_subscription_status(c, mobile)
+        return
+    if text.upper() in {"CONTINUE", "RESEND"}:
         state = c.conversations.find(mobile) or {"mobile": mobile, "version": "0"}
         if time.time() - float(state.get("last_recovery") or 0) < 30:
             return
@@ -586,6 +633,9 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         if payment is None:
             _send_menu(c, mobile)
             return
+        if payment.utr:
+            _resume_conversation(c, mobile)
+            return
         c.payment_service.record_utr(payment.reference_id, text)
         _send_intent_reply(c,
             mobile,
@@ -608,28 +658,14 @@ def _handle_opt_out(c, mobile: str) -> None:
     _send_intent_reply(c,
         mobile,
         "You've been opted out — you won't receive further Daily Darshan messages. "
-        "Send Radhe Radhe anytime, then choose Subscribe to opt in again. 🙏",
+        "Your paid subscription dates are unchanged. Send Radhe Radhe anytime, then choose "
+        "Resume messages if available, or Continue for an existing checkout. If expired, choose Renew. 🙏",
     )
 
 
 def _handle_renew(c, mobile: str, name: str = "") -> None:
-    svc = c.subscriber_service
-    existing = c.subscribers.find(mobile)
-    if existing is None:
-        # Unknown mobile tapped Renew -> treat as a fresh subscribe.
-        _send_plan_list(c, mobile)
-        return
-    renew_plan = existing.plan or _default_plan(c)
-    if name.strip() and not existing.name:
-        svc.set_name(mobile, name)
-        existing = c.subscribers.find(mobile)
-    if not existing.name:
-        svc.upsert_pending(mobile, renew_plan, name)
-        svc.set_awaiting_name(mobile, True)
-        _require_send(c.whatsapp.send_text(mobile, "🙏 What name should we greet you by?"), "name request")
-        return
-    # Returning subscriber: opt-in gate still applies if they'd previously opted out.
-    _after_name_or_optin(c, mobile, returning=True)
+    """Returning subscribers can choose any plan; do not silently rebuy the old one."""
+    _send_plan_list(c, mobile)
 
 
 def _start_payment(c, mobile: str, plan: str, returning: bool = False) -> None:
@@ -637,9 +673,6 @@ def _start_payment(c, mobile: str, plan: str, returning: bool = False) -> None:
 
     `returning=True` uses renewal wording for an existing subscriber.
     """
-    if _has_active_subscription(c, mobile):
-        _resume_conversation(c, mobile)
-        return
     payment = _latest_pending_payment(c, mobile)
     if payment and payment.utr:
         _require_send(c.whatsapp.send_text(mobile,
@@ -672,9 +705,10 @@ def _send_payment_instructions(c, mobile, payment, returning=False):
 
 def _resume_conversation(c, mobile):
     sub = c.subscribers.find(mobile)
-    if _has_active_subscription(c, mobile) and sub.opt_in:
+    payment = _latest_pending_payment(c, mobile)
+    if payment and payment.utr:
         _require_send(c.whatsapp.send_text(mobile,
-            f"Your Daily Darshan subscription is active until {sub.end_date}. Send MENU for options."), "active status")
+            f"Payment verification pending for {payment.reference_id}. We received your UTR; please do not pay again."), "payment status")
     elif not sub:
         _send_plan_list(c, mobile)
     elif sub.awaiting_name or not sub.name:
@@ -683,17 +717,28 @@ def _resume_conversation(c, mobile):
     elif not sub.opt_in:
         _request_opt_in(c, mobile)
     else:
-        payment = _latest_pending_payment(c, mobile)
-        if payment and payment.utr:
-            _require_send(c.whatsapp.send_text(mobile,
-                f"Payment verification pending for {payment.reference_id}. We received your UTR; please do not pay again."), "payment status")
-        elif payment:
+        if payment:
             _send_payment_instructions(c, mobile, payment, sub.end_date is not None)
         elif sub.is_deliverable(datetime.now(ZoneInfo('Asia/Kolkata')).date()):
             _require_send(c.whatsapp.send_text(mobile,
                 f"Your Daily Darshan subscription is active until {sub.end_date}. Send MENU for options."), "active status")
         else:
             _send_plan_list(c, mobile)
+
+
+def _send_subscription_status(c, mobile):
+    sub = c.subscribers.find(mobile)
+    if not sub:
+        message = "You do not have a subscription yet. Send MENU to view plans."
+    else:
+        status = "expired" if sub.is_expired(datetime.now(ZoneInfo("Asia/Kolkata")).date()) else sub.status.value.lower()
+        message = (f"Your Daily Darshan subscription is {status}. Expiry: {sub.end_date or 'not activated'}. "
+                   f"Messages: {'enabled' if sub.opt_in else 'stopped'}. Send MENU for options.")
+    payment = _latest_pending_payment(c, mobile)
+    if payment:
+        message += (f" Payment {payment.reference_id}: "
+                    + ("under admin review; do not pay again." if payment.utr else "awaiting payment. Reply CONTINUE for instructions."))
+    _require_send(c.whatsapp.send_text(mobile, message), "subscription status")
 
 
 def _default_plan(c) -> str:

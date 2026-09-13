@@ -212,9 +212,17 @@ Use this sequence when validating a release end to end:
   alter consent, or replace a paid payment. Old CTA taps are validated against the current plan
   and state; a missing/expired CTA shows the menu.
 
-Menu verification: new users receive Subscribe only; previous inactive subscribers receive
-Renew only; active/unexpired subscribers receive neither. Continue, Resend and Back remain
-available. Check stale Subscribe/Renew/plan taps do not create a payment for active users.
+Menu verification: new users receive Subscribe, expired users Renew, active opted-in users
+Renew / extend and Stop messages, and active opted-out users Resume messages. All have
+status/help/recovery options. Unpaid checkout shows payment instructions/change plan;
+UTR review hides purchase actions and blocks stale purchase taps. Verify active renewal
+leaves the current paid plan/dates unchanged until admin approval, and extends from expiry.
+Resume messages requires consent but no payment. STOP changes consent, not paid dates.
+No new secrets, CSV columns or Meta templates are required: activation/renewal approval
+continues to queue the separate `daily_darshan_welcome` status confirmation after publication.
+The welcome is independent of the maximum-one-per-day renewal-or-delivery notification.
+Run `pytest -q` including `tests/test_product_journey.py`; live acceptance must additionally
+exercise each menu using the configured production sender and verify Meta callbacks.
 After a valid 12-digit UTR, verify the reply names the reference, requests time for admin
 review, and says not to pay again. Production saves that acknowledgement in the outbox
 before sending; retrying the same inbound message must not duplicate it. If the live user

@@ -298,8 +298,7 @@ def test_signup_to_render_to_delivery_to_stop_end_to_end(webhook, tmp_path):
 
 
 def test_webhook_renew_cta_existing_subscriber_uses_plan_no_prompt(webhook):
-    """Tapping Renew for a known subscriber uses their existing plan, greets by
-    name, and does NOT re-prompt for a name."""
+    """Renew offers plans, then reuses the stored name after explicit selection."""
     from datetime import date
     from domain.enums import SubscriberStatus
     from domain.subscriber import Subscriber
@@ -312,6 +311,9 @@ def test_webhook_renew_cta_existing_subscriber_uses_plan_no_prompt(webhook):
     body = json.dumps(_tap("9222", "CTA_RENEW", "r1")).encode()
     client.post("/webhook", content=body, headers={"X-Hub-Signature-256": _sign("s3cret", body)})
 
+    assert main.container.payments.all() == []
+    body = json.dumps(_tap("9222", "PLAN_yearly", "r2")).encode()
+    client.post("/webhook", content=body, headers={"X-Hub-Signature-256": _sign("s3cret", body)})
     assert main.container.subscriber_service.is_awaiting_name("9222") is False
     pays = main.container.payments.all()
     assert len(pays) == 1 and pays[0].plan == "yearly"  # existing plan, not default

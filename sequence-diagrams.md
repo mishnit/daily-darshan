@@ -215,12 +215,13 @@ sequenceDiagram
     User->>Web: sends BACK / MENU / Radhe Radhe
     Web->>State: clear awaiting-name flag only
     Web-->>User: Status-aware menu with Continue, Resend and Back
-    Note over Web,User: New users get Subscribe, inactive returning users get Renew, active users get neither
+    Note over Web,User: New users Subscribe, expired users Renew, active users Renew or extend
+    Note over Web,User: Active opted-out users Resume messages without payment
 
     User->>Web: taps CTA_SUBSCRIBE
     Web-->>User: plan list (PLAN_<plan>)
     User->>Web: taps PLAN_<plan>
-    Web->>State: save selected plan as PENDING
+    Web->>State: save checkout plan, preserve any paid entitlement until approval
     alt name missing
         Web-->>User: ask for greeting name
         User->>Web: sends BACK
@@ -237,7 +238,7 @@ sequenceDiagram
     User->>Web: taps CTA_OPTIN_AGREE twice
     Web->>State: first tap grants consent and creates one current PENDING payment
     Web-->>User: UPI instruction + reference
-    Web-->>User: second tap is deduplicated by message.id or supersedes only an old PENDING checkout
+    Web-->>User: duplicate message ID is ignored, fresh tap reuses current payment
 ```
 
 ### 3b. Payment and UTR recovery cases
@@ -263,6 +264,9 @@ sequenceDiagram
     User->>Web: sends BACK / RENEW / SUBSCRIBE after UTR
     Web-->>User: navigation menu
     Note over State: existing UTR remains attached until admin accepts or rejects it
+    User->>Web: taps stale plan or sends a different UTR during review
+    Web-->>User: payment under review, do not pay again
+    Note over Web,State: no checkout replacement or UTR overwrite
 ```
 
 ---
@@ -364,7 +368,7 @@ sequenceDiagram
     Web->>Repo: RepoSync.pull  ⬇️ REPO READ
     Web->>Sub: revoke_opt_in(mobile) - opt_in=false, ts, source=opt_out
     Sub->>Local: write subscribers.csv  📝 LOCAL
-    Web->>User: Opted out. Send Radhe Radhe, then choose Subscribe to opt in again.
+    Web->>User: Opted out, paid dates unchanged. Active users Resume messages, expired users Renew.
     Web->>Repo: Persist opt-out and any failed acknowledgement atomically
     Web-->>WA: 200 if persisted and reply succeeded, otherwise 503
     Note over Sub: opt_in=false makes the subscriber non-deliverable immediately.
