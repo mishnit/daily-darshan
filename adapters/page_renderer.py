@@ -63,7 +63,6 @@ _TEMPLATE = """<!DOCTYPE html>
     .share button {{ border: 0; border-radius: 7px; padding: 10px 16px;
                      color: white; font: inherit; font-weight: 650; cursor: pointer; }}
     .privacy-note {{ margin: 3px 8px; font-size: .72rem; color: #53483c; }}
-    .share small {{ display: block; margin-top: 5px; }}
     .share textarea {{ box-sizing: border-box; width: 100%; min-height: 90px; }}
     body {{ overflow-y: auto; }}
     .renewal + .image-frame img {{ border-radius: 0; }}
@@ -81,9 +80,8 @@ _TEMPLATE = """<!DOCTYPE html>
     </div>
     <div class="share">
       <p><strong>Bring today's Darshan to someone you love 🙏</strong></p>
-      <p class="privacy-note">This page is personal to you. To share Darshan, use the button below.</p>
+      <p class="privacy-note">This page is personal to you and should not be shared directly. To share Darshan image, use the button below</p>
       <button id="share-darshan" type="button" hidden>📲 Share Darshan with family &amp; friends on whatsapp</button>
-      <small>Your personal page link won't be included. Choose WhatsApp in the share menu.</small>
       <p id="share-status" role="status" aria-live="polite"></p>
       <details id="share-fallback">
         <summary>Download image and copy caption</summary>
