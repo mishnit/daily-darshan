@@ -204,7 +204,10 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
                 c.whatsapp = QueuedReplies(c.reply_outbox, c)
             failed = _process_messages(c, payload)
             if production:
-                prepared_replies, preparation_failed = prepare_replies(c.reply_outbox, c)
+                # Internal worker (empty payload) drains a bounded global batch.
+                # Customer events never inherit another customer's stuck state.
+                mobiles = {m.get('from', '') for m, _ in _iter_messages(payload)} if payload else None
+                prepared_replies, preparation_failed = prepare_replies(c.reply_outbox, c, mobiles=mobiles)
                 failed |= preparation_failed
             # In production this atomically persists both the inbound state and
             # each PENDING outbound reservation before Meta is contacted.
@@ -484,7 +487,7 @@ def _effective_plan_name(c, sub) -> str:
     candidates = [sub.plan] if sub.plan in c.config["plans"] else []
     for reference in _applied_payment_refs(sub):
         payment = c.payments.find(reference)
-        if payment and payment.plan in c.config["plans"]:
+        if payment and payment.mobile == sub.mobile and payment.plan in c.config["plans"]:
             candidates.append(payment.plan)
     if not candidates:
         return sub.plan
@@ -980,9 +983,11 @@ def _checkout_payment(c, mobile):
 def _latest_pending_payment(c, mobile: str):
     from domain.enums import PaymentStatus
 
+    sub = c.subscribers.find(mobile)
+    applied = _applied_payment_refs(sub) if sub else set()
     pending = [
         p for p in c.payments.all()
-        if p.mobile == mobile and p.status == PaymentStatus.PENDING
+        if p.mobile == mobile and p.status == PaymentStatus.PENDING and p.reference_id not in applied
     ]
     if not pending:
         return None
