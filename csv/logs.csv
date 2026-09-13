@@ -267,3 +267,6 @@ timestamp,event,mobile,details
 2026-09-13T04:18:13.390761,PAGES_REGENERATED,,2026-09-13:count=2:source=canonical:image=docs/images/f5a18523-8d4b-4999-85f0-f1a75ef5fd34_2026-09-12.jpg
 2026-09-13T05:32:01.874316,IMAGE_FETCH_FAILED,,mayapur:no-candidate
 2026-09-13T05:32:01.881366,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-13
+2026-09-13T06:05:37.062950,IMAGE_FETCH_FAILED,,mayapur:no-candidate
+2026-09-13T06:05:48.609259,IMAGE_FETCH_SUCCESS,,iskcon_mumbai:c4b0511a46249ab1ede4ab708e23c510e447e28f06c157f4b43594a51f2eb48a
+2026-09-13T06:05:48.679429,IMAGES_PRUNED,,removed=2 kept<= 7
