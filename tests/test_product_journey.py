@@ -10,6 +10,7 @@ from tests.conftest import FakeWhatsApp
 
 @pytest.fixture(autouse=True)
 def add_second_plan(container):
+    container.config["plans"]["quarterly"] = {"amount": 199, "days": 90}
     container.config["plans"]["yearly"] = {"amount": 699, "days": 365}
 
 
@@ -47,7 +48,7 @@ def test_payment_review_cannot_be_replaced_by_stale_cta(container, action):
     from domain.enums import PaymentStatus
     setup_sub(container)
     entitlement_before = container.subscribers.find("9199").to_row()
-    main._handle_message(container, "9199", "button", "PLAN_monthly")
+    main._handle_message(container, "9199", "button", "PLAN_quarterly")
     paid = container.payments.all()[0]
     main._handle_message(container, "9199", "text", f"UTR {paid.reference_id} 123456789012")
     main._send_menu(container, "9199")
@@ -79,20 +80,20 @@ def test_payment_review_cannot_be_replaced_by_stale_cta(container, action):
 def test_payment_status_during_review_explains_reference_qualified_utr(container):
     import main
     setup_sub(container)
-    main._handle_message(container, "9199", "button", "PLAN_monthly")
+    main._handle_message(container, "9199", "button", "PLAN_quarterly")
     payment = container.payments.all()[0]
     main._handle_message(container, "9199", "text", "123456789012")
     main._handle_message(container, "9199", "button", "CTA_PAYMENT")
     message = container.whatsapp.sent[-1]["message"]
     assert "verification pending" in message
     assert f"UTR {payment.reference_id} 123456789012" in message
-    assert "Change plan" in message
+    assert "Extend plan" in message
 
 
 def test_reference_qualified_utr_correction_overwrites_previous_value(container):
     import main
     setup_sub(container)
-    main._handle_message(container, "9199", "button", "PLAN_monthly")
+    main._handle_message(container, "9199", "button", "PLAN_quarterly")
     payment = container.payments.all()[0]
     main._handle_message(container, "9199", "text", f"UTR {payment.reference_id} 123456789012")
     main._handle_message(container, "9199", "text", f"UTR {payment.reference_id} 999999999999")
@@ -104,7 +105,7 @@ def test_reference_qualified_utr_correction_overwrites_previous_value(container)
 def test_review_state_legacy_navigation_is_not_blocked(container, action):
     import main
     setup_sub(container)
-    main._handle_message(container, "9199", "button", "PLAN_monthly")
+    main._handle_message(container, "9199", "button", "PLAN_quarterly")
     payment = container.payments.all()[0]
     main._handle_message(container, "9199", "text", f"UTR {payment.reference_id} 123456789012")
     main._handle_message(container, "9199", "button", action)
@@ -173,7 +174,7 @@ def test_messages_do_not_advertise_obsolete_navigation(container, stage):
     if stage != "new":
         setup_sub(container, expired=stage == "expired", opted_in=stage != "optout")
     if stage in {"unpaid", "review"}:
-        main._handle_message(container, "9199", "button", "PLAN_monthly")
+        main._handle_message(container, "9199", "button", "PLAN_quarterly")
         if stage == "review":
             main._handle_message(container, "9199", "text", "123456789012")
     container.whatsapp.sent.clear()

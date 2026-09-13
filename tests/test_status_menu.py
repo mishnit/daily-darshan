@@ -21,6 +21,7 @@ from domain.enums import SubscriberStatus
 ])
 def test_menu_matches_entitlement(container, status, expiry, expected):
     import main
+    container.config["plans"]["yearly"] = {"amount": 449, "days": 365}
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     if status:
         container.subscribers.append(Subscriber("9199", "monthly", status=SubscriberStatus(status),
@@ -32,19 +33,78 @@ def test_menu_matches_entitlement(container, status, expiry, expected):
     assert ids == (["CTA_STATUS"] if expiry is not None else []) + [expected]
 
 
-@pytest.mark.parametrize("cta", ["CTA_SUBSCRIBE", "CTA_RENEW", "PLAN_monthly", "CTA_OPTIN_AGREE"])
-def test_active_user_cannot_purchase_via_old_buttons(container, cta):
+@pytest.mark.parametrize("cta,expected_payments", [
+    ("CTA_SUBSCRIBE", 0),
+    ("CTA_RENEW", 0),
+    ("PLAN_monthly", 0),
+    ("PLAN_yearly", 1),
+    ("CTA_OPTIN_AGREE", 0),
+])
+def test_active_user_cannot_purchase_via_old_buttons(container, cta, expected_payments):
     """Legacy CTAs never grant paid days; an explicit plan can now open a renewal checkout."""
     import main
+    container.config["plans"]["yearly"] = {"amount": 449, "days": 365}
     container.subscriber_service.upsert_pending("9199", "monthly", "Nitin")
     container.subscriber_service.grant_opt_in("9199", "test")
     container.subscriber_service.activate("9199")
     before = container.subscribers.find("9199").end_date
     container.whatsapp = FakeWhatsApp()
     main._handle_message(container, "9199", "button", cta)
-    assert len(container.payments.all()) == (1 if cta.startswith("PLAN_") else 0)
+    assert len(container.payments.all()) == expected_payments
     assert container.subscribers.find("9199").end_date == before
     assert container.subscribers.find("9199").plan == "monthly"
+
+
+def test_active_menu_labels_extension_and_hides_it_for_largest_plan(container):
+    import main
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    container.config["plans"]["yearly"] = {"amount": 449, "days": 365}
+    calls = []
+    container.whatsapp = SimpleNamespace(
+        send_list=lambda *args: calls.append(args) or SimpleNamespace(ok=True),
+    )
+    container.subscribers.append(Subscriber(
+        "9199", "monthly", status=SubscriberStatus.ACTIVE,
+        end_date=today + timedelta(days=5), opt_in=True,
+    ))
+    main._send_menu(container, "9199")
+    assert calls[-1][3] == [
+        ("CTA_STATUS", "Subscription status", "Check your subscription"),
+        ("CTA_RENEW", "Extend plan", "Choose a larger plan"),
+    ]
+
+    sub = container.subscribers.find("9199")
+    sub.plan = "yearly"
+    container.subscribers.update(sub)
+    main._send_menu(container, "9199")
+    assert calls[-1][3] == [
+        ("CTA_STATUS", "Subscription status", "Check your subscription"),
+    ]
+
+
+def test_active_plan_list_contains_only_strictly_larger_plans(container):
+    import main
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    container.config["plans"].update({
+        "weekly": {"amount": 29, "days": 7},
+        "yearly": {"amount": 449, "days": 365},
+    })
+    container.subscribers.append(Subscriber(
+        "9199", "monthly", status=SubscriberStatus.ACTIVE,
+        end_date=today + timedelta(days=5), opt_in=True,
+    ))
+    container.whatsapp = FakeWhatsApp()
+    main._send_plan_list(container, "9199")
+    assert container.whatsapp.sent[-1]["rows"] == ["PLAN_yearly"]
+
+
+def test_subscription_status_includes_current_plan(container):
+    import main
+    container.subscriber_service.upsert_pending("9199", "monthly", "Nitin")
+    container.subscriber_service.activate("9199")
+    container.whatsapp = FakeWhatsApp()
+    main._send_subscription_status(container, "9199")
+    assert "Current plan: Monthly." in container.whatsapp.sent[-1]["message"]
 
 
 @pytest.mark.parametrize("text", ["123456789012", "UTR: 123456789012"])

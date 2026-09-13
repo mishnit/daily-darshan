@@ -216,7 +216,9 @@ sequenceDiagram
     User->>Web: sends MENU / Radhe Radhe
     Web->>State: clear awaiting-name flag only
     Web-->>User: Status-aware menu with subscription and payment actions
-    Note over Web,User: New users View plans, expired users View renewal plans, active users Renew or extend
+    Note over Web,User: New users View plans; expired users View renewal plans
+    Note over Web,User: Active users Extend plan using only larger plans; largest plan has no extension action
+    Note over Web,User: Subscription status includes the current plan type
     Note over Web,User: Active opted-out users Resume messages without payment
 
     User->>Web: taps CTA_SUBSCRIBE

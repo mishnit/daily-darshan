@@ -393,14 +393,14 @@ Bot:  Thanks! We received your UTR for DD2608190001.
       and activate your subscription once approved. You do not need to pay again. 🙏
 ```
 
-Returning subscriber (Renew / extend while active, Renew after expiry):
+Returning subscriber (Extend plan while active, Renew after expiry):
 
 ```
-User: (taps Renew)
-Bot:  Choose your Daily Darshan plan.
-User: (selects Monthly)
-Bot:  Radhe Radhe Deep Ji! Renewing your monthly plan.   ← stored name reused
-      Amount: ₹199
+User: (taps Extend plan while on Monthly)
+Bot:  Choose a larger Daily Darshan plan.
+User: (selects Yearly)
+Bot:  Radhe Radhe Deep Ji! Renewing your yearly plan.   ← stored name reused
+      Amount: ₹699
       Pay via UPI: upi://pay?...
       Reference: DD2608190002
       After paying, reply with your payment reference and 12-digit UTR.
@@ -415,13 +415,16 @@ Details:
   show View plans and require name/consent again. Menu navigation preserves the payment;
   selecting the same plan reuses its reference. Rejected and approved payments remain
   status-only until resolved, even without a subscriber record.
-- Active users see Subscription status and Renew / extend. Expired users see an expiry
-  notice and View renewal plans. Active opted-out users additionally see Resume messages:
-  explicit consent restores delivery without another payment.
+- Active users see Subscription status (including their current plan) and Extend plan. The
+  extension list contains only plans strictly larger than their current plan; subscribers already
+  on the largest plan do not see Extend plan. Expired users see an expiry notice and View renewal
+  plans. Active opted-out users additionally see Resume messages: explicit consent restores
+  delivery without another payment.
 - Help, Stop messages, Continue, Resend and Back are not menu options. Typed STOP and the
   consent disclosure's No thanks button still revoke consent without removing paid days.
-- An unpaid checkout shows Payment instructions and Change plan. After UTR submission,
-  Payment status and Change plan remain available. Status repeats the reference-qualified
+- An unpaid checkout shows Payment instructions and Change plan for new/expired users, or Extend
+  plan for active users when a larger plan exists. After UTR submission, Payment status and the
+  applicable plan action remain available. Status repeats the reference-qualified
   UTR format so the customer can identify the checkout actually paid. Choosing another plan
   creates a new checkout; a customer who already paid must confirm the older paid-against
   reference as `UTR <reference> <12-digit UTR>` and must not pay again.
@@ -431,7 +434,7 @@ Details:
   once and contributes its purchased days. The subscriber retains the longest approved plan
   as the active plan, so approving a smaller payment later cannot downgrade the plan label.
 - Payment instructions/Payment status opens the current checkout or review details.
-  STATUS reports entitlement, consent and any pending payment separately. Send MENU for
+  STATUS reports current plan, entitlement, consent and any pending payment separately. Send MENU for
   available actions. Existing subscribers retain Subscription status while paying or renewing.
 - Rejected payments show Payment status and require administrator resolution before another
   checkout. Approval without activation says activation is being completed. After activation,
