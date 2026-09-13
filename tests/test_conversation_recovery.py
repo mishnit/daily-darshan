@@ -8,7 +8,12 @@ import pytest
 from fastapi.testclient import TestClient
 from tests.test_admin import container
 from application.ports.whatsapp import WhatsAppResult
-from application.reply_outbox import QueuedReplies, drain_replies
+from application.reply_outbox import (
+    QueuedReplies,
+    drain_replies,
+    prepare_replies,
+    send_prepared_replies,
+)
 
 
 def prepare(c):
@@ -116,6 +121,39 @@ def test_worker_backoff_and_unknown_not_retried(container):
     container.reply_outbox.upsert(row["id"], row)
     drain_replies(container.reply_outbox, container.whatsapp, lambda: None, container, now + 999)
     assert len(calls) == 2
+
+
+def test_prepared_reply_is_reserved_before_provider_send(container):
+    calls = prepare(container)
+    QueuedReplies(container.reply_outbox, container).send_text("9199", "instructions")
+
+    prepared, failed = prepare_replies(container.reply_outbox, container)
+
+    assert not failed
+    assert len(prepared) == 1
+    assert container.reply_outbox.all()[0]["status"] == "PENDING"
+    assert not calls
+
+    assert not send_prepared_replies(
+        container.reply_outbox, container.whatsapp, prepared
+    )
+    assert len(calls) == 1
+    assert container.reply_outbox.all()[0]["status"] == "SENT"
+
+
+def test_crash_after_prepared_reservation_never_blindly_retries(container):
+    calls = prepare(container)
+    QueuedReplies(container.reply_outbox, container).send_text("9199", "instructions")
+    prepared, _ = prepare_replies(container.reply_outbox, container)
+
+    # Model a process crash after the PENDING row was committed but before the
+    # caller could prove whether the provider request started.
+    prepared_after_restart, failed = prepare_replies(container.reply_outbox, container)
+
+    assert failed
+    assert prepared_after_restart == []
+    assert not calls
+    assert container.reply_outbox.all()[0]["status"] == "PENDING"
 
 
 def test_worker_endpoint_requires_signature_and_fresh_timestamp(container, monkeypatch):

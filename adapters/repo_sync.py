@@ -59,11 +59,20 @@ class RepoSync:
             raise RuntimeError("Unpersisted local state requires recovery")
         if hasattr(self._github, "begin_snapshot"):
             self._github.begin_snapshot()
-        for rel in self._tracked:
+        readable = [rel for rel in self._tracked if rel not in self._dirty]
+        contents = None
+        if hasattr(self._github, "read_files"):
+            try:
+                contents = self._github.read_files(readable)
+            except Exception:
+                if strict:
+                    raise
+                contents = None
+        for rel in readable:
             if rel in self._dirty:
                 continue
             try:
-                content = self._github.read_file(rel)
+                content = contents[rel] if contents is not None else self._github.read_file(rel)
             except Exception:
                 if strict:
                     raise

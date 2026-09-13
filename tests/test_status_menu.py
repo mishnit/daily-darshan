@@ -285,7 +285,10 @@ def test_production_utr_ack_is_persisted_and_sent_once(container, text):
     assert "awaiting admin verification" in message
     assert "within 24 hours" in message
     assert payment.reference_id in message
-    assert commits[0][0]["status"] == "QUEUED"
+    # The inbound state and send reservation are committed atomically before
+    # Meta is contacted; there is no redundant QUEUED-only GitHub commit.
+    assert commits[0][0]["status"] == "PENDING"
+    assert commits[1][0]["status"] == "SENT"
     assert "within 24 hours" in json.loads(commits[0][0]["arguments"])[0][1]
 
 

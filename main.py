@@ -196,11 +196,18 @@ def _process_payload(c, payload: dict) -> None:
         c.repo_sync.pull(strict=True)
         snapshot = _snapshot_webhook_state(c)
         client = c.whatsapp
+        prepared_replies = []
+        failed = False
         try:
             if production:
-                from application.reply_outbox import QueuedReplies
+                from application.reply_outbox import QueuedReplies, prepare_replies
                 c.whatsapp = QueuedReplies(c.reply_outbox, c)
             failed = _process_messages(c, payload)
+            if production:
+                prepared_replies, preparation_failed = prepare_replies(c.reply_outbox, c)
+                failed |= preparation_failed
+            # In production this atomically persists both the inbound state and
+            # each PENDING outbound reservation before Meta is contacted.
             c.repo_sync.push("Webhook update", strict=True)
         except Exception:
             _restore_webhook_state(snapshot)
@@ -209,9 +216,12 @@ def _process_payload(c, payload: dict) -> None:
         finally:
             c.whatsapp = client
         if production:
-            from application.reply_outbox import drain_replies
-            failed |= drain_replies(c.reply_outbox, client,
-                lambda: c.repo_sync.push("Persist webhook reply outbox", strict=True), container=c)
+            from application.reply_outbox import send_prepared_replies
+            failed |= send_prepared_replies(c.reply_outbox, client, prepared_replies)
+            # Persist all provider outcomes in one atomic commit.  If this
+            # fails, the durable remote state remains PENDING and blocks blind
+            # retries until reconciliation.
+            c.repo_sync.push("Persist webhook reply outbox", strict=True)
         if failed:
             raise RuntimeError("One or more webhook responses need retry")
 
