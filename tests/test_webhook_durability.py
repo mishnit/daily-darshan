@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 
 import pytest
 
 from adapters.repo_sync import RepoSync
 from application.ports.storage import GitHubRepositoryPort
+from repositories.state_lock import StateLockTimeout, state_lock
 
 
 class FakeGitHub(GitHubRepositoryPort):
@@ -86,6 +88,24 @@ def test_reposync_missing_repo_file_leaves_local(tmp_path):
     rs = RepoSync(gh, str(tmp_path), ["csv/subs.csv"], enabled=True)
     rs.pull()
     assert (tmp_path / "csv" / "subs.csv").read_text() == "local-header\n"
+
+
+def test_state_lock_timeout_fails_fast_without_entering_transaction(tmp_path):
+    result = []
+
+    def contender():
+        try:
+            with state_lock(str(tmp_path), timeout=0.05):
+                result.append("entered")
+        except StateLockTimeout:
+            result.append("busy")
+
+    with state_lock(str(tmp_path)):
+        thread = threading.Thread(target=contender)
+        thread.start()
+        thread.join(timeout=1)
+
+    assert result == ["busy"]
 
 
 # ----------------- Time-independent persistence ---------------- #

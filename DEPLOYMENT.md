@@ -281,11 +281,16 @@ still receives nothing, inspect reply_outbox status/error and the configured sen
   This is duplicate prevention under uncertainty, not guaranteed exactly-once delivery.
 - Webhook persistence has no clock-based quiet window. It remains available during scheduled
   and manual workflows; repository conflicts fail closed with 503 so Meta can retry safely.
+  CSV snapshot files are fetched concurrently and unchanged snapshots are reused. Inbound state
+  and the outbound PENDING reservation are committed atomically before Meta is contacted; provider
+  outcomes are persisted in one follow-up commit. A bounded state-lock wait makes webhook and
+  retry-worker contention fail fast instead of occupying an Actions job for three minutes.
 - Callback records can precede send records and are reconciled on later webhook/delivery runs.
   A delivered/read callback must not be reversed by a delayed failed callback.
 
-Pull-request merges, Render persistence commits and other pushes to `main` trigger the **Tests** CI
-workflow. They intentionally do not trigger Pages CD, because the repository uses the custom
+Pull requests and code/configuration pushes to `main` trigger the **Tests** CI workflow. CSV-only
+Render persistence commits and docs-only pushes skip CI, preventing webhook traffic from flooding
+the runner queue. They intentionally do not trigger Pages CD, because the repository uses the custom
 Actions publisher rather than the legacy branch publisher. A previously published subscriber page
 stays reachable until a later successful deployment replaces or removes it. To publish an urgent
 mid-day activation, manually run **Deploy Daily Darshan Pages**; it will start delivery only after

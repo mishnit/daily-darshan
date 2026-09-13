@@ -143,6 +143,7 @@ class GitHubApiRepository(GitHubRepositoryPort):
         self._pending: list[tuple[str, bytes, str]] = []
         self._base_commit = None
         self._base_tree = None
+        self._snapshot_unchanged = False
 
     def _api(self, method, path, **kwargs):
         response = getattr(self._session, method)(
@@ -157,13 +158,26 @@ class GitHubApiRepository(GitHubRepositoryPort):
         if self._pending:
             raise RuntimeError("Uncommitted GitHub writes require reconciliation")
         head = self._api("get", f"git/ref/heads/{self._branch}")
-        self._base_commit = head["object"]["sha"]
+        previous_commit = self._base_commit
+        next_commit = head["object"]["sha"]
+        self._snapshot_unchanged = bool(
+            previous_commit == next_commit and self._base_tree
+        )
+        self._base_commit = next_commit
+        if self._snapshot_unchanged:
+            return
         commit = self._api("get", f"git/commits/{self._base_commit}")
         self._base_tree = commit["tree"]["sha"]
+
+    @property
+    def snapshot_unchanged(self) -> bool:
+        """Whether the branch still points at the locally cached snapshot."""
+        return self._snapshot_unchanged
 
     def discard_pending(self):
         self._pending.clear()
         self._base_commit = self._base_tree = None
+        self._snapshot_unchanged = False
 
     @property
     def _headers(self) -> dict:
@@ -233,3 +247,4 @@ class GitHubApiRepository(GitHubRepositoryPort):
         })
         self._pending.clear()
         self._base_commit, self._base_tree = commit["sha"], tree["sha"]
+        self._snapshot_unchanged = False
