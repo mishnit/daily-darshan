@@ -428,6 +428,28 @@ def _larger_plan_names(c, mobile: str) -> list[str]:
     ]
 
 
+def _is_expiring_soon(c, mobile: str) -> bool:
+    """Whether an active subscriber is inside the configured renewal window."""
+    sub = c.subscribers.find(mobile)
+    if not _has_active_subscription(c, mobile) or not sub or not sub.end_date:
+        return False
+    window = max(c.config.get("renewal", {}).get("reminder_days", [3]), default=3)
+    remaining = (sub.end_date - datetime.now(ZoneInfo("Asia/Kolkata")).date()).days
+    return 0 <= remaining <= int(window)
+
+
+def _eligible_plan_names(c, mobile: str) -> list[str]:
+    """Plans selectable from the menu for this subscriber's entitlement state."""
+    sub = c.subscribers.find(mobile)
+    if not sub or not _has_active_subscription(c, mobile):
+        return list(c.config["plans"])
+    larger = _larger_plan_names(c, mobile)
+    if not _is_expiring_soon(c, mobile):
+        return larger
+    # Near expiry, renewal may keep the current plan or move to a larger one.
+    return [plan for plan in c.config["plans"] if plan == sub.plan or plan in larger]
+
+
 def _send_menu(c, mobile: str) -> None:
     """Show actions appropriate to entitlement and the current checkout."""
     sub = c.subscribers.find(mobile)
@@ -438,6 +460,8 @@ def _send_menu(c, mobile: str) -> None:
         payment = None
     active = _has_active_subscription(c, mobile)
     larger_plans = _larger_plan_names(c, mobile) if active else []
+    expiring_soon = _is_expiring_soon(c, mobile)
+    eligible_plans = _eligible_plan_names(c, mobile)
     rows = [("CTA_STATUS", "Subscription status", "Check your subscription")] if sub and sub.end_date else []
     body = "🙏 Radhe Radhe! Choose an option below."
     locked_payment = bool(payment and payment.status.value != "PENDING")
@@ -452,9 +476,12 @@ def _send_menu(c, mobile: str) -> None:
         reviewing = payment.utr or payment.status.value != "PENDING"
         rows.append(("CTA_PAYMENT", "Payment status" if reviewing else "Payment instructions",
                      "View your payment details"))
-        if payment.status.value == "PENDING" and (not active or larger_plans):
-            rows.append(("CTA_RENEW", "Extend plan" if active else "Change plan",
-                         "Choose a larger plan" if active else "Choose a different plan"))
+        if payment.status.value == "PENDING" and (not active or eligible_plans):
+            label = "Renew" if (sub and sub.end_date) else "Change plan"
+            description = "Renew or choose a larger plan" if active and expiring_soon else (
+                "Choose a larger plan" if active else "Choose a different plan"
+            )
+            rows.append(("CTA_RENEW", label, description))
         if reviewing:
             body = _payment_status_text(c, payment)
             if payment.status.value == "FAILED":
@@ -462,10 +489,11 @@ def _send_menu(c, mobile: str) -> None:
     elif active:
         if not sub.opt_in:
             rows.append(("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
-        if larger_plans:
-            rows.append(("CTA_RENEW", "Extend plan", "Choose a larger plan"))
+        if eligible_plans:
+            rows.append(("CTA_RENEW", "Renew" if expiring_soon else "Extend plan",
+                         "Renew or choose a larger plan" if expiring_soon else "Choose a larger plan"))
     else:
-        rows.append(("CTA_RENEW", "View renewal plans", "Renew your subscription") if sub and sub.end_date
+        rows.append(("CTA_RENEW", "Renew", "Renew your subscription") if sub and sub.end_date
                     else ("CTA_SUBSCRIBE", "View plans", "Choose a plan"))
         if sub and sub.is_expired(datetime.now(ZoneInfo("Asia/Kolkata")).date()):
             body = f"Your subscription expired on {sub.end_date}. Choose a renewal plan."
@@ -486,7 +514,7 @@ def _send_plan_list(c, mobile: str) -> None:
     if payment and payment.status.value != "PENDING":
         _resume_conversation(c, mobile)
         return
-    plan_names = _larger_plan_names(c, mobile)
+    plan_names = _eligible_plan_names(c, mobile)
     if _has_active_subscription(c, mobile) and not plan_names:
         sub = c.subscribers.find(mobile)
         _require_send(c.whatsapp.send_text(
@@ -501,7 +529,12 @@ def _send_plan_list(c, mobile: str) -> None:
         amount = meta.get("amount")
         days = meta.get("days")
         rows.append((f"PLAN_{plan}", plan.capitalize(), f"₹{amount} · {days} days"))
-    prompt = "Choose a larger Daily Darshan plan:" if _has_active_subscription(c, mobile) else "Choose your Daily Darshan plan:"
+    if _is_expiring_soon(c, mobile):
+        prompt = "Choose a renewal plan:"
+    elif _has_active_subscription(c, mobile):
+        prompt = "Choose a larger Daily Darshan plan:"
+    else:
+        prompt = "Choose your Daily Darshan plan:"
     result = c.whatsapp.send_list(mobile, prompt, "View plans", rows)
     _require_send(result, "plan list")
 
@@ -624,7 +657,7 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
                 _send_plan_list(c, mobile)
                 return
             sub = c.subscribers.find(mobile)
-            if _has_active_subscription(c, mobile) and plan not in _larger_plan_names(c, mobile):
+            if _has_active_subscription(c, mobile) and plan not in _eligible_plan_names(c, mobile):
                 _send_plan_list(c, mobile)
                 return
             if sub and sub.end_date:
@@ -670,7 +703,10 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         _handle_opt_out(c, mobile)
         return
 
-    if (text.upper() in {"HI", "HELLO", "RADHE RADHE", "RENEW", "SUBSCRIBE", "MENU", "START"}
+    if (text.upper() in {
+            "HI", "HELLO", "RADHE RADHE", "RENEW", "SUBSCRIBE", "MENU", "START",
+            "PAYMENT", "PAY", "PAYMENT STATUS", "PAYMENT INSTRUCTIONS",
+        }
             or text.upper().startswith("RADHE RADHE ")):
         _send_menu(c, mobile)
         return
@@ -848,8 +884,11 @@ def _payment_status_text(c, payment):
         active = _has_active_subscription(c, payment.mobile)
         if active:
             larger_plans = _larger_plan_names(c, payment.mobile)
+            expiring_soon = _is_expiring_soon(c, payment.mobile)
             plan_action = (
-                "You may choose Extend plan for a larger plan."
+                "You may choose Renew to keep your current plan or choose a larger plan."
+                if expiring_soon
+                else "You may choose Extend plan for a larger plan."
                 if larger_plans
                 else "No larger plan is currently available; send MENU to check your subscription status."
             )

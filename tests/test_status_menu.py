@@ -91,6 +91,59 @@ def test_active_menu_labels_extension_and_hides_it_for_largest_plan(container):
     ]
 
 
+@pytest.mark.parametrize("plan,days,expected_label", [
+    ("starter", 30, "Extend plan"),
+    ("weekly", 30, "Extend plan"),
+    ("monthly", 3, "Renew"),
+    ("yearly", 3, "Renew"),
+])
+def test_menu_labels_extension_or_renewal_by_expiry_window(container, plan, days, expected_label):
+    import main
+
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    container.config["plans"] = {
+        "starter": {"amount": 9, "days": 3},
+        "weekly": {"amount": 69, "days": 30},
+        "monthly": {"amount": 199, "days": 90},
+        "yearly": {"amount": 699, "days": 365},
+    }
+    calls = []
+    container.whatsapp = SimpleNamespace(
+        send_list=lambda *args: calls.append(args) or SimpleNamespace(ok=True),
+    )
+    container.subscribers.append(Subscriber(
+        "9199", plan, status=SubscriberStatus.ACTIVE,
+        end_date=today + timedelta(days=days), opt_in=True,
+    ))
+
+    main._send_menu(container, "9199")
+
+    assert calls[-1][3][0][0] == "CTA_STATUS"
+    assert calls[-1][3][1][0] == "CTA_RENEW"
+    assert calls[-1][3][1][1] == expected_label
+
+
+def test_expired_subscriber_menu_offers_renew(container):
+    import main
+
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    container.subscribers.append(Subscriber(
+        "9199", "yearly", status=SubscriberStatus.ACTIVE,
+        end_date=today - timedelta(days=1), opt_in=True,
+    ))
+    calls = []
+    container.whatsapp = SimpleNamespace(
+        send_list=lambda *args: calls.append(args) or SimpleNamespace(ok=True),
+    )
+
+    main._send_menu(container, "9199")
+
+    assert calls[-1][3] == [
+        ("CTA_STATUS", "Subscription status", "Check your subscription"),
+        ("CTA_RENEW", "Renew", "Renew your subscription"),
+    ]
+
+
 def test_yearly_payment_status_does_not_offer_extend_plan(container):
     """The largest active plan must not advertise an unavailable upgrade."""
     import main
