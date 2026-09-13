@@ -500,7 +500,8 @@ Details:
   evidence wins over delayed failure callbacks; `SENT` alone means API acceptance, not delivery.
 - Activation remains admin-verified out-of-band (see Admin Operations); the name/plan captured
   here is what later fills the daily utility template and the per-subscriber page greeting.
-- The subscriber page explicitly confirms that the subscription is active and welcomes the user.
+- The subscriber page explicitly confirms that the subscription is active through the stored
+  `subscribers.csv` expiry date.
   Welcome, renewal and delivery use `daily_darshan_delivery_update1`, while their audit records
   remain in separate CSV ledgers. A welcome consumes the same date+mobile contact slot, ensuring
   at most one of those three messages reaches a subscriber per day.

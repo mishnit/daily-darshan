@@ -213,6 +213,14 @@ class PageRenderer:
         )
         renewal_reminder = self._renewal_reminder(subscriber, on_date)
         image_url = self.image_url(on_date, images_dir, image_name)
+        activation_confirmation = ""
+        if subscriber.is_deliverable(on_date):
+            active_text = "Your Daily Darshan subscription is active"
+            if subscriber.end_date:
+                active_text += f" till {subscriber.end_date.isoformat()}"
+            activation_confirmation = (
+                f'<div class="greeting">{html.escape(active_text)}</div>'
+            )
         share_text = (
             f"Radhe Radhe 🙏\n\nToday's HD Daily Darshan:\n{image_url}"
             f"\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/?ref={quote(subscriber.mobile, safe='')}"
@@ -226,10 +234,7 @@ class PageRenderer:
             greeting=html.escape(greeting),
             subscription_id=html.escape(subscriber.subscription_id, quote=True),
             expiry=html.escape(subscriber.end_date.isoformat() if subscriber.end_date else ""),
-            activation_confirmation=(
-                '<div class="greeting">Your Daily Darshan subscription is active. Welcome! 🙏</div>'
-                if subscriber.is_deliverable(on_date) else ""
-            ),
+            activation_confirmation=activation_confirmation,
             image_url=html.escape(image_url),
             fallback_url=html.escape(self.fallback_url(images_dir)),
             renewal_reminder=renewal_reminder,
