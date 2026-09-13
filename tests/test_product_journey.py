@@ -40,10 +40,13 @@ def test_renewal_checkout_preserves_entitlement_and_reuses_name(container, expir
     assert "Renewing your yearly plan" in container.whatsapp.sent[-1]["message"]
 
 
-def test_payment_under_review_can_change_plan_and_restore_paid_reference(container):
+@pytest.mark.parametrize("action", ["CTA_SUBSCRIBE", "CTA_RENEW", "PLAN_yearly", "CTA_BACK"])
+def test_payment_review_cannot_be_replaced_by_stale_cta(container, action):
+    """Plan navigation cannot destroy the reviewed payment or misapply entitlement."""
     import main
     from domain.enums import PaymentStatus
     setup_sub(container)
+    entitlement_before = container.subscribers.find("9199").to_row()
     main._handle_message(container, "9199", "button", "PLAN_monthly")
     paid = container.payments.all()[0]
     main._handle_message(container, "9199", "text", f"UTR {paid.reference_id} 123456789012")
@@ -52,12 +55,19 @@ def test_payment_under_review_can_change_plan_and_restore_paid_reference(contain
     assert "CTA_RENEW" in container.whatsapp.sent[-1]["rows"]
     assert f"UTR {paid.reference_id} 123456789012" in container.whatsapp.sent[-1]["body"]
 
-    main._handle_message(container, "9199", "button", "CTA_RENEW")
-    assert "PLAN_yearly" in container.whatsapp.sent[-1]["rows"]
-    main._handle_message(container, "9199", "button", "PLAN_yearly")
+    main._handle_message(container, "9199", "button", action)
+    if action == "CTA_BACK":
+        assert "CTA_RENEW" in container.whatsapp.sent[-1]["rows"]
+        main._handle_message(container, "9199", "button", "CTA_RENEW")
+    if action != "PLAN_yearly":
+        assert "PLAN_yearly" in container.whatsapp.sent[-1]["rows"]
+        main._handle_message(container, "9199", "button", "PLAN_yearly")
     replacement = main._latest_pending_payment(container, "9199")
     assert replacement.reference_id != paid.reference_id
-    assert container.payments.find(paid.reference_id).status == PaymentStatus.SUPERSEDED
+    preserved = container.payments.find(paid.reference_id)
+    assert preserved.status == PaymentStatus.SUPERSEDED
+    assert preserved.utr == "123456789012"
+    assert container.subscribers.find("9199").to_row() == entitlement_before
     assert f"Example: UTR {replacement.reference_id} 123456789012" in container.whatsapp.sent[-1]["message"]
 
     main._handle_message(container, "9199", "text", f"UTR {paid.reference_id} 123456789012")
