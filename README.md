@@ -367,7 +367,7 @@ never guesses intent from free text. **Free text is accepted only for the user's
 ```
 User: Radhe Radhe                                       ← inbound greeting
 Bot:  🙏 Welcome to Daily Darshan! What would you like to do?
-      [ Open menu ] → Subscribe, Continue, Resend, Back
+      [ Open menu ] → Subscription status, Subscribe, Continue, Help, Resend, Back
 User: (taps Subscribe)
 Bot:  Choose your Daily Darshan plan:                   ← list message
       • Starter — ₹9 · 3 days
@@ -392,11 +392,13 @@ Bot:  Thanks! We received your UTR for DD2608190001.
       and activate your subscription once approved. You do not need to pay again. 🙏
 ```
 
-Returning subscriber without an active subscription (menu shows Renew instead of Subscribe):
+Returning subscriber (Renew / extend while active, Renew after expiry):
 
 ```
 User: (taps Renew)
-Bot:  Radhe Radhe Deep Ji! Renewing your monthly plan.   ← existing plan, no name prompt
+Bot:  Choose your Daily Darshan plan.
+User: (selects Monthly)
+Bot:  Radhe Radhe Deep Ji! Renewing your monthly plan.   ← stored name reused
       Amount: ₹199
       Pay via UPI: upi://pay?...
       Reference: DD2608190002
@@ -405,10 +407,15 @@ Bot:  Radhe Radhe Deep Ji! Renewing your monthly plan.   ← existing plan, no n
 
 Details:
 
-- Active, unexpired subscribers see only Continue, Resend and Back. New users see Subscribe;
-  previous subscribers without an active entitlement see Renew. Old purchase buttons cannot
-  create another checkout while the subscription is active. Typed STOP and consent opt-out
-  remain supported. Under this rule, early renewal checkout is unavailable while active.
+- Active opted-in subscribers see Subscription status, Renew / extend, Stop messages and
+  recovery/help options. New users see Subscribe; expired users see Renew. Active opted-out
+  users see Resume messages: explicit consent restores delivery without another payment.
+- An unpaid checkout shows Payment instructions and Change plan. After UTR submission,
+  Payment status replaces purchase actions; stale purchase taps and repeated/different UTRs
+  cannot replace the payment under review. Contact the administrator for UTR corrections.
+- Continue/Resend resumes a pending renewal before showing active subscription status.
+  STATUS reports entitlement, consent and any pending payment separately. BACK navigates
+  without cancelling payments or changing paid dates. Help is guidance, not a support ticket.
 - UTR text may be 12 digits or `UTR: 123456789012`. Image/document captions in that format
   are accepted; screenshots without a valid UTR caption prompt the user to send it as text.
   No OCR or automatic payment approval is performed.
@@ -423,13 +430,15 @@ Details:
   typed text shows the CTA menu.
 - **Name capture is explicit** (WhatsApp profile name is unreliable). If the inbound webhook
   already carries a profile name, the prompt is skipped and that name is used.
-- **RENEW is distinct from SUBSCRIBE.** Tapping Renew uses the subscriber's **existing plan**
-  (not the default), greets by stored name, no name prompt. On admin verification, renewal
+- **Renewal offers all configured plans**, reuses the stored name and gates payment instructions
+  on consent. A returning user's selected plan is stored in the pending payment; their paid
+  plan and dates change only on admin approval. On admin verification, renewal
   **extends from the current expiry date** (not from today) so remaining days are never lost
   (Tech Doc §29). Renew from an unknown mobile falls back to the plan list.
 - **Consent gates payment.** A new or previously opted-out customer must tap `I agree`
-  before the UPI instruction is created. `No thanks`, `STOP`, `UNSUBSCRIBE`, or `CANCEL`
-  revokes delivery consent and confirms the opt-out.
+  before the UPI instruction is sent. A pending checkout may already exist, but does not grant
+  entitlement. `No thanks`, `STOP`, `UNSUBSCRIBE`, or `CANCEL` revokes delivery consent,
+  not paid days or a refund. Active users can explicitly resume; expired users renew.
 - The awaiting-name state is a flag on the subscriber row (`subscribers.csv`), so it survives
   across webhook calls without server-side session state.
 - Re-delivered webhooks are deduped on WhatsApp `message.id`. A fresh tap has a new ID and is
