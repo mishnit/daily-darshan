@@ -77,7 +77,7 @@ def drain_replies(repository, client, persist, container=None, now=None):
     return failed
 
 
-def prepare_replies(repository, container=None, now=None):
+def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5):
     """Reserve eligible replies for sending in the caller's next commit.
 
     The returned IDs are safe to send only after that commit succeeds.  This
@@ -89,6 +89,8 @@ def prepare_replies(repository, container=None, now=None):
     prepared = []
     failed = False
     for row in repository.all():
+        if mobiles is not None and row.get('mobile') not in mobiles:
+            continue
         if row["status"] in {"PENDING", "UNKNOWN"}:
             failed = True
             continue
@@ -108,6 +110,8 @@ def prepare_replies(repository, container=None, now=None):
         attempts = int(row.get("attempts") or 0)
         if attempts >= 5:
             failed = True
+            continue
+        if len(prepared) >= limit:
             continue
         row["status"] = "PENDING"
         row["attempts"] = str(attempts + 1)

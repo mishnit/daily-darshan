@@ -41,3 +41,11 @@ def test_cleanup_is_idempotent(tmp_path):
 
     assert repo.prune_before(date(2026, 8, 13)) == 0
     assert repo.prune_before(date(2026, 8, 13)) == 0
+def test_retention_preserves_unresolved_delivery_attempts(tmp_path):
+    from repositories.sentlog_repository import CSVSentLogRepository
+    from datetime import date
+    repo = CSVSentLogRepository(str(tmp_path / "sentlog.csv"))
+    for status in ("PENDING", "UNKNOWN", "DELIVERED"):
+        repo.append({"date": "2020-01-01", "mobile": "test", "status": status})
+    assert repo.prune_before(date(2026, 1, 1)) == 1
+    assert {row["status"] for row in repo.all()} == {"PENDING", "UNKNOWN"}

@@ -1,5 +1,18 @@
 # Daily Darshan
 
+## CSV consistency and webhook latency
+
+Git main remains authoritative. Each webhook refresh uses one immutable commit;
+an unchanged head reuses the committed local baseline. Changed heads download only
+changed CSV blobs. Failed refreshes must succeed before cached state can be reused.
+Reply reservations are committed before contacting WhatsApp; provider acceptance
+does not mean delivery. Customer requests process only that customer's queued replies,
+while the retry endpoint processes a bounded batch (five). PENDING/UNKNOWN attempts
+are not blindly retried and survive sent-log retention for reconciliation.
+
+These safeguards do not make Git a highly available database or provide exactly-once
+WhatsApp delivery. See [deployment limits and follow-up work](DEPLOYMENT.md#consistency-limits-and-follow-up-work).
+
 A minimal, near-zero-infrastructure platform that delivers a daily "darshan" image to
 WhatsApp subscribers. It uses **GitHub** as source control + persistence + image storage,
 **CSV** files as the datastore, **GitHub Actions** as the scheduler, and a small

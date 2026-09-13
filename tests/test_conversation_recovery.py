@@ -141,6 +141,25 @@ def test_prepared_reply_is_reserved_before_provider_send(container):
     assert container.reply_outbox.all()[0]["status"] == "SENT"
 
 
+def test_other_customer_stuck_reply_does_not_fail_current_customer(container):
+    prepare(container)
+    container.reply_outbox.upsert('stuck', {
+        'id': 'stuck', 'mobile': 'other', 'status': 'UNKNOWN',
+    })
+    QueuedReplies(container.reply_outbox, container).send_text('9199', 'Current menu')
+    ids, failed = prepare_replies(container.reply_outbox, container, mobiles={'9199'})
+    assert not failed and len(ids) == 1
+    assert container.reply_outbox.find('stuck')['status'] == 'UNKNOWN'
+
+
+def test_worker_leaves_unclaimed_replies_queued(container):
+    for i in range(8):
+        QueuedReplies(container.reply_outbox).send_text(str(i), 'reply')
+    ids, failed = prepare_replies(container.reply_outbox, limit=2)
+    assert len(ids) == 2 and not failed
+    assert sum(row['status'] == 'QUEUED' for row in container.reply_outbox.all()) == 6
+
+
 def test_crash_after_prepared_reservation_never_blindly_retries(container):
     calls = prepare(container)
     QueuedReplies(container.reply_outbox, container).send_text("9199", "instructions")

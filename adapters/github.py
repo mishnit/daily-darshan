@@ -13,7 +13,6 @@ from __future__ import annotations
 import base64
 import os
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -144,6 +143,7 @@ class GitHubApiRepository(GitHubRepositoryPort):
         self._base_commit = None
         self._base_tree = None
         self._snapshot_unchanged = False
+        self._blob_cache = {}
 
     def _api(self, method, path, **kwargs):
         response = getattr(self._session, method)(
@@ -163,11 +163,11 @@ class GitHubApiRepository(GitHubRepositoryPort):
         self._snapshot_unchanged = bool(
             previous_commit == next_commit and self._base_tree
         )
-        self._base_commit = next_commit
         if self._snapshot_unchanged:
             return
-        commit = self._api("get", f"git/commits/{self._base_commit}")
+        commit = self._api("get", f"git/commits/{next_commit}")
         self._base_tree = commit["tree"]["sha"]
+        self._base_commit = next_commit
 
     @property
     def snapshot_unchanged(self) -> bool:
@@ -202,21 +202,34 @@ class GitHubApiRepository(GitHubRepositoryPort):
         return base64.b64decode(resp.json()["content"])
 
     def read_files(self, paths: list[str]) -> dict[str, bytes | None]:
-        """Read one immutable snapshot with bounded concurrent HTTP requests.
-
-        Every Contents API request is pinned to ``_base_commit``, so parallel
-        reads cannot mix branch revisions.  Results are returned only after all
-        requests complete; RepoSync can therefore apply the snapshot locally
-        as one unit in strict mode.
-        """
+        """Read changed blobs only, keyed by immutable Git object identities."""
         if self._base_commit is None:
             self.begin_snapshot()
         if not paths:
             return {}
-        workers = min(6, len(paths))
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            contents = list(pool.map(self.read_file, paths))
-        return dict(zip(paths, contents))
+        tree = self._api('get', f'git/trees/{self._base_tree}', params={'recursive': '1'})
+        if tree.get('truncated'):
+            # A partial tree cannot prove absence. Fall back to pinned reads.
+            return {path: self.read_file(path) for path in paths}
+        entries = {entry['path']: entry for entry in tree['tree']}
+        result = {}
+        for path in paths:
+            entry = entries.get(path)
+            if entry is None:
+                result[path] = None
+                continue
+            if entry['type'] != 'blob' or entry.get('mode') not in {'100644', '100755'}:
+                raise ValueError(f'Expected regular CSV file: {path}')
+            sha = entry['sha']
+            cached = self._blob_cache.get(path)
+            if cached is None or cached[0] != sha:
+                blob = self._api('get', f'git/blobs/{sha}')
+                if blob.get('encoding') != 'base64':
+                    raise ValueError('Unsupported Git blob encoding')
+                content = base64.b64decode(blob['content'])
+                self._blob_cache[path] = (sha, content)
+            result[path] = self._blob_cache[path][1]
+        return result
 
     def write_file(self, path: str, content: bytes, message: str) -> None:
         """Buffer bytes for the next atomic Git tree commit."""
@@ -245,6 +258,8 @@ class GitHubApiRepository(GitHubRepositoryPort):
         self._api("patch", f"git/refs/heads/{self._branch}", json={
             "sha": commit["sha"], "force": False,
         })
+        for path, content, _ in self._pending:
+            self._blob_cache[path] = (entries[path]['sha'], content)
         self._pending.clear()
         self._base_commit, self._base_tree = commit["sha"], tree["sha"]
         self._snapshot_unchanged = False

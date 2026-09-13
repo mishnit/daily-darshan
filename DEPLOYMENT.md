@@ -1,5 +1,33 @@
 # Deployment & Admin Guide
 
+## Consistency limits and follow-up work
+
+The webhook requires a successful Git main refresh and reservation commit before
+sending. Do not enable stale-cache replies as a Git outage workaround. Snapshot
+reads are pinned to one commit and unchanged blobs are reused; this reduces API
+traffic, not a guaranteed number of seconds of latency. Measure refresh, reservation
+commit, Meta request and result-commit durations separately before promising an SLA.
+
+Keep one webhook instance while file locks are used. A file lock is not a distributed
+lock across Render instances and Actions; non-forced Git updates reject competing
+writes, but cannot atomically transact with Meta. An accepted send followed by a
+failed result commit requires reconciliation, not an automatic resend. Preserve old
+PENDING/UNKNOWN sentlog rows until resolved. Retry batches process at most five
+eligible replies; a backlog requires subsequent invocations.
+
+Remaining infrastructure decisions are not implemented by these code fixes:
+
+- Move customer CSV state out of any public repository. Commit signing does not
+  encrypt it; deleting a current file does not erase history. Plan a private-state
+  migration, access review and coordinated history/link cleanup separately.
+- Git availability still gates writes. True high availability and lower write latency
+  require an authoritative transactional store with a durable inbox/outbox; CSV can
+  remain an export, but that changes the current Git-main-authoritative contract.
+- Coordinate all writers before scaling instances. Do not add overlapping retry
+  workers or automatically convert ambiguous attempts to FAILED.
+- Confirm external scheduling and workflow permissions in the deployed environment;
+  local tests do not validate Render, Meta, runner capacity or production credentials.
+
 Step-by-step instructions to deploy Daily Darshan on **GitHub** (source control +
 persistence + Actions scheduler), and the operational runbook for **admin payment
 verification** in CSV.

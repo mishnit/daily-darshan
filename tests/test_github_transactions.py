@@ -28,6 +28,14 @@ class GitServer:
         self.patches = []
 
     def get(self, url, **kwargs):
+        if 'git/trees/' in url:
+            return Response({'tree': [
+                {'path': name, 'sha': 'original-blob', 'mode': '100644', 'type': 'blob'}
+                for name in ['subscribers.csv', 'payments.csv']
+            ], 'truncated': False})
+        if 'git/blobs/' in url:
+            self.read_refs.append(self.head)
+            return Response({'encoding': 'base64', 'content': base64.b64encode(b'original').decode()})
         if "git/ref/heads/" in url:
             return Response({"object": {"sha": self.head}})
         if "git/commits/" in url:
@@ -50,6 +58,28 @@ class GitServer:
             return Response(status=422)
         self.head = json["sha"]
         return Response({"object": {"sha": self.head}})
+
+
+def test_failed_commit_lookup_does_not_poison_snapshot(monkeypatch):
+    server = GitServer()
+    repo = GitHubApiRepository("owner/repo", session=server)
+    repo.begin_snapshot()
+    server.head = "next"
+    original = server.get
+
+    def fail_commit(url, **kwargs):
+        if "git/commits/" in url:
+            return Response(status=503)
+        return original(url, **kwargs)
+
+    monkeypatch.setattr(server, "get", fail_commit)
+    with pytest.raises(requests.HTTPError):
+        repo.begin_snapshot()
+    assert repo._base_commit == "base"
+    monkeypatch.setattr(server, "get", original)
+    repo.begin_snapshot()
+    assert repo._base_commit == "next"
+    assert not repo.snapshot_unchanged
 
 
 def test_git_reads_one_snapshot_even_if_branch_advances():
@@ -79,10 +109,19 @@ def test_reposync_reuses_unchanged_remote_snapshot(tmp_path):
     sync.pull(strict=True)
     assert (tmp_path / "subscribers.csv").read_bytes() == b"original"
     assert server.read_refs == ["base"]
-
     sync.pull(strict=True)
     assert server.read_refs == ["base"]
 
+
+def test_changed_head_reuses_identical_blob_bytes():
+    server = GitServer()
+    repo = GitHubApiRepository('owner/repo', session=server)
+    repo.begin_snapshot()
+    assert repo.read_files(['subscribers.csv'])['subscribers.csv'] == b'original'
+    server.head = 'external-docs-change'
+    repo.begin_snapshot()
+    assert repo.read_files(['subscribers.csv'])['subscribers.csv'] == b'original'
+    assert server.read_refs == ['base']
 
 def test_git_commits_multiple_csv_files_atomically():
     server = GitServer()

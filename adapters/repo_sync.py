@@ -43,6 +43,7 @@ class RepoSync:
         # Deferred/failed writes must survive the next request's pull.
         self._dirty: set[str] = set()
         self._baseline: dict[str, bytes | None] = {}
+        self._snapshot_ready = False
 
     def _abs(self, rel: str) -> str:
         return os.path.join(self._root, rel)
@@ -60,11 +61,17 @@ class RepoSync:
         if hasattr(self._github, "begin_snapshot"):
             self._github.begin_snapshot()
         readable = [rel for rel in self._tracked if rel not in self._dirty]
-        if (getattr(self._github, "snapshot_unchanged", False)
+        if (self._snapshot_ready and getattr(self._github, "snapshot_unchanged", False)
                 and all(rel in self._baseline for rel in readable)):
             # This process already has the exact immutable branch snapshot.
             # Avoid re-downloading every CSV after our own previous commit.
+            for rel in readable:
+                content = self._baseline[rel]
+                if content is not None:
+                    with open(self._abs(rel), "wb") as output:
+                        output.write(content)
             return
+        self._snapshot_ready = False
         contents = None
         if hasattr(self._github, "read_files"):
             try:
@@ -73,6 +80,9 @@ class RepoSync:
                 if strict:
                     raise
                 contents = None
+        if strict and contents is None:
+            # Finish every remote read before changing any local file.
+            contents = {rel: self._github.read_file(rel) for rel in readable}
         for rel in readable:
             if rel in self._dirty:
                 continue
@@ -102,6 +112,7 @@ class RepoSync:
             with open(full, "wb") as fh:
                 fh.write(content)
             self._baseline[rel] = content
+        self._snapshot_ready = True
 
     def push(self, message: str, strict: bool = False) -> list[str]:
         """Push local tracked files back to the repo. Returns files pushed."""
@@ -145,5 +156,6 @@ class RepoSync:
     def abort(self):
         """Caller restored its snapshot; discard the abandoned transaction."""
         self._dirty.clear()
+        self._snapshot_ready = False
         if hasattr(self._github, "discard_pending"):
             self._github.discard_pending()
