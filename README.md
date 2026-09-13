@@ -407,6 +407,26 @@ Bot:  Radhe Radhe Deep Ji! Renewing your yearly plan.   ← stored name reused
       Example: UTR DD2608190002 123456789012
 ```
 
+### Menu state examples and recovery
+
+The menu is rebuilt from the current subscriber and payment rows on every recognized command.
+The following examples describe the exact plan actions and safe recovery from an unexpected input:
+
+| State | User sends or taps | Expected menu/list | Unexpected input recovery |
+|---|---|---|---|
+| New user | `Hi`, `Hello`, `Radhe Radhe`, `MENU`, `PAYMENT` | `View plans`; selecting it lists Starter, Weekly, Monthly and Yearly | A question or plan name reopens the menu; it never creates a payment |
+| Active Starter, expiry beyond 3 days | `MENU` → `Extend plan` | Weekly, Monthly and Yearly only | `RENEW` reopens the same menu; a stale smaller-plan CTA is rejected |
+| Active Weekly, expiry beyond 3 days | `MENU` → `Extend plan` | Monthly and Yearly only | `PAYMENT` opens the current checkout status/instructions without replacing it |
+| Active Monthly, expiry within 3 days | `MENU` → `Renew` | Monthly and Yearly | Invalid UTR leaves checkout unchanged and asks for `UTR <reference> <12 digits>` |
+| Active Yearly, expiry within 3 days | `MENU` → `Renew` | Yearly only; description says “Renew your current plan” | `Extend plan` is not offered; an old Extend CTA is revalidated and rejected |
+| Active Yearly, expiry beyond 3 days | `MENU` | Subscription status only | `RENEW` reopens the menu but cannot create an unavailable upgrade |
+| Expired subscriber | `MENU` or `RENEW` | `Subscription status` + `Renew`; all configured plans | A stale CTA returns to the current menu; no entitlement changes before admin approval |
+
+For any state, `Hi`, `Hello`, `Radhe Radhe`, `MENU`, `RENEW`, `SUBSCRIBE`, `PAYMENT`, `PAYMENT STATUS`
+and `PAYMENT INSTRUCTIONS` return to navigation. A valid name is captured only while the name
+prompt is active; a valid UTR is processed only against an open payment. `STOP`, `UNSUBSCRIBE` and
+`CANCEL` remain case-insensitive opt-out commands, and `STATUS` returns status directly.
+
 Details:
 
 - New users see View plans, not Subscription status. Incomplete signup returns to the
@@ -419,8 +439,9 @@ Details:
   renewal window they see Extend plan, whose list contains only plans strictly larger than their
   current plan; subscribers already on the largest plan see no plan CTA. Inside the three-day
   window they see Renew, whose list contains their current plan plus larger plans (including
-  Yearly subscribers renewing Yearly). Expired users see Subscription status and Renew, with all
-  configured plans available. Active opted-out users additionally see Resume messages: explicit
+  Yearly subscribers renewing Yearly). A Yearly subscriber's row is described as
+  “Renew your current plan”; plans with larger choices use “Renew or choose a larger plan.”
+  Expired users see Subscription status and Renew, with all configured plans available. Active opted-out users additionally see Resume messages: explicit
   consent restores delivery without another payment.
 - Help, Stop messages, Continue, Resend and Back are not menu options. Typed STOP and the
   consent disclosure's No thanks button still revoke consent without removing paid days.

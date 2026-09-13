@@ -224,7 +224,8 @@ consent. Expired users receive Renew with all configured plans. Active users out
 three-day renewal window receive Extend plan with only plans strictly larger than their current
 plan; the largest active plan has no extension action. Active users inside the three-day window
 receive Renew with their current plan plus larger plans, including Yearly renewal for a Yearly
-subscriber.
+subscriber. When no larger plan exists, the CTA description is “Renew your current plan”;
+otherwise it is “Renew or choose a larger plan.”
 Active opted-out users additionally receive Resume messages. Only existing dated subscriptions have a
 Subscription status menu option. Help, Stop messages, Continue, Resend and Back are hidden.
 Subscription status includes the current plan type. Typed STOP and consent No thanks remain
