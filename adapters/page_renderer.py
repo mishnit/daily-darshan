@@ -73,7 +73,6 @@ _TEMPLATE = """<!DOCTYPE html>
   <div class="wrap">
     <h1><strong>🕉&#xA0;</strong>&#x20;Daily Darshan</h1>
     <div class="greeting">{greeting}</div>
-    <p class="privacy-note">This page is personal to you. To share Darshan, use the button below.</p>
     {activation_confirmation}
     {renewal_reminder}
     <div class="image-frame">
@@ -82,7 +81,8 @@ _TEMPLATE = """<!DOCTYPE html>
     </div>
     <div class="share">
       <p><strong>Bring today's Darshan to someone you love 🙏</strong></p>
-      <button id="share-darshan" type="button" hidden>📲 Share Darshan with family &amp; friends</button>
+      <p class="privacy-note">This page is personal to you. To share Darshan, use the button below.</p>
+      <button id="share-darshan" type="button" hidden>📲 Share Darshan with family &amp; friends on whatsapp</button>
       <small>Your personal page link won't be included. Choose WhatsApp in the share menu.</small>
       <p id="share-status" role="status" aria-live="polite"></p>
       <details id="share-fallback">
