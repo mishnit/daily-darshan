@@ -91,7 +91,7 @@ class RenewalReminderService:
         if self.requires_image_header and not header_image_url:
             return WhatsAppResult(ok=False, error="config:renewal template image header requires today's image URL")
 
-        name = sanitize_display_name(subscriber.name, "Devotee").title()
+        name = sanitize_display_name(subscriber.name, "devotee")
         body = (template_body(self._template_name, subscriber, on_date or today_ist())
                 if self._template_name == SUBSCRIPTION_STATUS_TEMPLATE else [name])
         last = WhatsAppResult(ok=False, error="not attempted")
