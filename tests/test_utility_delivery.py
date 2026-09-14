@@ -306,9 +306,8 @@ def test_page_renderer_writes_per_subscription_file(tmp_path):
     assert "https://u.github.io/dd/images/2026-08-19.jpg" in html_text
     assert 'property="og:image"' in html_text
     assert "noindex" in html_text
-    # The share CTA intentionally carries the subscriber referrer phone in its
-    # URL so VIP Seva can attribute the referral; it is not rendered as page text.
-    assert "ref%3D9199" in html_text
+    # The native share payload carries the subscriber referrer phone.
+    assert "https://vipseva.com/?ref=9199" in html_text
 
 
 def test_page_renderer_uses_opaque_daily_image_name():
@@ -322,7 +321,8 @@ def test_page_renderer_uses_opaque_daily_image_name():
 
     assert f"https://vipseva.com/images/{opaque_name}" in html_text
     share_text = "Radhe Radhe 🙏\n\nToday's HD Daily Darshan.\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/?ref=9199"
-    assert f"https://wa.me/916361699109?text={quote(share_text, safe='')}" in html_text
+    assert "data-share-text=" in html_text
+    assert "https://vipseva.com/?ref=9199" in html_text
     assert "Bring today's Darshan to someone you love" not in html_text
     assert "Share Darshan on WhatsApp" in html_text
     assert "Download image" not in html_text
