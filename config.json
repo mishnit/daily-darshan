@@ -13,7 +13,7 @@
   "image_sources": ["temple", "rss", "website"],
   "daily_image_rotation": {
     "monday": ["mahakal"],
-    "tuesday": ["salangpur", ],
+    "tuesday": ["salangpur"],
     "wednesday": ["iskcon_bangalore", "iskcon_hyderabad"],
     "thursday": ["swaminarayan"],
     "friday": ["iskcon_vrindavan", "iskcon_mumbai", "iskcon_hyderabad"],
