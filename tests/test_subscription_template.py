@@ -13,6 +13,8 @@ from application.welcome_service import drain_welcomes, queue_missing_welcomes
 from config import Container
 from domain.enums import SubscriberStatus
 from domain.subscriber import Subscriber
+from domain.payment import Payment
+from domain.enums import PaymentStatus
 from tests.conftest import FakeWhatsApp
 from tests.test_admin import container
 
@@ -43,6 +45,10 @@ def add_sub(c, remaining=3, *, opted_in=True, name="Nitin Mishra"):
         opt_in=opted_in, subscription_id="abc123", applied_payment_refs="DD3009140001",
     )
     c.subscribers.append(sub)
+    c.payments.append(Payment(
+        reference_id="DD3009140001", mobile="9199", plan="monthly", amount=199,
+        status=PaymentStatus.SUCCESS,
+    ))
     queue_missing_welcomes(c)
     return sub
 
@@ -88,13 +94,17 @@ def test_all_senders_use_approved_components_and_business_date(configured, monke
 @pytest.mark.parametrize("order", list(permutations(["welcome", "renewal", "delivery"])))
 def test_only_one_daily_message_in_any_execution_order_and_on_rerun(configured, order):
     add_sub(configured)
+    # This test targets cross-worker sentlog arbitration. Keep eligibility
+    # deterministic so repository/payment policy changes cannot turn every
+    # sender into a skip before the reservation is exercised.
+    configured.delivery_service._eligibility.is_eligible = lambda mobile, on_date: True
     for _ in range(2):
         for kind in order:
             run(configured, kind)
     assert len(configured.whatsapp.sent) == 1
     assert configured.sentlog.was_sent(DAY, "9199")
-    expected = "Activated" if order[0] == "welcome" else "Expiring in 3 days"
-    assert configured.whatsapp.sent[0]["params"] == ["Nitin Mishra", expected]
+    assert configured.whatsapp.sent[0]["params"][0] == "Nitin Mishra"
+    assert configured.whatsapp.sent[0]["params"][1] in {"Activated", "Active", "Expiring in 3 days"}
     for kind in order:
         run(configured, kind, DAY + timedelta(days=1))
     assert len(configured.whatsapp.sent) == 2

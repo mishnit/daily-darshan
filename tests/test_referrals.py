@@ -11,12 +11,8 @@ def test_share_cta_contains_subscriber_referrer():
         date(2026, 9, 12), delivered=True,
         image_name="image.jpg",
     )
-    share = (
-        "Radhe Radhe 🙏\n\nToday's HD Daily Darshan:\n"
-        "https://vipseva.com/images/image.jpg"
-        "\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/?ref=919535507255"
-    )
-    assert f"https://wa.me/?text={quote(share, safe='')}" in html
+    share = "Radhe Radhe 🙏\n\nToday's HD Daily Darshan.\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/?ref=919535507255"
+    assert f"https://wa.me/916361699109?text={quote(share, safe='')}" in html
 
 
 def test_vip_landing_pages_preserve_referrer_in_whatsapp_link():
