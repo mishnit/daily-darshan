@@ -50,8 +50,7 @@ def test_active_user_cannot_purchase_via_old_buttons(container, cta):
     assert container.subscribers.find("9199").plan == "monthly"
 
 
-@pytest.mark.parametrize("selected", ["monthly", "yearly"])
-def test_active_user_can_choose_same_or_larger_plan(container, selected):
+def test_active_user_can_choose_strictly_larger_plan(container):
     import main
     container.config["plans"]["yearly"] = {"amount": 449, "days": 365}
     container.subscriber_service.upsert_pending("9199", "monthly", "Nitin")
@@ -59,11 +58,27 @@ def test_active_user_can_choose_same_or_larger_plan(container, selected):
     container.subscriber_service.activate("9199")
     before = container.subscribers.find("9199").end_date
     container.whatsapp = FakeWhatsApp()
-    main._handle_message(container, "9199", "button", f"PLAN_{selected}")
+    main._handle_message(container, "9199", "button", "PLAN_yearly")
     assert len(container.payments.all()) == 1
-    assert container.payments.all()[0].plan == selected
+    assert container.payments.all()[0].plan == "yearly"
     assert container.subscribers.find("9199").end_date == before
     assert container.subscribers.find("9199").plan == "monthly"
+
+
+def test_active_user_can_extend_same_plan(container):
+    import main
+
+    container.subscriber_service.upsert_pending("9199", "monthly", "Nitin")
+    container.subscriber_service.grant_opt_in("9199", "test")
+    container.subscriber_service.activate("9199")
+    before = container.subscribers.find("9199").end_date
+    container.whatsapp = FakeWhatsApp()
+
+    main._handle_message(container, "9199", "button", "PLAN_monthly")
+
+    assert len(container.payments.all()) == 1
+    assert container.payments.all()[0].plan == "monthly"
+    assert container.subscribers.find("9199").end_date == before
 
 
 def test_active_user_cannot_choose_lower_plan_from_stale_button(container):
@@ -84,7 +99,7 @@ def test_active_user_cannot_choose_lower_plan_from_stale_button(container):
     assert container.whatsapp.sent[-1]["rows"] == ["PLAN_yearly"]
 
 
-def test_active_menu_labels_extension_for_current_and_larger_plans(container):
+def test_active_menu_labels_extension_and_hides_it_for_largest_plan(container):
     import main
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     container.config["plans"]["yearly"] = {"amount": 449, "days": 365}
@@ -251,7 +266,7 @@ def test_yearly_expiring_menu_does_not_suggest_larger_plan(container):
     assert calls[-1][3][1] == ("CTA_RENEW", "Renew", "Renew your current plan")
 
 
-def test_yearly_payment_status_offers_same_plan_extension(container):
+def test_yearly_payment_status_does_not_offer_extend_plan(container):
     """The largest active plan can still be extended at its current level."""
     import main
     from domain.enums import PaymentStatus
@@ -271,7 +286,7 @@ def test_yearly_payment_status_offers_same_plan_extension(container):
     assert "Extend plan to add time to your current plan" in message
 
 
-def test_active_plan_list_contains_current_and_larger_plans(container):
+def test_active_plan_list_contains_only_strictly_larger_plans(container):
     import main
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     container.config["plans"].update({
@@ -293,7 +308,7 @@ def test_active_plan_list_contains_current_and_larger_plans(container):
     ("monthly", ["PLAN_monthly", "PLAN_yearly"]),
     ("yearly", ["PLAN_yearly"]),
 ])
-def test_each_active_plan_only_offers_same_or_larger_plans(container, current, expected):
+def test_each_active_plan_only_offers_strictly_larger_plans(container, current, expected):
     """Plan navigation must never offer a smaller plan."""
     import main
 
