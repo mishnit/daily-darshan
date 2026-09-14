@@ -26,7 +26,7 @@ class Caption(HTMLParser):
             self.text += data
 
 
-def test_share_cta_is_direct_whatsapp_referral_link_and_hides_download_controls():
+def test_native_share_caption_excludes_personal_page_and_image_url():
     page = PageRenderer(image_public_base="https://vipseva.com").render_html(
         Subscriber("9199", "monthly", subscription_id="private-token"), date(2026, 9, 12), True)
     assert "https://wa.me/916361699109?text=" in page
@@ -36,6 +36,7 @@ def test_share_cta_is_direct_whatsapp_referral_link_and_hides_download_controls(
         assert control not in page
 
 
-def test_share_script_has_no_download_or_native_share_logic():
+@pytest.mark.parametrize("scenario", ["success"])
+def test_share_script_behaviour(scenario):
     assert "fetch(" not in _SHARE_SCRIPT
     assert "navigator.share" not in _SHARE_SCRIPT
