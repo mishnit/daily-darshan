@@ -204,7 +204,7 @@ Use this sequence when validating a release end to end:
   A legacy SUCCESS payment without markers fails closed: reconcile whether it was applied before
   retrying. If already applied, add its reference to the subscriber marker and mark it APPLIED;
   only mark activation_state PENDING after proving it has never granted an entitlement.
-- Welcome, renewal and delivery use the approved `daily_darshan_delivery_update1` template.
+- Welcome, renewal and delivery use the approved `dailydarshan_subscription_status` template.
   Activation queues one task per applied payment in `csv/welcomes.csv`, committed with activation
   state. After publication, delivery runs `scheduler.py welcome`. The worker also idempotently
   creates a missing welcome row for every ACTIVE subscriber `applied_payment_refs` value. This
@@ -303,7 +303,7 @@ Acceptance checks for edge cases:
 No new secrets or Meta templates are required for these changes. Review requests need regular
 administrator attention; no automatic payment approval or reconciliation is introduced.
 Activation/renewal approval continues to queue a welcome-status record after publication using
-`daily_darshan_delivery_update1`. Welcome, renewal and delivery retain separate audit CSVs but
+`dailydarshan_subscription_status`. Welcome, renewal and delivery retain separate audit CSVs but
 share the maximum-one-per-day date+mobile reservation in `sentlog.csv`.
 Run `pytest -q` including `tests/test_product_journey.py`; live acceptance must additionally
 exercise each menu using the configured production sender and verify Meta callbacks.
@@ -366,18 +366,28 @@ depends on Meta's assigned category and current country rate; verify both in Wha
    - `image_public_base` — public base for images, e.g. `https://<user>.github.io/daily-darshan`.
    - `template_name` / `template_lang` — your approved template.
 
-3. **Submit and get the template approved** in WhatsApp Manager (see caveat below). Suggested body:
-   > "Radhe Radhe {{1}} Ji, Your Daily Darshan delivery status has been updated. It is your personalised link. Do not share this link with others."
+3. **Verify the approved template** in WhatsApp Manager (see caveat below). Exact body:
 
-   Use template name `daily_darshan_delivery_update1`, language `en`, body variable
-   `{{1}}` for the customer name, and a dynamic **Visit website** button labelled
-   **Daily Darshan** with URL `https://vipseva.com/{{1}}`. The button's `{{1}}` receives
+   > Radhe Radhe {{1}} Ji,
+   >
+   > Your Daily Darshan delivery status has been updated as {{2}}.
+   > Please check subscription status in personalised link below on VIPSeva.com.
+
+   Use template name `dailydarshan_subscription_status`, language `en`, body variable
+   `{{1}}` for the customer name, `{{2}}` for subscription status, an **Image** header,
+   and one dynamic **Visit website** button labelled
+   **Daily Darshan Subscription** with URL `https://vipseva.com/{{1}}`. The button's `{{1}}` receives
    only the subscriber's unguessable subscription ID; Meta appends it to the URL prefix.
 
-   Renewal uses this same template and language with the same customer-name and URL-button
-   parameters. It intentionally does not submit the expiry date as another body variable.
+   Welcome, renewal and delivery all use this template and `en`. Welcome status is `Activated`;
+   other sends use `Active`, `Expiring in 3 days`, `Expiring in 2 days`, `Expiring in 1 day`,
+   or `Expiring today` based on the run date. Expired subscribers are not automatically messaged.
+   The sender supports the `Expired` status for future explicit use but does not start a new flow.
+   No extra body variables, referral link, or button are sent.
 
-   Templates without media headers use `template_header: "none"` (the default). To switch an
+   All three production header settings below are `image`; the new approved template always
+   requires an image. Legacy templates without media headers use `template_header: "none"`.
+   To switch an
    approved template to a dynamic Meta **Image** header without another code change, update its
    template name and set the matching configuration field to `"image"`:
 

@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from domain.enums import DeliveryStatus
-from domain.subscriber import sanitize_display_name
+from domain.clock import today_ist
+from application.subscription_template import SUBSCRIPTION_STATUS_TEMPLATE, template_body
 from application.ports.repositories import (
     LogRepositoryPort,
     SentLogRepositoryPort,
@@ -60,6 +61,10 @@ class DeliveryService:
         self._welcome_template_lang = welcome_template_lang
         self._template_header = self._validate_template_header(template_header)
         self._welcome_template_header = self._validate_template_header(welcome_template_header)
+        if template_name == SUBSCRIPTION_STATUS_TEMPLATE:
+            self._template_header = "image"
+        if welcome_template_name == SUBSCRIPTION_STATUS_TEMPLATE:
+            self._welcome_template_header = "image"
 
     @staticmethod
     def _validate_template_header(value: str) -> str:
@@ -76,7 +81,7 @@ class DeliveryService:
     def requires_image_header(self) -> bool:
         return self._template_header == "image"
 
-    def send_welcome(self, subscriber, header_image_url: str | None = None) -> WhatsAppResult:
+    def send_welcome(self, subscriber, header_image_url: str | None = None, *, on_date: date | None = None) -> WhatsAppResult:
         """Send the activation confirmation, independent of daily delivery.
 
         The welcome worker owns the shared daily ``sentlog`` reservation; this
@@ -87,11 +92,13 @@ class DeliveryService:
             return WhatsAppResult(ok=False, error="consent:subscriber opted out")
         if not self._welcome_template_name:
             return WhatsAppResult(ok=False, error="config:welcome_template_name is required")
+        if not subscriber.subscription_id:
+            return WhatsAppResult(ok=False, error="config:subscription_id is required")
         if self.welcome_requires_image_header and not header_image_url:
             return WhatsAppResult(ok=False, error="config:welcome template image header requires today's image URL")
-        name = sanitize_display_name(subscriber.name, "devotee")
         return self._whatsapp.send_template_params(
-            subscriber.mobile, self._welcome_template_name, [name],
+            subscriber.mobile, self._welcome_template_name,
+            template_body(self._welcome_template_name, subscriber, on_date or today_ist(), activated=True),
             self._welcome_template_lang, url_button_param=subscriber.subscription_id,
             header_image_url=header_image_url if self.welcome_requires_image_header else None,
         )
@@ -164,7 +171,7 @@ class DeliveryService:
                 self._log("DELIVERY_PAGE_NOT_PUBLISHED", mobile, "")
                 continue
             # (#7) Sanitize name for the WhatsApp template param; safe fallback.
-            name = sanitize_display_name(sub.name, "devotee")
+            body = template_body(self._template_name, sub, on_date)
             reservation = self._sentlog.reserve(on_date, mobile, page_url)
             if reservation is None:
                 report.skipped += 1
@@ -172,7 +179,7 @@ class DeliveryService:
             result = self._retry(lambda: self._whatsapp.send_template_params(
                 mobile,
                 self._template_name,
-                [name],
+                body,
                 self._template_lang,
                 url_button_param=sub.subscription_id,
                 header_image_url=image_url if self._template_header == "image" else None,

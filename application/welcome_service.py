@@ -109,9 +109,9 @@ def drain_welcomes(
         persist()
         try:
             if header_image_url is None:
-                result = container.delivery_service.send_welcome(sub)
+                result = container.delivery_service.send_welcome(sub, on_date=on_date)
             else:
-                result = container.delivery_service.send_welcome(sub, header_image_url)
+                result = container.delivery_service.send_welcome(sub, header_image_url, on_date=on_date)
         except Exception:
             # Both persisted reservations remain blocking if transport crashed.
             failures += 1

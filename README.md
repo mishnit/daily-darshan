@@ -561,7 +561,7 @@ Details:
   here is what later fills the daily utility template and the per-subscriber page greeting.
 - The subscriber page explicitly confirms that the subscription is active through the stored
   `subscribers.csv` expiry date.
-  Welcome, renewal and delivery use `daily_darshan_delivery_update1`, while their audit records
+  Welcome, renewal and delivery use `dailydarshan_subscription_status`, while their audit records
   remain in separate CSV ledgers. A welcome consumes the same date+mobile contact slot, ensuring
   at most one of those three messages reaches a subscriber per day.
   Admin verification queues a welcome in `csv/welcomes.csv` rather than sending immediately.
@@ -607,8 +607,8 @@ Details:
 | UTR received | Conversational acknowledgement, awaiting admin verification | Does not activate or consume the daily slot |
 | Payment approved, not activated | Payment status says activation is being completed | No welcome yet |
 | Activation or renewal applied, publication unconfirmed | Payment status says page preparation/publication awaits confirmation | Payment-keyed welcome stays queued |
-| Published page verified | `daily_darshan_delivery_update1`, language `en` | Welcome takes the subscriber's shared daily contact slot |
-| Daily renewal reminder due in 3, 2 or 1 days | `daily_darshan_delivery_update1`, language `en` | Shares the subscriber/date reservation with daily delivery |
+| Published page verified | `dailydarshan_subscription_status`, language `en` | Welcome takes the subscriber's shared daily contact slot |
+| Daily renewal reminder due in 3, 2 or 1 days | `dailydarshan_subscription_status`, language `en` | Shares the subscriber/date reservation with daily delivery |
 | Daily delivery eligible | Same delivery-update template, personalised page button | Skips if renewal/delivery already holds that day's slot |
 
 The workflow runs welcome, renewal reminder, then daily delivery. The first accepted or uncertain
@@ -632,20 +632,42 @@ verify the exact PR head in CI; local tests do not verify live Meta/Render deliv
 > approved template with buttons; within the window (the normal case, since the user just
 > messaged) the free-form interactive menu is used.
 
-The current configuration uses `daily_darshan_delivery_update1` with language `en` for welcome,
+The current configuration uses `dailydarshan_subscription_status` with language `en` for welcome,
 scheduled delivery and renewal reminders. All three sends use the customer name as body `{{1}}`
-and the subscription ID as dynamic URL-button `{{1}}`; configure that button URL as
-`https://vipseva.com/{{1}}`. The renewal send deliberately uses the same delivery-status copy
-and does not include the expiry date.
+and subscription status as body `{{2}}`. The one dynamic URL button is labelled
+**Daily Darshan Subscription**, with URL `https://vipseva.com/{{1}}`; its independently
+numbered parameter receives only the subscription ID.
 
-Template media headers are optional and controlled independently in `config.json`. Keep
+Approved body:
+
+> Radhe Radhe {{1}} Ji,
+>
+> Your Daily Darshan delivery status has been updated as {{2}}.
+> Please check subscription status in personalised link below on VIPSeva.com.
+
+Welcome uses **Activated**. Delivery and renewal use **Active** beyond three days,
+**Expiring in 3 days**, **Expiring in 2 days**, **Expiring in 1 day**, or **Expiring today**,
+based on the scheduler's IST business date. Welcome retains activation wording even near expiry;
+the personalised page still shows the expiry. The formatter supports **Expired**, but these
+automatic jobs continue to exclude expired subscribers; this change adds no expired-user campaign.
+Renewal reminders run on configured days 3, 2 and 1; expiry-day delivery uses Expiring today.
+
+All three paths share the existing date+mobile reservation. Normal workflow priority is welcome,
+renewal, delivery. Other execution orders and reruns still allow at most one accepted or uncertain
+send that day. Confirmed failures release the slot; PENDING/UNKNOWN outcomes block retries until
+reconciled. Provider acceptance is not proof of delivery.
+
+This approved template requires today's public image as its header, enforced by the sender even
+if its header setting is omitted. All three production header settings are `image`. Missing images
+fail without sending. Legacy one-body-variable templates remain compatible for rollback;
+their media headers are controlled independently in `config.json`. Keep
 `delivery.template_header`, `delivery.welcome_template_header` and
 `renewal.template_header` set to `none` for templates without a header. After Meta approves a
 template with a dynamic **Image** header, set the applicable template name and change only its
 header setting to `image`. The sender then prepends today's validated, publicly deployed canonical
 image as the Meta header component while retaining the existing body-name and URL-button values.
-An image-header send fails closed when today's image is missing rather than reserving or sending an
-invalid template. This permits delivery, welcome and renewal to adopt media templates separately.
+An image-header send fails closed when today's image is missing; a welcome's failed reservation
+is released. Run `pytest tests/test_subscription_template.py -q` for payload and daily-limit tests.
 
 Subscriber pages show a **Renew on WhatsApp** CTA from three days before expiry
 through the post-expiry page grace period, independently of `renewal.reminder_days`. The link opens

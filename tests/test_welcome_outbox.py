@@ -52,7 +52,7 @@ def test_welcome_reserved_before_send_and_not_repeated(container, monkeypatch):
     events = []
     def persist():
         events.append(container.welcomes.all()[0]["status"])
-    def send(sub):
+    def send(sub, *, on_date=None):
         assert events[-1] == "PENDING"
         events.append("send")
         return WhatsAppResult(ok=True, message_id="wamid.test")
@@ -68,7 +68,7 @@ def test_welcome_reserved_before_send_and_not_repeated(container, monkeypatch):
 def test_unknown_welcome_is_not_retried(container, monkeypatch):
     admin.cmd_verify(container, activate(container))
     calls = []
-    def send(sub):
+    def send(sub, *, on_date=None):
         calls.append(sub.mobile)
         return WhatsAppResult(ok=False, unknown=True)
     monkeypatch.setattr(container.delivery_service, "send_welcome", send)
@@ -111,7 +111,7 @@ def test_successful_welcome_consumes_shared_daily_contact_slot(container, monkey
     admin.cmd_verify(container, activate(container))
     monkeypatch.setattr(
         container.delivery_service, "send_welcome",
-        lambda *_: WhatsAppResult(ok=True, message_id="wamid.welcome"),
+        lambda *_, **kwargs: WhatsAppResult(ok=True, message_id="wamid.welcome"),
     )
     assert drain_welcomes(container, date.today(), lambda: None, lambda *_: True) == 0
     assert container.welcomes.all()[0]["status"] == "SENT"
@@ -129,7 +129,7 @@ def test_welcome_passes_configured_image_header(container, monkeypatch):
     calls = []
     monkeypatch.setattr(
         container.delivery_service, "send_welcome",
-        lambda sub, image_url: calls.append((sub.mobile, image_url))
+        lambda sub, image_url, **kwargs: calls.append((sub.mobile, image_url))
         or WhatsAppResult(ok=True, message_id="wamid.header"),
     )
 
@@ -146,7 +146,7 @@ def test_definitive_welcome_failure_releases_daily_contact_slot(container, monke
     admin.cmd_verify(container, activate(container))
     monkeypatch.setattr(
         container.delivery_service, "send_welcome",
-        lambda *_: WhatsAppResult(ok=False, error="template rejected"),
+        lambda *_, **kwargs: WhatsAppResult(ok=False, error="template rejected"),
     )
     assert drain_welcomes(container, date.today(), lambda: None, lambda *_: True) == 1
     assert container.welcomes.all()[0]["status"] == "FAILED"
