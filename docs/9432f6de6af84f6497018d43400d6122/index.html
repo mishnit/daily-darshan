@@ -59,9 +59,35 @@
     </div>
     <div class="share">
       <p class="privacy-note">Share today's Darshan on WhatsApp with your referral link.</p>
-      <a id="share-darshan" href="https://wa.me/916361699109?text=Radhe%20Radhe%20%F0%9F%99%8F%0A%0AToday%27s%20HD%20Daily%20Darshan.%0A%0AVisit%20VIP%20Seva%20for%20daily%20darshan%3A%0Ahttps%3A%2F%2Fvipseva.com%2F%3Fref%3D919535507255" role="button">📲 Share Darshan on WhatsApp</a>
+      <button id="share-darshan" type="button" data-image-url="https://vipseva.com/images/c1773afd-2d52-4a84-b1b1-8520be9dcc0c_2026-09-14.jpg" data-share-text="Radhe Radhe 🙏
+
+Today&#x27;s HD Daily Darshan.
+
+Visit VIP Seva for daily darshan:
+https://vipseva.com/?ref=919535507255">Share Darshan on WhatsApp</button>
+      <p id="share-status" role="status" aria-live="polite"></p>
     </div>
   </div>
-<script></script>
+<script>
+(() => {
+  const button = document.getElementById('share-darshan');
+  const status = document.getElementById('share-status');
+  if (!button) return;
+  let file;
+  const imageUrl = button.dataset.imageUrl;
+  const text = button.dataset.shareText;
+  fetch(imageUrl).then(r => { if (!r.ok) throw new Error('image unavailable'); return r.blob(); })
+    .then(blob => { file = new File([blob], 'daily-darshan.jpg', {type: blob.type || 'image/jpeg'}); })
+    .catch(() => { status.textContent = 'Image sharing is unavailable on this browser.'; });
+  button.addEventListener('click', async () => {
+    if (!file || !navigator.share || !navigator.canShare || !navigator.canShare({files: [file]})) {
+      status.textContent = 'Please use a mobile browser with WhatsApp sharing enabled.';
+      return;
+    }
+    try { await navigator.share({files: [file], text}); }
+    catch (error) { if (error.name !== 'AbortError') status.textContent = 'Sharing could not be opened.'; }
+  });
+})();
+</script>
 </body>
 </html>
