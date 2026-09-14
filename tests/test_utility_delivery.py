@@ -321,14 +321,12 @@ def test_page_renderer_uses_opaque_daily_image_name():
     )
 
     assert f"https://vipseva.com/images/{opaque_name}" in html_text
-    share_text = (
-        "Radhe Radhe 🙏\n\nToday's HD Daily Darshan:\n"
-        f"https://vipseva.com/images/{opaque_name}"
-        "\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/?ref=9199"
-    )
-    assert f"https://wa.me/?text={quote(share_text, safe='')}" in html_text
+    share_text = "Radhe Radhe 🙏\n\nToday's HD Daily Darshan.\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/?ref=9199"
+    assert f"https://wa.me/916361699109?text={quote(share_text, safe='')}" in html_text
     assert "Bring today's Darshan to someone you love" not in html_text
-    assert ">Share on WhatsApp (link only)</a>" in html_text
+    assert "Share Darshan on WhatsApp" in html_text
+    assert "Download image" not in html_text
+    assert "copy-caption" not in html_text
 
 
 def test_page_renderer_shows_only_compact_delivery_details_above_image():
@@ -397,7 +395,8 @@ def test_page_renderer_hides_renewal_before_configured_window():
 
     assert "Renew on WhatsApp" not in html_text
     assert "https://wa.me/916361699109?text=RENEW" not in html_text
-    assert ">Share on WhatsApp (link only)</a>" in html_text
+    assert "Share Darshan on WhatsApp" in html_text
+    assert "Download image" not in html_text
     assert ">Join Vip Seva on Whatsapp</a>" not in html_text
 
 
