@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 
 from domain.enums import DeliveryStatus, ReminderType, SubscriberStatus
 from domain.clock import today_ist
 from domain.subscriber import Subscriber, sanitize_display_name
+from application.subscription_template import SUBSCRIPTION_STATUS_TEMPLATE, template_body
 from application.ports.repositories import (
     LogRepositoryPort,
     RenewalRepositoryPort,
@@ -53,6 +54,8 @@ class RenewalReminderService:
         self._template_header = str(template_header or "none").strip().lower()
         if self._template_header not in {"none", "image"}:
             raise ValueError("template header must be 'none' or 'image'")
+        if template_name == SUBSCRIPTION_STATUS_TEMPLATE:
+            self._template_header = "image"
         self.publication_check = None
 
     @property
@@ -78,7 +81,8 @@ class RenewalReminderService:
         return self._renewals.already_sent(subscriber.mobile, reminder_type.value, expiry_date)
 
     def _send_with_retry(
-        self, subscriber: Subscriber, header_image_url: str | None = None
+        self, subscriber: Subscriber, header_image_url: str | None = None,
+        on_date: date | None = None,
     ) -> WhatsAppResult:
         if not self._template_name:
             return WhatsAppResult(ok=False, error="config:renewal template_name is required")
@@ -88,13 +92,14 @@ class RenewalReminderService:
             return WhatsAppResult(ok=False, error="config:renewal template image header requires today's image URL")
 
         name = sanitize_display_name(subscriber.name, "Devotee").title()
-        expiry = subscriber.end_date.isoformat() if subscriber.end_date else "soon"
+        body = (template_body(self._template_name, subscriber, on_date or today_ist())
+                if self._template_name == SUBSCRIPTION_STATUS_TEMPLATE else [name])
         last = WhatsAppResult(ok=False, error="not attempted")
         for attempt in range(1, self._max_retries + 1):
             last = self._whatsapp.send_template_params(
                 subscriber.mobile,
                 self._template_name,
-                [name],
+                body,
                 self._template_lang,
                 url_button_param=subscriber.subscription_id,
                 header_image_url=header_image_url if self.requires_image_header else None,
@@ -111,12 +116,13 @@ class RenewalReminderService:
     ) -> WhatsAppResult:
         """Send an approved Utility template outside the 24-hour session window.
 
-        Uses the delivery-status template: body {{1}} = display name and the
-        dynamic URL-button {{1}} = subscription id. ``days_remaining`` remains part of
-        the public method because it selects the 3-day/1-day idempotency key.
-        A media header is supplied only when configured for this template.
+        The shared status template uses name and entitlement status as body
+        parameters, an image header, and subscription ID as the URL suffix.
+        Derive the business date from the supplied expiry offset, including
+        historical/manual runs. Legacy one-variable templates remain supported.
         """
-        return self._send_with_retry(subscriber, header_image_url)
+        on_date = subscriber.end_date - timedelta(days=days_remaining) if subscriber.end_date else today_ist()
+        return self._send_with_retry(subscriber, header_image_url, on_date)
 
     def record_reminder(
         self,
