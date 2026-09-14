@@ -71,6 +71,9 @@ def test_active_user_can_extend_same_plan(container):
     container.subscriber_service.upsert_pending("9199", "monthly", "Nitin")
     container.subscriber_service.grant_opt_in("9199", "test")
     container.subscriber_service.activate("9199")
+    sub = container.subscribers.find("9199")
+    sub.end_date = datetime.now(ZoneInfo("Asia/Kolkata")).date() + timedelta(days=3)
+    container.subscribers.update(sub)
     before = container.subscribers.find("9199").end_date
     container.whatsapp = FakeWhatsApp()
 
@@ -96,7 +99,7 @@ def test_active_user_cannot_choose_lower_plan_from_stale_button(container):
     main._handle_message(container, "9199", "button", "PLAN_weekly")
 
     assert container.payments.all() == []
-    assert container.whatsapp.sent[-1]["rows"] == ["PLAN_yearly"]
+    assert "largest available plan" in container.whatsapp.sent[-1]["message"]
 
 
 def test_active_menu_labels_extension_and_hides_it_for_largest_plan(container):
@@ -114,7 +117,7 @@ def test_active_menu_labels_extension_and_hides_it_for_largest_plan(container):
     main._send_menu(container, "9199")
     assert calls[-1][3] == [
         ("CTA_STATUS", "Subscription status", "Check your subscription"),
-        ("CTA_RENEW", "Extend plan", "Extend current or choose a larger plan"),
+        ("CTA_RENEW", "Upgrade", "Choose a larger plan"),
     ]
 
     sub = container.subscribers.find("9199")
@@ -123,7 +126,6 @@ def test_active_menu_labels_extension_and_hides_it_for_largest_plan(container):
     main._send_menu(container, "9199")
     assert calls[-1][3] == [
         ("CTA_STATUS", "Subscription status", "Check your subscription"),
-        ("CTA_RENEW", "Extend plan", "Extend your current plan"),
     ]
 
 
@@ -150,7 +152,7 @@ def test_pending_checkout_uses_extend_outside_renewal_window(container):
     assert calls[-1][3] == [
         ("CTA_STATUS", "Subscription status", "Check your subscription"),
         ("CTA_PAYMENT", "Payment instructions", "View your payment details"),
-        ("CTA_RENEW", "Extend plan", "Extend current or choose a larger plan"),
+        ("CTA_RENEW", "Upgrade", "Choose a larger plan"),
     ]
 
 
@@ -178,7 +180,7 @@ def test_applied_yearly_payment_repairs_stale_menu_entitlement(container):
 
     main._send_menu(container, "9199")
 
-    assert container.whatsapp.sent[-1]["rows"] == ["CTA_STATUS", "CTA_RENEW"]
+    assert container.whatsapp.sent[-1]["rows"] == ["CTA_STATUS"]
     assert "Payment instructions" not in container.whatsapp.sent[-1]["body"]
     main._send_subscription_status(container, "9199")
     assert "Current plan: Yearly." in container.whatsapp.sent[-1]["message"]
@@ -186,12 +188,12 @@ def test_applied_yearly_payment_repairs_stale_menu_entitlement(container):
     # A button from an older WhatsApp message is revalidated against current
     # state and cannot reopen obsolete starter-plan choices.
     main._handle_message(container, "9199", "button", "CTA_RENEW")
-    assert container.whatsapp.sent[-1]["rows"] == ["PLAN_yearly"]
+    assert "largest available plan" in container.whatsapp.sent[-1]["message"]
 
 
 @pytest.mark.parametrize("plan,days,expected_label", [
-    ("starter", 30, "Extend plan"),
-    ("weekly", 30, "Extend plan"),
+    ("starter", 30, "Upgrade"),
+    ("weekly", 30, "Upgrade"),
     ("monthly", 3, "Renew"),
     ("yearly", 3, "Renew"),
 ])
@@ -267,7 +269,7 @@ def test_yearly_expiring_menu_does_not_suggest_larger_plan(container):
 
 
 def test_yearly_payment_status_does_not_offer_extend_plan(container):
-    """The largest active plan can still be extended at its current level."""
+    """Payment review must not suggest early renewal for the largest plan."""
     import main
     from domain.enums import PaymentStatus
 
@@ -283,7 +285,8 @@ def test_yearly_payment_status_does_not_offer_extend_plan(container):
     container.payments.update(payment)
 
     message = main._payment_status_text(container, payment)
-    assert "Extend plan to add time to your current plan" in message
+    assert "Same-plan renewal opens three days before expiry" in message
+    assert "choose Upgrade" not in message
 
 
 def test_active_plan_list_contains_only_strictly_larger_plans(container):
@@ -299,14 +302,14 @@ def test_active_plan_list_contains_only_strictly_larger_plans(container):
     ))
     container.whatsapp = FakeWhatsApp()
     main._send_plan_list(container, "9199")
-    assert container.whatsapp.sent[-1]["rows"] == ["PLAN_monthly", "PLAN_yearly"]
+    assert container.whatsapp.sent[-1]["rows"] == ["PLAN_yearly"]
 
 
 @pytest.mark.parametrize("current,expected", [
-    ("starter", ["PLAN_starter", "PLAN_weekly", "PLAN_monthly", "PLAN_yearly"]),
-    ("weekly", ["PLAN_weekly", "PLAN_monthly", "PLAN_yearly"]),
-    ("monthly", ["PLAN_monthly", "PLAN_yearly"]),
-    ("yearly", ["PLAN_yearly"]),
+    ("starter", ["PLAN_weekly", "PLAN_monthly", "PLAN_yearly"]),
+    ("weekly", ["PLAN_monthly", "PLAN_yearly"]),
+    ("monthly", ["PLAN_yearly"]),
+    ("yearly", []),
 ])
 def test_each_active_plan_only_offers_strictly_larger_plans(container, current, expected):
     """Plan navigation must never offer a smaller plan."""
@@ -327,7 +330,10 @@ def test_each_active_plan_only_offers_strictly_larger_plans(container, current, 
 
     main._send_plan_list(container, "9199")
 
-    assert container.whatsapp.sent[-1]["rows"] == expected
+    if expected:
+        assert container.whatsapp.sent[-1]["rows"] == expected
+    else:
+        assert "largest available plan" in container.whatsapp.sent[-1]["message"]
 
 
 def test_active_higher_plan_supersedes_unpaid_lower_checkout_and_hides_instructions(container):
@@ -354,7 +360,6 @@ def test_active_higher_plan_supersedes_unpaid_lower_checkout_and_hides_instructi
     assert container.payments.find(lower.reference_id).status == PaymentStatus.SUPERSEDED
     assert calls[-1][3] == [
         ("CTA_STATUS", "Subscription status", "Check your subscription"),
-        ("CTA_RENEW", "Extend plan", "Extend your current plan"),
     ]
 
 

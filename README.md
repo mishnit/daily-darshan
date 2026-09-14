@@ -192,7 +192,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `image_validation` | `min_width`, `min_height`, `allowed_formats` for `ImageValidator`. |
 | `paths` | Relative paths to the CSV files and `images/` directory. |
 | `schedule` | Image cron hint (documentation; the actual cron lives in `image.yml`). Pages publication and delivery are event-driven. |
-| `renewal.reminder_days` | Days-before-expiry to send reminders, e.g. `[3, 2, 1]`. |
+| `renewal.reminder_days` | Days-before-expiry to send reminders, e.g. `[3, 2, 1]`. Does not change the fixed three-day renewal eligibility or page CTA window. |
 | `renewal.whatsapp_number` | Digits-only WhatsApp destination used by the near-expiry page CTA. |
 | `persistence` | Webhook durability. `mode`: `github_api` (snapshot reads and atomic Git Data API commits — needs `GITHUB_TOKEN`+`GITHUB_REPO`) or `local` (no sync; dev only). `branch`: repo branch to sync against. |
 | `delivery` | Delivery mode + message settings. `mode`: `utility_template` (send a parameterized utility template linking to a per-subscriber page) or `image` (send the image inline). Also controls template language, page/image URLs, retries, 30-day operational-log retention, image retention and page-retention grace. |
@@ -411,10 +411,10 @@ Bot:  Your latest UTR 123456789012 for payment DD2608190001 has been recorded.
       Please send MENU to check payment status.
 ```
 
-Returning subscriber (Extend plan outside the renewal window, Renew near expiry or after expiry):
+Returning subscriber (Upgrade outside the renewal window, Renew near expiry or after expiry):
 
 ```
-User: (taps Extend plan while on Monthly, expiry beyond 3 days)
+User: (taps Upgrade while on Monthly, expiry beyond 3 days)
 Bot:  Choose a larger Daily Darshan plan.
 User: (selects Yearly)
 Bot:  Radhe Radhe Deep Ji! Renewing your yearly plan.   ← stored name reused
@@ -433,10 +433,10 @@ The following examples describe the exact plan actions and safe recovery from an
 | State | User sends or taps | Expected menu/list | Unexpected input recovery |
 |---|---|---|---|
 | New user | `Hi`, `Hello`, `Radhe Radhe`, `MENU`, `PAYMENT` | `View plans`; selecting it lists Starter, Weekly, Monthly and Yearly | A question or plan name reopens the menu; it never creates a payment |
-| Active Starter, expiry beyond 3 days | `MENU` → `Extend plan` | Weekly, Monthly and Yearly only | `RENEW` reopens the same menu; a stale smaller-plan CTA is rejected |
-| Active Weekly, expiry beyond 3 days | `MENU` → `Extend plan` | Monthly and Yearly only | `PAYMENT` opens the current checkout status/instructions without replacing it |
+| Active Starter, expiry beyond 3 days | `MENU` → `Upgrade` | Weekly, Monthly and Yearly only | `RENEW` reopens the same menu; a stale smaller-plan CTA is rejected |
+| Active Weekly, expiry beyond 3 days | `MENU` → `Upgrade` | Monthly and Yearly only | `PAYMENT` opens the current checkout status/instructions without replacing it |
 | Active Monthly, expiry within 3 days | `MENU` → `Renew` | Monthly and Yearly | Invalid UTR leaves checkout unchanged and asks for `UTR <reference> <12 digits>` |
-| Active Yearly, expiry within 3 days | `MENU` → `Renew` | Yearly only; description says “Renew your current plan” | `Extend plan` is not offered; an old Extend CTA is revalidated and rejected |
+| Active Yearly, expiry within 3 days | `MENU` → `Renew` | Yearly only; description says “Renew your current plan” | Old navigation CTAs reopen eligible plans; stale lower-plan selections are rejected |
 | Active Yearly, expiry beyond 3 days | `MENU` | Subscription status only | `RENEW` reopens the menu but cannot create an unavailable upgrade |
 | Expired subscriber | `MENU` or `RENEW` | `Subscription status` + `Renew`; all configured plans | A stale CTA returns to the current menu; no entitlement changes before admin approval |
 
@@ -454,13 +454,24 @@ Details:
   selecting the same plan reuses its reference. Rejected and approved payments remain
   status-only until resolved, even without a subscriber record.
 - Active users see Subscription status (including their current plan). Outside the three-day
-  renewal window they see Extend plan, whose list contains only plans strictly larger than their
+  renewal window they see Upgrade, whose list contains only plans strictly larger than their
   current plan; subscribers already on the largest plan see no plan CTA. Inside the three-day
   window they see Renew, whose list contains their current plan plus larger plans (including
   Yearly subscribers renewing Yearly). A Yearly subscriber's row is described as
   “Renew your current plan”; plans with larger choices use “Renew or choose a larger plan.”
   Expired users see Subscription status and Renew, with all configured plans available. Active opted-out users additionally see Resume messages: explicit
   consent restores delivery without another payment.
+- The renewal window is fixed at **0–3 calendar days remaining in Asia/Kolkata**, including
+  expiry day. At four days remaining, same-plan checkout is unavailable. Reminder cadence
+  does not change this rule. Upgrades to strictly larger plans are available at any time,
+  including through the Renew list during the renewal window. Plans are ordered by configured
+  duration (`days`), then price (`amount`) for equal durations.
+- Unpaid PENDING checkouts for lower plans or same-plan renewals outside the window become
+  SUPERSEDED when the subscriber returns. Payment instructions, consent recovery, retries,
+  and old plan buttons recheck eligibility. A submitted UTR remains available for review;
+  someone who paid using older instructions can still submit its reference-qualified UTR.
+  Expired subscribers can choose any configured plan. Approval of recorded payments and
+  preservation of already-paid days continue to use the existing admin flow.
 - Applied payment references are excluded from unpaid checkout actions. If a manual recovery left
   the subscriber plan label stale, menu and status eligibility use the largest plan proven by the
   subscriber's applied payment references. This prevents an old WhatsApp CTA from reopening plans
@@ -468,7 +479,7 @@ Details:
 - Help, Stop messages, Continue, Resend and Back are not menu options. Typed STOP and the
   consent disclosure's No thanks button still revoke consent without removing paid days.
 - An unpaid checkout shows Payment instructions and Change plan for new users, Renew for existing
-  subscribers, and Extend plan/Renew for active users according to the renewal window. After UTR submission, Payment status and the
+  subscribers, and Upgrade/Renew for active users according to the renewal window. After UTR submission, Payment status and the
   applicable plan action remain available. Status repeats the reference-qualified
   UTR format so the customer can identify the checkout actually paid. Choosing another plan
   creates a new checkout; a customer who already paid must confirm the older paid-against
@@ -525,7 +536,7 @@ Details:
   already carries a profile name, the prompt is skipped and that name is used.
 - **Renewal offers the current plan plus larger plans inside the three-day window, and all
   configured plans after expiry**, reuses the stored name and gates payment instructions on
-  consent. An extension outside the window offers only larger plans. A returning user's selected plan is stored in the pending payment; their paid
+  consent. An upgrade outside the window offers only larger plans. A returning user's selected plan is stored in the pending payment; their paid
   plan and dates change only on admin approval. On admin verification, renewal
   **extends from the current expiry date** (not from today) so remaining days are never lost
   (Tech Doc §29). Renew from an unknown mobile falls back to the plan list.
@@ -636,8 +647,8 @@ image as the Meta header component while retaining the existing body-name and UR
 An image-header send fails closed when today's image is missing rather than reserving or sending an
 invalid template. This permits delivery, welcome and renewal to adopt media templates separately.
 
-Subscriber pages show a **Renew on WhatsApp** CTA from the largest configured
-`renewal.reminder_days` value through the post-expiry page grace period. The link opens
+Subscriber pages show a **Renew on WhatsApp** CTA from three days before expiry
+through the post-expiry page grace period, independently of `renewal.reminder_days`. The link opens
 `renewal.whatsapp_number` with `RENEW` prefilled; use international digits without `+`.
 
 New daily and source-candidate image filenames use a random UUID prefix, and subscriber pages

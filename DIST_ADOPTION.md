@@ -65,7 +65,9 @@ guaranteed daily receipt during provider or persistence outages.
 - Mark Yearly ₹699 as **Best Value** and show its effective cost as approximately ₹58/month.
 - Position the 90-day ₹199 plan as **Most Popular** to bridge the commitment gap.
 - Always display duration alongside the plan label.
-- Let returning customers renew their existing plan without recapturing their name.
+- Let active customers renew the same or a larger plan in the last three days before expiry
+  (including expiry day), without recapturing their name. Offer strictly larger upgrades anytime;
+  expired customers can choose any configured plan. Never offer lower plans to active subscribers.
 - Keep amount, UPI link, reference and “reply with 12-digit UTR” in one instruction.
 - Track time from UTR receipt to admin activation; long verification delays reduce trust.
 

@@ -150,7 +150,7 @@ class Container:
             image_public_base=delivery_cfg.get("image_public_base", ""),
             image_url_path=delivery_cfg.get("image_url_path", "images"),
             renewal_whatsapp_number=renewal_cfg.get("whatsapp_number", ""),
-            renewal_window_days=max(renewal_cfg.get("reminder_days", [3, 1]), default=3),
+            renewal_window_days=3,
         )
 
         # Durable webhook persistence (P0 fix #6): back local CSVs with the

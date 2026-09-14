@@ -442,13 +442,12 @@ def _larger_plan_names(c, mobile: str) -> list[str]:
 
 
 def _is_expiring_soon(c, mobile: str) -> bool:
-    """Whether an active subscriber is inside the configured renewal window."""
+    """Renewal opens three IST calendar days before expiry, including expiry day."""
     sub = c.subscribers.find(mobile)
     if not _has_active_subscription(c, mobile) or not sub or not sub.end_date:
         return False
-    window = max(c.config.get("renewal", {}).get("reminder_days", [3]), default=3)
     remaining = (sub.end_date - datetime.now(ZoneInfo("Asia/Kolkata")).date()).days
-    return 0 <= remaining <= int(window)
+    return 0 <= remaining <= 3
 
 
 def _shows_subscription_status(c, subscriber) -> bool:
@@ -460,13 +459,14 @@ def _shows_subscription_status(c, subscriber) -> bool:
 
 
 def _eligible_plan_names(c, mobile: str) -> list[str]:
-    """Allow active subscribers to renew/extend at the same or a larger plan."""
+    """Offer upgrades anytime; include same-plan renewal only near expiry."""
     sub = c.subscribers.find(mobile)
     if not sub or not _has_active_subscription(c, mobile):
         return list(c.config["plans"])
     larger = _larger_plan_names(c, mobile)
     current_plan = _effective_plan_name(c, sub)
-    return [plan for plan in c.config["plans"] if plan == current_plan or plan in larger]
+    return [plan for plan in c.config["plans"]
+            if plan in larger or (plan == current_plan and _is_expiring_soon(c, mobile))]
 
 
 def _plan_rank(c, plan: str) -> tuple[int, float] | None:
@@ -478,7 +478,7 @@ def _plan_rank(c, plan: str) -> tuple[int, float] | None:
 
 
 def _supersede_lower_unpaid_checkouts(c, mobile: str) -> None:
-    """Retire unpaid checkouts below an active subscriber's entitlement.
+    """Retire unpaid checkouts no longer eligible for the active subscriber.
 
     A UTR is financial evidence and must remain reviewable even when its plan is
     lower. Only untouched PENDING instructions are made obsolete here.
@@ -489,15 +489,18 @@ def _supersede_lower_unpaid_checkouts(c, mobile: str) -> None:
     current_rank = _plan_rank(c, _effective_plan_name(c, sub))
     if current_rank is None:
         return
+    eligible = _eligible_plan_names(c, mobile)
     for payment in c.payments.all():
         if (payment.mobile != mobile or payment.status.value != "PENDING" or payment.utr):
             continue
         payment_rank = _plan_rank(c, payment.plan)
-        if payment_rank is not None and payment_rank >= current_rank:
+        if payment.plan in eligible:
             continue
         payment.status = PaymentStatus.SUPERSEDED
         c.payments.update(payment)
-        c.logs.log("PAYMENT_SUPERSEDED_LOWER_PLAN", mobile, payment.reference_id)
+        event = ("PAYMENT_SUPERSEDED_LOWER_PLAN" if payment_rank is None or payment_rank < current_rank
+                 else "PAYMENT_SUPERSEDED_OUTSIDE_RENEWAL_WINDOW")
+        c.logs.log(event, mobile, payment.reference_id)
 
 
 def _applied_payment_refs(sub) -> set[str]:
@@ -553,14 +556,13 @@ def _send_menu(c, mobile: str) -> None:
                      "View your payment details"))
         if payment.status.value == "PENDING" and (not active or eligible_plans):
             if active:
-                label = "Renew" if expiring_soon else "Extend plan"
+                label = "Renew" if expiring_soon else "Upgrade"
             else:
                 label = "Renew" if (sub and sub.end_date) else "Change plan"
             if active and expiring_soon:
                 description = "Renew or choose a larger plan" if larger_plans else "Renew your current plan"
             else:
-                description = ("Extend current or choose a larger plan" if larger_plans
-                               else "Extend your current plan") if active else "Choose a different plan"
+                description = "Choose a larger plan" if active else "Choose a different plan"
             rows.append(("CTA_RENEW", label, description))
         if reviewing:
             body = _payment_status_text(c, payment)
@@ -574,9 +576,7 @@ def _send_menu(c, mobile: str) -> None:
                 description = "Renew or choose a larger plan" if larger_plans else "Renew your current plan"
                 rows.append(("CTA_RENEW", "Renew", description))
             else:
-                description = ("Extend current or choose a larger plan" if larger_plans
-                               else "Extend your current plan")
-                rows.append(("CTA_RENEW", "Extend plan", description))
+                rows.append(("CTA_RENEW", "Upgrade", "Choose a larger plan"))
     else:
         rows.append(("CTA_RENEW", "Renew", "Renew your subscription") if sub and sub.end_date
                     else ("CTA_SUBSCRIBE", "View plans", "Choose a plan"))
@@ -605,6 +605,7 @@ def _send_plan_list(c, mobile: str) -> None:
         _require_send(c.whatsapp.send_text(
             mobile,
             f"You already have the largest available plan: {_effective_plan_name(c, sub).capitalize()}. "
+            "Same-plan renewal opens three days before expiry. "
             "Send MENU to check your subscription status.",
         ), "plan list")
         return
@@ -617,7 +618,7 @@ def _send_plan_list(c, mobile: str) -> None:
     if _is_expiring_soon(c, mobile):
         prompt = "Choose a renewal plan:"
     elif _has_active_subscription(c, mobile):
-        prompt = "Choose the same or a larger Daily Darshan plan:"
+        prompt = "Choose a larger Daily Darshan plan to upgrade:"
     else:
         prompt = "Choose your Daily Darshan plan:"
     result = c.whatsapp.send_list(mobile, prompt, "View plans", rows)
@@ -876,7 +877,7 @@ def _handle_opt_out(c, mobile: str) -> None:
 
 
 def _handle_renew(c, mobile: str, name: str = "") -> None:
-    """Active subscribers may renew/extend to the same or a larger plan."""
+    """Offer same/larger renewal near expiry, otherwise strictly larger upgrades."""
     _send_plan_list(c, mobile)
 
 
@@ -889,12 +890,25 @@ def _start_payment(c, mobile: str, plan: str, returning: bool = False) -> None:
     if payment and payment.status.value != "PENDING":
         _require_send(c.whatsapp.send_text(mobile, _payment_status_text(c, payment)), "payment status")
         return
+    if _has_active_subscription(c, mobile) and plan not in _eligible_plan_names(c, mobile):
+        _send_plan_list(c, mobile)
+        return
     if payment is None or payment.plan != plan:
         payment = c.payment_service.create_payment(mobile, plan)
     _send_payment_instructions(c, mobile, payment, returning)
 
 
 def _send_payment_instructions(c, mobile, payment, returning=False):
+    if payment.utr or payment.status.value not in {"PENDING", "SUPERSEDED"}:
+        _require_send(c.whatsapp.send_text(mobile, _payment_status_text(c, payment)), "payment status")
+        return
+    if payment.status.value == "SUPERSEDED":
+        _send_plan_list(c, mobile)
+        return
+    if _has_active_subscription(c, mobile) and payment.plan not in _eligible_plan_names(c, mobile):
+        _supersede_lower_unpaid_checkouts(c, mobile)
+        _send_plan_list(c, mobile)
+        return
     wa = c.whatsapp
     sub = c.subscribers.find(mobile)
     greeting = f"Radhe Radhe {sub.name} Ji! " if sub and sub.name else ""
@@ -975,9 +989,9 @@ def _payment_status_text(c, payment):
             plan_action = (
                 "You may choose Renew to keep your current plan or choose a larger plan."
                 if expiring_soon
-                else "You may choose Extend plan to keep your current plan or choose a larger plan."
+                else "You may choose Upgrade to choose a larger plan."
                 if larger_plans
-                else "You may choose Extend plan to add time to your current plan."
+                else "Same-plan renewal opens three days before expiry."
             )
         else:
             plan_action = "You may choose Change plan."

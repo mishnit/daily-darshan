@@ -241,7 +241,9 @@ sequenceDiagram
     Web->>State: clear awaiting-name flag only
     Web-->>User: Status-aware menu with subscription and payment actions
     Note over Web,User: New users View plans and expired users View renewal plans
-    Note over Web,User: Active users Extend plan using only larger plans and the largest plan has no extension action
+    Note over Web,User: Beyond three days active users Upgrade to larger plans only
+    Note over Web,User: At zero to three days remaining Renew offers the same or larger plans
+    Note over Web,User: Largest plan has no upgrade but can renew within the window
     Note over Web,User: Subscription status includes the current plan type
     Note over Web,User: Active opted-out users Resume messages without payment
 
@@ -346,8 +348,8 @@ sequenceDiagram
         User->>Webhook: sends unexpected question
         Webhook-->>User: menu again no payment created
     else active starter or weekly beyond three days
-        Webhook-->>User: Subscription status and Extend plan
-        User->>Webhook: selects Extend plan
+        Webhook-->>User: Subscription status and Upgrade
+        User->>Webhook: selects Upgrade
         Webhook-->>User: only larger plans
         User->>Webhook: sends RENEW or PAYMENT
         Webhook-->>User: same current menu or checkout status
@@ -363,8 +365,8 @@ sequenceDiagram
         Webhook-->>User: Subscription status and Renew
         User->>Webhook: selects Renew
         Webhook-->>User: Yearly only renew your current plan
-        User->>Webhook: taps old Extend plan
-        Webhook-->>User: menu again no entitlement change
+        User->>Webhook: taps old plan navigation CTA
+        Webhook-->>User: eligible Yearly renewal only, no entitlement change
     else active yearly beyond three days
         Webhook-->>User: Subscription status only
         User->>Webhook: sends RENEW
@@ -450,6 +452,11 @@ reads the repo) never sees the activation.
 ---
 
 ## 6. Renewal reminder + opt-out (STOP)
+
+Renewal eligibility and the page CTA open three IST calendar days before expiry, including
+expiry day; reminder scheduling does not change that window. Payment and old CTA recovery
+recheck eligibility. Obsolete unpaid checkouts become SUPERSEDED, but recorded UTRs and
+reference-qualified UTR submissions remain reviewable without requesting another payment.
 
 ```mermaid
 sequenceDiagram
