@@ -5,6 +5,6 @@ https://api.vipseva.com points to https://daily-darshan-webhook.onrender.com in 
 https://api.vipseva.com/health and https://api.vipseva.com/webhook work as well
 
 ----------------------------
-update all 3 templates config to dailydarshan_subscription_status once approved, until then all pr merge ci will break (including daily image creation) due to new tests already being in-place for templates which are pending approval
+update all 3 templates config to dailydarshan_subscription_status once approved, until then all pr merge ci will break (shoudl not impact image creation and elivery meanwhile) due to new tests already being in-place for templates which are pending approval
 implement support for adding timestamp in welcomes.csv for welcome message statuses tracking
 upi link need to be updated and verified
