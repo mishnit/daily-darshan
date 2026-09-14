@@ -50,6 +50,11 @@ def test_pending_utr_alert_runs_at_9pm_ist_and_only_alerts_for_missing_utr():
     assert 'name: "daily_darshan_ops_alert"' in workflow
     assert '${{ github.repository }}/actions/runs/${{ github.run_id }}' in workflow
 
+def test_ops_alert_passes_job_suffix_for_template_button_base():
+    workflow = _workflow("ops-alert.yml")
+    assert 'https://github.com/${REPOSITORY}/actions/runs/*)' in workflow
+    assert 'job_suffix="${job_url#https://github.com/${REPOSITORY}/actions/runs/}"' in workflow
+    assert "Pass only the" in workflow
 
 def test_render_and_ordinary_main_pushes_cannot_deploy_pages():
     deploy = _workflow("deploy-pages.yml")
