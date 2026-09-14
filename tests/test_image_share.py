@@ -29,14 +29,16 @@ class Caption(HTMLParser):
 def test_native_share_caption_excludes_personal_page_and_image_url():
     page = PageRenderer(image_public_base="https://vipseva.com").render_html(
         Subscriber("9199", "monthly", subscription_id="private-token"), date(2026, 9, 12), True)
-    assert "https://wa.me/916361699109?text=" in page
-    assert "ref%3D9199" in page
-    assert 'href="https://vipseva.com/' not in page.split('id="share-darshan"', 1)[1].split('>', 1)[0]
+    assert 'id="share-darshan"' in page
+    assert 'data-image-url="https://vipseva.com/images/2026-09-12.jpg"' in page
+    assert "https://vipseva.com/?ref=9199" in page
+    assert "https://wa.me/916361699109" not in page
     for control in ("download-darshan", "share-caption", "copy-caption", "share-fallback"):
         assert control not in page
 
 
 @pytest.mark.parametrize("scenario", ["success"])
 def test_share_script_behaviour(scenario):
-    assert "fetch(" not in _SHARE_SCRIPT
-    assert "navigator.share" not in _SHARE_SCRIPT
+    assert "fetch(" in _SHARE_SCRIPT
+    assert "navigator.share" in _SHARE_SCRIPT
+    assert "files: [file]" in _SHARE_SCRIPT
