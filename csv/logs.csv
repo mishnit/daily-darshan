@@ -286,3 +286,5 @@ timestamp,event,mobile,details
 2026-09-13T19:56:05.422154,IMAGE_FETCH_FAILED,,mahakal:no-candidate
 2026-09-13T19:56:05.427936,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-14
 2026-09-13T19:57:11.795746,PAGES_REGENERATED,,2026-09-14:count=2:source=canonical:image=docs/images/5a4fcc82-3020-4ee8-9b05-459359aac0e9_2026-09-13.jpg
+2026-09-14T05:31:49.795362,IMAGE_FETCH_SUCCESS,,mahakal:39e806c0db5eb3ca91b444b57eb912acab1c9c65eb10387a2d6a35c29b55039c
+2026-09-14T05:31:50.572981,IMAGES_PRUNED,,removed=2 kept<= 7
