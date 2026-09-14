@@ -13,6 +13,8 @@ from application.welcome_service import drain_welcomes, queue_missing_welcomes
 from config import Container
 from domain.enums import SubscriberStatus
 from domain.subscriber import Subscriber
+from domain.payment import Payment
+from domain.enums import PaymentStatus
 from tests.conftest import FakeWhatsApp
 from tests.test_admin import container
 
@@ -43,6 +45,10 @@ def add_sub(c, remaining=3, *, opted_in=True, name="Nitin Mishra"):
         opt_in=opted_in, subscription_id="abc123", applied_payment_refs="DD3009140001",
     )
     c.subscribers.append(sub)
+    c.payments.append(Payment(
+        reference_id="DD3009140001", mobile="9199", plan="monthly", amount=199,
+        status=PaymentStatus.SUCCESS,
+    ))
     queue_missing_welcomes(c)
     return sub
 
