@@ -88,7 +88,7 @@ def test_payment_status_during_review_explains_reference_qualified_utr(container
     message = container.whatsapp.sent[-1]["message"]
     assert "verification pending" in message
     assert f"UTR {payment.reference_id} 123456789012" in message
-    assert "Extend plan" in message
+    assert "Upgrade" in message
 
 
 def test_reference_qualified_utr_correction_overwrites_previous_value(container):

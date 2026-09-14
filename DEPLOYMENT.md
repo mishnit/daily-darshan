@@ -249,19 +249,27 @@ Use this sequence when validating a release end to end:
 
 Menu verification: new users receive View plans only; incomplete signup returns to name or
 consent. Expired users receive Renew with all configured plans. Active users outside the
-three-day renewal window receive Extend plan with only plans strictly larger than their current
-plan; the largest active plan has no extension action. Active users inside the three-day window
+three-day renewal window receive Upgrade with only plans strictly larger than their current
+plan; the largest active plan has no upgrade action. Active users inside the three-day window
 receive Renew with their current plan plus larger plans, including Yearly renewal for a Yearly
 subscriber. When no larger plan exists, the CTA description is “Renew your current plan”;
 otherwise it is “Renew or choose a larger plan.”
+Eligibility uses the Asia/Kolkata date: days remaining 3, 2, 1 and 0 permit same-plan
+renewal; day 4 does not. Changing `renewal.reminder_days` changes reminder scheduling only.
+The page renewal CTA also opens at three days. Upgrades remain available within the Renew list.
+Unpaid lower-plan and early same-plan checkouts are superseded on return. Submitted UTRs
+remain reviewable, including a reference-qualified UTR for an older superseded checkout.
 Active opted-out users additionally receive Resume messages. Only existing dated subscriptions have a
 Subscription status menu option. Help, Stop messages, Continue, Resend and Back are hidden.
 Subscription status includes the current plan type. Typed STOP and consent No thanks remain
 supported. Unpaid checkout shows payment instructions plus Change plan for new users, Renew for
-expired users, and Extend plan/Renew for active users according to the renewal window. UTR review retains the applicable plan
+expired users, and Upgrade/Renew for active users according to the renewal window. UTR review retains the applicable plan
 action while stale plan taps are revalidated against the current entitlement. Verify active renewal
 leaves the current paid plan/dates unchanged until admin approval, and extends from expiry.
 Resume messages requires consent but no payment. STOP changes consent, not paid dates.
+Run `pytest tests/test_plan_eligibility.py -q` to verify all four plan combinations at
+expiry offsets -1, 0, 1, 2, 3, 4 and 30, reminder-setting independence, old payment buttons,
+consent recovery, repeated selection, and UTR recovery after entitlement changes.
 No new secrets or Meta templates are required. `welcomes.csv` gains the optional trailing
 column `publication_verified`; existing CSV headers are upgraded automatically on repository
 rewrite. Blank means publication has not been confirmed by this worker. The worker persists
