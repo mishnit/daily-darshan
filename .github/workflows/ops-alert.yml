@@ -51,8 +51,8 @@ jobs:
           fi
 
           case "$job_url" in
-            https://github.com/*)
-              job_suffix="${job_url#https://github.com/}"
+            https://github.com/${REPOSITORY}/actions/runs/*)
+              job_suffix="${job_url#https://github.com/${REPOSITORY}/actions/runs/}"
               ;;
             *)
               echo "::error::Unexpected GitHub job URL"
