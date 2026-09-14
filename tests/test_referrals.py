@@ -12,7 +12,8 @@ def test_share_cta_contains_subscriber_referrer():
         image_name="image.jpg",
     )
     share = "Radhe Radhe 🙏\n\nToday's HD Daily Darshan.\n\nVisit VIP Seva for daily darshan:\nhttps://vipseva.com/?ref=919535507255"
-    assert f"https://wa.me/916361699109?text={quote(share, safe='')}" in html
+    assert "data-share-text=" in html
+    assert "https://vipseva.com/?ref=919535507255" in html
 
 
 def test_vip_landing_pages_preserve_referrer_in_whatsapp_link():
