@@ -94,6 +94,10 @@ def test_all_senders_use_approved_components_and_business_date(configured, monke
 @pytest.mark.parametrize("order", list(permutations(["welcome", "renewal", "delivery"])))
 def test_only_one_daily_message_in_any_execution_order_and_on_rerun(configured, order):
     add_sub(configured)
+    # This test targets cross-worker sentlog arbitration. Keep eligibility
+    # deterministic so repository/payment policy changes cannot turn every
+    # sender into a skip before the reservation is exercised.
+    configured.delivery_service._eligibility.is_eligible = lambda mobile, on_date: True
     for _ in range(2):
         for kind in order:
             run(configured, kind)
