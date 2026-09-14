@@ -81,7 +81,8 @@ _TEMPLATE = """<!DOCTYPE html>
     </div>
     <div class="share">
       <p class="privacy-note">Share today's Darshan on WhatsApp with your referral link.</p>
-      <a id="share-darshan" href="{share_url}" role="button">📲 Share Darshan on WhatsApp</a>
+      <button id="share-darshan" type="button" data-image-url="{image_url}" data-share-text="{share_text}">Share Darshan on WhatsApp</button>
+      <p id="share-status" role="status" aria-live="polite"></p>
     </div>
   </div>
 <script>{share_script}</script>
@@ -89,7 +90,27 @@ _TEMPLATE = """<!DOCTYPE html>
 </html>
 """
 
-_SHARE_SCRIPT = ""
+_SHARE_SCRIPT = r"""
+(() => {
+  const button = document.getElementById('share-darshan');
+  const status = document.getElementById('share-status');
+  if (!button) return;
+  let file;
+  const imageUrl = button.dataset.imageUrl;
+  const text = button.dataset.shareText;
+  fetch(imageUrl).then(r => { if (!r.ok) throw new Error('image unavailable'); return r.blob(); })
+    .then(blob => { file = new File([blob], 'daily-darshan.jpg', {type: blob.type || 'image/jpeg'}); })
+    .catch(() => { status.textContent = 'Image sharing is unavailable on this browser.'; });
+  button.addEventListener('click', async () => {
+    if (!file || !navigator.share || !navigator.canShare || !navigator.canShare({files: [file]})) {
+      status.textContent = 'Please use a mobile browser with WhatsApp sharing enabled.';
+      return;
+    }
+    try { await navigator.share({files: [file], text}); }
+    catch (error) { if (error.name !== 'AbortError') status.textContent = 'Sharing could not be opened.'; }
+  });
+})();
+"""
 
 
 class PageRenderer:
@@ -170,9 +191,7 @@ class PageRenderer:
             image_url=html.escape(image_url),
             fallback_url=html.escape(self.fallback_url(images_dir)),
             renewal_reminder=renewal_reminder,
-            share_url=html.escape(
-                f"https://wa.me/916361699109?text={quote(share_text, safe='')}", quote=True
-            ),
+            share_text=html.escape(share_text, quote=True),
         )
 
     def _renewal_reminder(self, subscriber: Subscriber, on_date: date) -> str:
