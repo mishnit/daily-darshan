@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
+from domain.enums import PaymentStatus
 from repositories.state_lock import state_lock
 
 app = FastAPI(title="Daily Darshan Webhook", version="2.0.0")
@@ -430,14 +431,13 @@ def _larger_plan_names(c, mobile: str) -> list[str]:
     sub = c.subscribers.find(mobile)
     if not _has_active_subscription(c, mobile) or not sub:
         return list(c.config["plans"])
-    current = c.config["plans"].get(_effective_plan_name(c, sub))
-    if not current:
+    current_rank = _plan_rank(c, _effective_plan_name(c, sub))
+    if current_rank is None:
         return []
-    current_rank = (int(current.get("days", 0)), float(current.get("amount", 0)))
     return [
         plan
-        for plan, meta in c.config["plans"].items()
-        if (int(meta.get("days", 0)), float(meta.get("amount", 0))) > current_rank
+        for plan in c.config["plans"]
+        if (_plan_rank(c, plan) or (-1, -1)) > current_rank
     ]
 
 
@@ -460,16 +460,44 @@ def _shows_subscription_status(c, subscriber) -> bool:
 
 
 def _eligible_plan_names(c, mobile: str) -> list[str]:
-    """Plans selectable from the menu for this subscriber's entitlement state."""
+    """Allow active subscribers to renew/extend at the same or a larger plan."""
     sub = c.subscribers.find(mobile)
     if not sub or not _has_active_subscription(c, mobile):
         return list(c.config["plans"])
     larger = _larger_plan_names(c, mobile)
-    if not _is_expiring_soon(c, mobile):
-        return larger
-    # Near expiry, renewal may keep the current plan or move to a larger one.
     current_plan = _effective_plan_name(c, sub)
     return [plan for plan in c.config["plans"] if plan == current_plan or plan in larger]
+
+
+def _plan_rank(c, plan: str) -> tuple[int, float] | None:
+    """Rank configured plans consistently by entitlement duration then price."""
+    meta = c.config["plans"].get(plan)
+    if not meta:
+        return None
+    return int(meta.get("days", 0)), float(meta.get("amount", 0))
+
+
+def _supersede_lower_unpaid_checkouts(c, mobile: str) -> None:
+    """Retire unpaid checkouts below an active subscriber's entitlement.
+
+    A UTR is financial evidence and must remain reviewable even when its plan is
+    lower. Only untouched PENDING instructions are made obsolete here.
+    """
+    sub = c.subscribers.find(mobile)
+    if not sub or not _has_active_subscription(c, mobile):
+        return
+    current_rank = _plan_rank(c, _effective_plan_name(c, sub))
+    if current_rank is None:
+        return
+    for payment in c.payments.all():
+        if (payment.mobile != mobile or payment.status.value != "PENDING" or payment.utr):
+            continue
+        payment_rank = _plan_rank(c, payment.plan)
+        if payment_rank is not None and payment_rank >= current_rank:
+            continue
+        payment.status = PaymentStatus.SUPERSEDED
+        c.payments.update(payment)
+        c.logs.log("PAYMENT_SUPERSEDED_LOWER_PLAN", mobile, payment.reference_id)
 
 
 def _applied_payment_refs(sub) -> set[str]:
@@ -531,7 +559,8 @@ def _send_menu(c, mobile: str) -> None:
             if active and expiring_soon:
                 description = "Renew or choose a larger plan" if larger_plans else "Renew your current plan"
             else:
-                description = "Choose a larger plan" if active else "Choose a different plan"
+                description = ("Extend current or choose a larger plan" if larger_plans
+                               else "Extend your current plan") if active else "Choose a different plan"
             rows.append(("CTA_RENEW", label, description))
         if reviewing:
             body = _payment_status_text(c, payment)
@@ -545,7 +574,9 @@ def _send_menu(c, mobile: str) -> None:
                 description = "Renew or choose a larger plan" if larger_plans else "Renew your current plan"
                 rows.append(("CTA_RENEW", "Renew", description))
             else:
-                rows.append(("CTA_RENEW", "Extend plan", "Choose a larger plan"))
+                description = ("Extend current or choose a larger plan" if larger_plans
+                               else "Extend your current plan")
+                rows.append(("CTA_RENEW", "Extend plan", description))
     else:
         rows.append(("CTA_RENEW", "Renew", "Renew your subscription") if sub and sub.end_date
                     else ("CTA_SUBSCRIBE", "View plans", "Choose a plan"))
@@ -586,7 +617,7 @@ def _send_plan_list(c, mobile: str) -> None:
     if _is_expiring_soon(c, mobile):
         prompt = "Choose a renewal plan:"
     elif _has_active_subscription(c, mobile):
-        prompt = "Choose a larger Daily Darshan plan:"
+        prompt = "Choose the same or a larger Daily Darshan plan:"
     else:
         prompt = "Choose your Daily Darshan plan:"
     result = c.whatsapp.send_list(mobile, prompt, "View plans", rows)
@@ -845,7 +876,7 @@ def _handle_opt_out(c, mobile: str) -> None:
 
 
 def _handle_renew(c, mobile: str, name: str = "") -> None:
-    """Active subscribers may extend only to a strictly larger configured plan."""
+    """Active subscribers may renew/extend to the same or a larger plan."""
     _send_plan_list(c, mobile)
 
 
@@ -944,9 +975,9 @@ def _payment_status_text(c, payment):
             plan_action = (
                 "You may choose Renew to keep your current plan or choose a larger plan."
                 if expiring_soon
-                else "You may choose Extend plan for a larger plan."
+                else "You may choose Extend plan to keep your current plan or choose a larger plan."
                 if larger_plans
-                else "No larger plan is currently available; send MENU to check your subscription status."
+                else "You may choose Extend plan to add time to your current plan."
             )
         else:
             plan_action = "You may choose Change plan."
@@ -959,6 +990,7 @@ def _payment_status_text(c, payment):
 
 def _checkout_payment(c, mobile):
     """Latest non-superseded checkout, including unresolved approval/rejection."""
+    _supersede_lower_unpaid_checkouts(c, mobile)
     sub = c.subscribers.find(mobile)
     applied = _applied_payment_refs(sub) if sub else set()
     payments = [p for p in c.payments.all()
@@ -983,6 +1015,7 @@ def _checkout_payment(c, mobile):
 def _latest_pending_payment(c, mobile: str):
     from domain.enums import PaymentStatus
 
+    _supersede_lower_unpaid_checkouts(c, mobile)
     sub = c.subscribers.find(mobile)
     applied = _applied_payment_refs(sub) if sub else set()
     pending = [
