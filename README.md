@@ -555,6 +555,11 @@ Details:
   retained in `reply_retries.csv`; it is not the production delivery ordering.
 - Meta delivery-status callbacks reconcile an initially accepted template send. A later `failed`
   status changes matching welcome/renewal/delivery ledger rows to `FAILED`, reopening the daily slot.
+  New rows in `welcomes.csv`, `reply_retries.csv`, `reply_outbox.csv`, and
+  `message_statuses.csv` include an immutable creation `timestamp`, in UTC formatted
+  as `2026-09-11T11:01:06.270845` (six fractional digits, no timezone suffix).
+  Status updates and duplicate callbacks preserve it. Legacy headers upgrade on
+  the next write; historical rows remain blank rather than being backdated.
   `message_statuses.csv` retains callbacks that arrive before the ledger. Positive delivered/read
   evidence wins over delayed failure callbacks; `SENT` alone means API acceptance, not delivery.
 - Activation remains admin-verified out-of-band (see Admin Operations); the name/plan captured
@@ -890,6 +895,11 @@ pytest tests/test_renewal.py -q   # a single file
 - Image-validation tests auto-skip if Pillow is unavailable.
 
 The `Tests` CI workflow runs for pull requests and code/configuration pushes to `main`.
+Template payload tests follow the template selected in `config.json`, including
+its one- or two-variable body and optional image header. The subscription-status
+template is also tested explicitly for safe future switches. Shared daily-limit,
+retry and consent checks always run; only an image-header-specific check is skipped
+when the selected template has no image header. Existing test definitions are retained.
 CSV-only webhook commits and docs-only pushes skip CI because they cannot change executable code;
 this avoids consuming runners for every WhatsApp interaction. Operational workflows execute only
 from the default branch and rely on the already-required CI check instead of reinstalling test-only

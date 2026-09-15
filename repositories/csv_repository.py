@@ -11,6 +11,7 @@ import csv
 import os
 import tempfile
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
 try:  # POSIX file locking (macOS/Linux)
     import fcntl
@@ -28,9 +29,12 @@ class DuplicateKeyError(Exception):
 
 
 class CSVRepository:
-    def __init__(self, path: str, fieldnames: list[str], key_field: str):
+    def __init__(self, path: str, fieldnames: list[str], key_field: str, *, timestamp_new: bool = False):
         self.path = path
-        self.fieldnames = fieldnames
+        self.timestamp_new = timestamp_new
+        self.fieldnames = list(fieldnames)
+        if timestamp_new and "timestamp" not in self.fieldnames:
+            self.fieldnames.append("timestamp")
         self.key_field = key_field
         self._lock_path = f"{self.path}.lock"
         self._ensure_file()
@@ -78,6 +82,8 @@ class CSVRepository:
             self._append_unlocked(record)
 
     def _append_unlocked(self, record: dict) -> None:
+        if self.timestamp_new:
+            record = dict(record, timestamp=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="microseconds"))
         row = self._row(record)
         with open(self.path, newline="", encoding="utf-8") as source:
             existing = next(csv.reader(source), [])
@@ -149,6 +155,8 @@ class CSVRepository:
         updated = False
         for i, row in enumerate(rows):
             if row.get(self.key_field) == key:
+                if self.timestamp_new:
+                    record = dict(record, timestamp=row.get("timestamp", ""))
                 rows[i] = self._row(record)
                 updated = True
                 break
@@ -189,7 +197,10 @@ class CSVRepository:
             updated = 0
             for row in rows:
                 if predicate(row):
+                    timestamp = row.get("timestamp", "")
                     row.update(changes)
+                    if self.timestamp_new:
+                        row["timestamp"] = timestamp
                     updated += 1
             if updated:
                 self._write_all(rows)

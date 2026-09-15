@@ -67,6 +67,7 @@ class Container:
             p(paths.get("reply_outbox_csv", "csv/reply_outbox.csv")),
             ["id", "method", "arguments", "status", "whatsapp_message_id", "error",
              "mobile", "version", "fingerprint", "expires_at", "attempts", "next_attempt"], "id",
+            timestamp_new=True,
         )
         self.conversations = CSVRepository(
             p(paths.get("conversations_csv", "csv/conversations.csv")),
@@ -76,10 +77,12 @@ class Container:
             p(paths.get("welcomes_csv", "csv/welcomes.csv")),
             ["reference_id", "mobile", "status", "whatsapp_message_id", "error", "publication_verified"],
             "reference_id",
+            timestamp_new=True,
         )
         self.reply_retries = CSVRepository(
             p(paths.get("reply_retries_csv", "csv/reply_retries.csv")),
             ["message_id", "mobile", "text"], "message_id",
+            timestamp_new=True,
         )
         self.referrals = CSVRepository(
             p(paths.get("referrals_csv", "csv/referrals.csv")),
