@@ -305,3 +305,5 @@ timestamp,event,mobile,details
 2026-09-14T18:56:57.778046,PAGES_REGENERATED,,2026-09-15:count=2:source=canonical:image=docs/images/c1773afd-2d52-4a84-b1b1-8520be9dcc0c_2026-09-14.jpg
 2026-09-15T05:32:03.574580,IMAGE_FETCH_FAILED,,salangpur:no-candidate
 2026-09-15T05:32:03.581843,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-15
+2026-09-15T05:36:00.853085,IMAGE_FETCH_FAILED,,salangpur:no-candidate
+2026-09-15T05:36:00.860392,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-15
