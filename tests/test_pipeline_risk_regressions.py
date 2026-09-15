@@ -92,12 +92,9 @@ def test_image_requires_today_but_historical_backfill_misses_are_nonfatal():
 def test_expiry_and_page_pruning_complete_before_publication_can_start():
     image = _workflow("image.yml")
 
-    fetch = image.index("- name: Fetch and store daily images")
-    expiry = image.index(
-        "- name: Expire subscriptions and prune inactive pages before publication"
-    )
-    assert fetch < expiry
-    assert "run: python scheduler.py expiry" in image[expiry:]
+    assert "python scheduler.py image" in image
+    publication = Path("application/image_publication.py").read_text(encoding="utf-8")
+    assert publication.index("run_expiry_sweep(container, transaction") < publication.index('transaction._git("push"')
 
 
 def test_production_templates_and_immediate_render_persistence_are_configured():

@@ -13,10 +13,18 @@ from __future__ import annotations
 import base64
 import os
 import subprocess
+import time
+import re
 
 import requests
 
 from application.ports.storage import GitHubRepositoryPort
+
+
+class GitCommandError(subprocess.CalledProcessError):
+    def __str__(self) -> str:
+        diagnostic = re.sub(r"https?://\S+", "[remote URL]", self.stderr or "")
+        return f"{super().__str__()} Git diagnostic: {diagnostic.strip()}"
 
 
 class LocalGitRepository(GitHubRepositoryPort):
@@ -83,6 +91,7 @@ class LocalGitRepository(GitHubRepositoryPort):
             cwd=self._root,
             capture_output=True,
             text=True,
+            timeout=60,
         )
         if result.returncode != 0:
             stderr = (result.stderr or "").lower()
@@ -94,12 +103,45 @@ class LocalGitRepository(GitHubRepositoryPort):
             # Otherwise re-raise with context so callers can handle it.
             raise subprocess.CalledProcessError(result.returncode, commit_cmd, output=result.stdout, stderr=result.stderr)
 
-        # Retry once from latest state on push conflict; never force-push.
-        try:
-            self._git("push")
-        except subprocess.CalledProcessError:
-            self._git("pull", "--rebase")
-            self._git("push")
+        # Only branch-advance rejections are retryable. Never hide permission
+        # failures behind a rebase, or wait indefinitely under contention.
+        for attempt in range(5):
+            try:
+                self._git("push")
+                return
+            except subprocess.CalledProcessError as exc:
+                error = (exc.stderr or "").lower()
+                if attempt == 4 or not any(
+                    marker in error for marker in ("fetch first", "non-fast-forward")
+                ):
+                    raise
+            self._git("fetch", "origin")
+            try:
+                self._git("rebase", "@{upstream}")
+            except subprocess.CalledProcessError:
+                try:
+                    self._resolve_append_only_logs()
+                    self._git("-c", "core.editor=true", "rebase", "--continue")
+                except Exception:
+                    self._git("rebase", "--abort")
+                    raise
+            time.sleep(0.2 * (attempt + 1))
+
+    def _resolve_append_only_logs(self) -> None:
+        """Combine concurrent log appends only; never merge business CSVs."""
+        conflicts = self._git("diff", "--name-only", "--diff-filter=U", capture=True).splitlines()
+        if conflicts != ["csv/logs.csv"]:
+            raise RuntimeError(f"Git conflict requires reconciliation: {conflicts}")
+        base, remote, local = [
+            self._git("show", f":{stage}:csv/logs.csv", capture=True)
+            for stage in (1, 2, 3)
+        ]
+        if not remote.startswith(base) or not local.startswith(base):
+            raise RuntimeError("Log conflict includes edits/deletions; refusing automatic merge")
+        # Keep both tails, including repeated events: audit history is not a set.
+        with open(self._abs("csv/logs.csv"), "w", encoding="utf-8", newline="") as fh:
+            fh.write(remote + local[len(base):])
+        self._git("add", "csv/logs.csv")
 
     def _stage_files(self, files: list[str]) -> None:
         is_actions = os.environ.get("GITHUB_ACTIONS", "").strip().lower() == "true"
@@ -114,10 +156,17 @@ class LocalGitRepository(GitHubRepositoryPort):
         result = subprocess.run(
             ["git", *args],
             cwd=self._root,
-            check=True,
             capture_output=True,
             text=True,
+            timeout=60,
         )
+        if result.returncode:
+            # CalledProcessError's default string omits stderr entirely.
+            # Keep output in the exception without exposing credential URLs.
+            error = GitCommandError(
+                result.returncode, ["git", *args], output=result.stdout, stderr=result.stderr
+            )
+            raise error
         return result.stdout if capture else ""
 
 

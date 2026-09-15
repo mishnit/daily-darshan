@@ -559,8 +559,18 @@ the next delivery run picks them up automatically. The `date + mobile` idempoten
 Do **not** hand-edit CSVs while a scheduler job might be committing:
 
 - Always `git pull --rebase` **before** editing, and push promptly after.
-- The scheduler retries once on push conflict via `pull --rebase` and never force-pushes,
-  but an in-progress manual edit can still collide.
+- The scheduler makes at most five push attempts after branch-advance rejections,
+  fetching and rebasing between attempts; it never force-pushes. Only concurrent
+  append-only changes to `csv/logs.csv` are combined automatically. Business CSV
+  conflicts and log edits/deletions abort the rebase and fail for reconciliation.
+  Git commands time out after 60 seconds and failures include sanitized stderr.
+  Daily Image instead fetches `main` and builds in a disposable checkout on every
+  retry. It reuses downloaded candidates but reloads CSV/config data, regenerates
+  pages and applies expiry before one atomic push. Five attempts with randomized
+  delays bound contention. Audit logs are uploaded separately as 30-day workflow
+  artifacts even on failure; image publication no longer modifies `logs.csv`.
+  A final failure triggers the existing ops-alert workflow. Other concurrent
+  writers can still cause a bounded failure, but cannot cause a stale page rebase.
 - The webhook commits `csv/payments.csv`, `csv/subscribers.csv`, `csv/processed.csv` and logs as
   users subscribe. Meta failure-status callbacks also reconcile `csv/sentlog.csv` and
   `csv/renewals.csv`, so pull before editing to pick up any rows it changed.

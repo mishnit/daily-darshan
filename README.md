@@ -781,7 +781,8 @@ produced in two places so a subscriber's branded URL is never a 404 when they re
 
 **Fault tolerance:** image sources are tried in priority order; a failing source falls
 through to the next. WhatsApp sends use bounded retries; a failure for one subscriber does
-not stop the batch. Git pushes retry once via `pull --rebase` and never force-push.
+not stop the batch. Git pushes make at most five attempts on branch-advance
+rejections, fetching and rebasing between attempts, and never force-push.
 
 ### Coordination between the two machines
 
@@ -792,7 +793,7 @@ and write the same CSVs there:
 - **Webhook** uses the GitHub **Git Data API** (`GitHubApiRepository` via `RepoSync`): it
   **pulls** the tracked CSVs before handling a message and **pushes** them after.
 - **Scheduler/admin** uses the **git CLI** on the checked-out repo (`LocalGitRepository`):
-  it commits + pushes (retry once via `pull --rebase`, never force-push).
+  it commits + pushes (up to five attempts on branch-advance rejection, never force-push).
 
 Because both write CSVs on `main`, two mechanisms reduce clobbering risk:
 
@@ -809,7 +810,21 @@ Because both write CSVs on `main`, two mechanisms reduce clobbering risk:
    disk can be lost. GitHub API writes reject a
    stale snapshot: one tree commit contains all webhook CSV changes and a non-force branch update
    rejects a concurrent advance. The handler restores its local snapshot and requests redelivery.
-   Scheduler pushes pull/rebase once and fail visibly rather than force-pushing.
+   Scheduler pushes fetch/rebase with at most five push attempts. Concurrent
+   append-only `csv/logs.csv` additions preserve both writers' events. Other
+   conflicts abort recovery and fail visibly without overwriting business data.
+   Individual Git commands time out after 60 seconds.
+
+   Daily Image uses a stronger publication transaction: fetch `main`, download
+   candidates once, then generate pages and expiry changes in a disposable
+   checkout. A rejected push discards that checkout and rebuilds from the newest
+   CSV/config snapshot using the cached candidates. There are at most five push
+   attempts with short randomized delays. No stale page commit is rebased.
+   Image audit events are retained as `image-audit` workflow artifacts for 30 days,
+   separate from Git publication. Image no longer runs CSV log cleanup; existing
+   maintenance/delivery cleanup remains responsible for CSV retention. Exhausted
+   retries fail Daily Image and activate the existing Daily Darshan Ops Alerts
+   workflow (its WhatsApp secrets and approved template must be configured).
 
 > GitHub state publication is atomic, but GitHub and WhatsApp are not a distributed transaction.
 > Local locking assumes one Render instance/shared filesystem; retain that deployment model.
