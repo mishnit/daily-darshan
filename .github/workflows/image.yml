@@ -25,6 +25,9 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -70,11 +73,6 @@ jobs:
           # set only after a usable secret key has been imported.
           echo "GIT_COMMIT_GPG_SIGN=true" >> "$GITHUB_ENV"
 
-      - name: Prune operational logs to 30 days
-        env:
-          GITHUB_REPO: ${{ github.repository }}
-        run: python scheduler.py cleanup
-
       - name: Fetch and store daily images
         env:
           GITHUB_REPO: ${{ github.repository }}
@@ -99,7 +97,11 @@ jobs:
           # Today's normal job stores the image and refreshes subscriber pages.
           python scheduler.py image
 
-      - name: Expire subscriptions and prune inactive pages before publication
-        env:
-          GITHUB_REPO: ${{ github.repository }}
-        run: python scheduler.py expiry
+      - name: Preserve image audit logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/darshan-image-audit/
+          retention-days: 30
+          if-no-files-found: ignore

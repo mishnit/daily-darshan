@@ -4,7 +4,7 @@ from .csv_repository import CSVRepository, DuplicateKeyError
 
 class MessageStatusRepository:
     def __init__(self, path):
-        self._csv = CSVRepository(path, ["key", "message_id", "status"], "key")
+        self._csv = CSVRepository(path, ["key", "message_id", "status"], "key", timestamp_new=True)
 
     def record(self, message_id, status):
         if not message_id or status not in {"failed", "delivered", "read"}:

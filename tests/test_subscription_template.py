@@ -24,12 +24,16 @@ IMAGE = "https://vipseva.com/images/today.jpg"
 TEMPLATE = "dailydarshan_subscription_status"
 
 
-@pytest.fixture
-def configured(container, tmp_path):
+@pytest.fixture(params=["production", "subscription_status"])
+def configured(container, tmp_path, request):
     production = json.loads(Path("config.json").read_text())
     cfg = container.config
     cfg["delivery"] = production["delivery"] | {"max_send_retries": 1}
     cfg["renewal"] = production["renewal"]
+    if request.param == "subscription_status":
+        cfg["delivery"].update(template_name=TEMPLATE, welcome_template_name=TEMPLATE,
+                               template_header="image", welcome_template_header="image")
+        cfg["renewal"] = dict(cfg["renewal"], template_name=TEMPLATE, template_header="image")
     c = Container(config=cfg, root=str(tmp_path))
     c.whatsapp = FakeWhatsApp()
     c.delivery_service._whatsapp = c.whatsapp
@@ -77,14 +81,18 @@ def test_all_senders_use_approved_components_and_business_date(configured, monke
         return
     assert len(payloads) == 1
     assert payloads[0]["to"] == "9199"
+    section = configured.config["renewal" if kind == "renewal" else "delivery"]
+    prefix = "welcome_" if kind == "welcome" else ""
+    template = section[prefix + "template_name"]
+    body = [{"type": "text", "text": "Nitin Mishra"}]
+    if template == TEMPLATE:
+        body.append({"type": "text", "text": "Activated" if kind == "welcome" else status})
+    header = ([{"type": "header", "parameters": [{"type": "image", "image": {"link": IMAGE}}]}]
+              if section.get(prefix + "template_header") == "image" else [])
     assert payloads[0]["template"] == {
-        "name": TEMPLATE, "language": {"code": "en"},
-        "components": [
-            {"type": "header", "parameters": [{"type": "image", "image": {"link": IMAGE}}]},
-            {"type": "body", "parameters": [
-                {"type": "text", "text": "Nitin Mishra"},
-                {"type": "text", "text": "Activated" if kind == "welcome" else status},
-            ]},
+        "name": template, "language": {"code": "en"},
+        "components": header + [
+            {"type": "body", "parameters": body},
             {"type": "button", "sub_type": "url", "index": "0",
              "parameters": [{"type": "text", "text": "abc123"}]},
         ],
@@ -104,7 +112,11 @@ def test_only_one_daily_message_in_any_execution_order_and_on_rerun(configured, 
     assert len(configured.whatsapp.sent) == 1
     assert configured.sentlog.was_sent(DAY, "9199")
     assert configured.whatsapp.sent[0]["params"][0] == "Nitin Mishra"
-    assert configured.whatsapp.sent[0]["params"][1] in {"Activated", "Active", "Expiring in 3 days"}
+    params = configured.whatsapp.sent[0]["params"]
+    if len(params) == 2:
+        assert params[1] in {"Activated", "Active", "Expiring in 3 days"}
+    else:
+        assert params == ["Nitin Mishra"]
     for kind in order:
         run(configured, kind, DAY + timedelta(days=1))
     assert len(configured.whatsapp.sent) == 2
@@ -134,6 +146,10 @@ def test_confirmed_failure_allows_one_successful_fallback(configured, first):
 
 @pytest.mark.parametrize("kind", ["welcome", "renewal", "delivery"])
 def test_missing_required_header_does_not_send(configured, kind):
+    section = configured.config["renewal" if kind == "renewal" else "delivery"]
+    header_key = "welcome_template_header" if kind == "welcome" else "template_header"
+    if section.get(header_key) != "image":
+        pytest.skip("Selected template does not require an image header")
     add_sub(configured)
     run(configured, kind, image=None)
     assert configured.whatsapp.sent == []

@@ -537,6 +537,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     on_date = date.fromisoformat(args.date) if args.date else datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    if args.job in ("image", "image-only") and os.environ.get("GITHUB_ACTIONS") == "true":
+        from application.image_publication import publish_image
+        return publish_image(os.getcwd(), on_date, render_pages=args.job == "image")
     container = Container()
     git = LocalGitRepository(root=container.root)
 

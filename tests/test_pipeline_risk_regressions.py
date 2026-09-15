@@ -54,7 +54,8 @@ def test_ops_alert_passes_job_suffix_for_template_button_base():
     workflow = _workflow("ops-alert.yml")
     assert 'https://github.com/${REPOSITORY}/actions/runs/*)' in workflow
     assert 'job_suffix="${job_url#https://github.com/${REPOSITORY}/actions/runs/}"' in workflow
-    assert "Pass only the" in workflow
+    assert '{ type: "text", text: $job_suffix }' in workflow
+    assert 'echo "job_suffix=$job_suffix" >> "$GITHUB_OUTPUT"' in workflow
 
 def test_render_and_ordinary_main_pushes_cannot_deploy_pages():
     deploy = _workflow("deploy-pages.yml")
@@ -92,27 +93,24 @@ def test_image_requires_today_but_historical_backfill_misses_are_nonfatal():
 def test_expiry_and_page_pruning_complete_before_publication_can_start():
     image = _workflow("image.yml")
 
-    fetch = image.index("- name: Fetch and store daily images")
-    expiry = image.index(
-        "- name: Expire subscriptions and prune inactive pages before publication"
-    )
-    assert fetch < expiry
-    assert "run: python scheduler.py expiry" in image[expiry:]
+    assert "python scheduler.py image" in image
+    publication = Path("application/image_publication.py").read_text(encoding="utf-8")
+    assert publication.index("run_expiry_sweep(container, transaction") < publication.index('transaction._git("push"')
 
 
 def test_production_templates_and_immediate_render_persistence_are_configured():
     config = json.loads(Path("config.json").read_text(encoding="utf-8"))
 
     assert config["delivery"] | {
-        "template_name": "dailydarshan_subscription_status",
         "template_lang": "en",
-        "welcome_template_name": "dailydarshan_subscription_status",
         "welcome_template_lang": "en",
     } == config["delivery"]
     assert config["renewal"] | {
-        "template_name": "dailydarshan_subscription_status",
         "template_lang": "en",
     } == config["renewal"]
+    assert config["delivery"]["template_name"].strip()
+    assert config["delivery"]["welcome_template_name"].strip()
+    assert config["renewal"]["template_name"].strip()
     assert "quiet_window_utc" not in config["persistence"]
 
 

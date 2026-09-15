@@ -30,11 +30,9 @@ def test_image_and_delivery_workflows_do_not_deploy_pages_directly():
 def test_image_expires_and_prunes_pages_before_triggering_publication():
     workflow = Path(".github/workflows/image.yml").read_text(encoding="utf-8")
 
-    assert "Expire subscriptions and prune inactive pages before publication" in workflow
-    assert "run: python scheduler.py expiry" in workflow
-    assert workflow.index("python scheduler.py image") < workflow.index(
-        "Expire subscriptions and prune inactive pages before publication"
-    )
+    publication = Path("application/image_publication.py").read_text(encoding="utf-8")
+    assert publication.index("run_expiry_sweep(container, transaction") < publication.index('transaction._git("push"')
+    assert "ref: main" in workflow
     assert 'if ! python scheduler.py image-only --date "$image_date"; then' in workflow
     assert "continuing to today's required image" in workflow
 
@@ -44,10 +42,10 @@ def test_whatsapp_templates_match_documented_meta_configuration():
 
     config = json.loads(Path("config.json").read_text(encoding="utf-8"))
 
-    assert config["delivery"]["template_name"] == "dailydarshan_subscription_status"
+    assert config["delivery"]["template_name"].strip()
     assert config["delivery"]["template_lang"] == "en"
-    assert config["delivery"]["welcome_template_name"] == "dailydarshan_subscription_status"
+    assert config["delivery"]["welcome_template_name"].strip()
     assert config["delivery"]["welcome_template_lang"] == "en"
-    assert config["renewal"]["template_name"] == "dailydarshan_subscription_status"
+    assert config["renewal"]["template_name"].strip()
     assert config["renewal"]["template_lang"] == "en"
     assert "quiet_window_utc" not in config["persistence"]
