@@ -303,3 +303,5 @@ timestamp,event,mobile,details
 2026-09-14T18:38:54.061336,WHATSAPP_SEND_ACCEPTED,919535507255,wamid.HBgMOTE5NTM1NTA3MjU1FQIAERgSNkIyQTEwNkEwRjE2MDUwMzE2AA==
 2026-09-14T18:44:28.083333,PAGES_REGENERATED,,2026-09-15:count=2:source=canonical:image=docs/images/c1773afd-2d52-4a84-b1b1-8520be9dcc0c_2026-09-14.jpg
 2026-09-14T18:56:57.778046,PAGES_REGENERATED,,2026-09-15:count=2:source=canonical:image=docs/images/c1773afd-2d52-4a84-b1b1-8520be9dcc0c_2026-09-14.jpg
+2026-09-15T05:32:03.574580,IMAGE_FETCH_FAILED,,salangpur:no-candidate
+2026-09-15T05:32:03.581843,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-15
