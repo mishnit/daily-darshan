@@ -311,3 +311,17 @@ timestamp,event,mobile,details
 2026-09-15T05:46:04.461572,IMAGES_PRUNED,,removed=2 kept<= 7
 2026-09-15T05:46:52.164919,WHATSAPP_SEND_ACCEPTED,919535507255,wamid.HBgMOTE5NTM1NTA3MjU1FQIAERgSREM5NDg4QzA5OTdCMkVDNjhDAA==
 2026-09-15T05:46:55.277857,WHATSAPP_SEND_ACCEPTED,919108711599,wamid.HBgMOTE5MTA4NzExNTk5FQIAERgSREQzRDRDN0E3RDE1MjZCMDA5AA==
+2026-09-16T05:06:34.527932,WHATSAPP_SEND_ACCEPTED,919535507255,wamid.HBgMOTE5NTM1NTA3MjU1FQIAERgSQTc2NkE2MTY5OEVCMjlFM0VBAA==
+2026-09-16T05:06:37.640286,WHATSAPP_SEND_ACCEPTED,919108711599,wamid.HBgMOTE5MTA4NzExNTk5FQIAERgSNTZCNDg4M0U0Qzc4OTMxNDU0AA==
+2026-09-16T05:27:41.363085,WHATSAPP_SEND_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (dailydarsha"
+2026-09-16T05:27:45.433278,WHATSAPP_SEND_FAILED,919108711599,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (dailydarsha"
+2026-09-16T05:32:13.940443,PAYMENT_CREATED,919535507255,DD2609160001
+2026-09-16T05:35:43.471564,PAYMENT_UTR_RECEIVED,919535507255,DD2609160001:111166667777
+2026-09-16T05:40:24.604094,PAYMENT_SUPERSEDED,919535507255,DD2609160001
+2026-09-16T05:40:24.604753,PAYMENT_CREATED,919535507255,DD2609160002
+2026-09-16T05:41:18.192880,PAYMENT_SUPERSEDED,919535507255,DD2609160002
+2026-09-16T05:41:18.193138,PAYMENT_UTR_RECEIVED,919535507255,DD2609160001:111166667778
+2026-09-16T05:45:00.424004,PAYMENT_UTR_RECEIVED,919535507255,DD2609160001:111166667780
+2026-09-16T05:46:48.827389,RENEWAL_REMINDER_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (dailydarsha"
+2026-09-16T05:46:54.905158,WHATSAPP_SEND_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (dailydarsha"
+2026-09-16T05:46:58.707678,WHATSAPP_SEND_FAILED,919108711599,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (dailydarsha"
