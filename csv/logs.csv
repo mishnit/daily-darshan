@@ -323,3 +323,4 @@ timestamp,event,mobile,details
 2026-09-16T05:41:18.193138,PAYMENT_UTR_RECEIVED,919535507255,DD2609160001:111166667778
 2026-09-16T05:45:00.424004,PAYMENT_UTR_RECEIVED,919535507255,DD2609160001:111166667780
 2026-09-16T05:46:48.827389,RENEWAL_REMINDER_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (dailydarsha"
+2026-09-16T05:46:54.905158,WHATSAPP_SEND_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (dailydarsha"
