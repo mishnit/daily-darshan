@@ -25,6 +25,7 @@ from fastapi import FastAPI, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 from domain.enums import PaymentStatus
 from repositories.state_lock import state_lock
+from repositories.state_lock import StateLockTimeout
 
 app = FastAPI(title="Daily Darshan Webhook", version="2.0.0")
 log = logging.getLogger("daily_darshan.webhook")
@@ -152,6 +153,11 @@ async def retry_replies(request: Request) -> Response:
         return _json({"status": "durable persistence required"}, 503)
     try:
         await run_in_threadpool(_process_payload, c, {}, 5.0)
+    except StateLockTimeout:
+        # Normal backpressure: Meta will retry. Avoid an alarming traceback for
+        # an expected overlap while another durable transaction is committing.
+        log.warning("Webhook state is busy; returning 503 for provider retry")
+        return _json({"status": "retry"}, 503)
     except Exception:
         log.exception("Reply retry requires attention")
         return _json({"status": "retry or reconciliation required"}, 503)
@@ -183,6 +189,11 @@ async def receive_webhook(request: Request) -> Response:
     # Keep the event loop free, but do not acknowledge before durable commit.
     try:
         await run_in_threadpool(_process_payload, c, payload, 10.0)
+    except StateLockTimeout:
+        # Expected backpressure if a short Git commit phase overlaps. Meta will
+        # retry; log one line rather than an alarming stack trace.
+        log.warning("Webhook state is busy; returning 503 for provider retry")
+        return _json({"status": "retry"}, 503)
     except Exception:
         log.exception("Webhook not completed; request must be retried")
         return _json({"status": "retry"}, 503)
@@ -190,16 +201,17 @@ async def receive_webhook(request: Request) -> Response:
 
 
 def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> None:
-    """Serialize the read/modify/persist transaction before acknowledging it."""
+    """Persist intent, send outside the lock, then merge the provider outcome."""
+    production = c.config.get("persistence", {}).get("mode") == "github_api"
+    prepared_snapshots = []
+    client = c.whatsapp
+    failed = False
     with state_lock(c.root, timeout=lock_timeout):
-        production = c.config.get("persistence", {}).get("mode") == "github_api"
         if production and not c.repo_sync.enabled:
             raise RuntimeError("Durable persistence is unavailable")
         c.repo_sync.pull(strict=True)
         snapshot = _snapshot_webhook_state(c)
-        client = c.whatsapp
         prepared_replies = []
-        failed = False
         try:
             if production:
                 from application.reply_outbox import QueuedReplies, prepare_replies
@@ -214,21 +226,35 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
             # In production this atomically persists both the inbound state and
             # each PENDING outbound reservation before Meta is contacted.
             c.repo_sync.push("Webhook update", strict=True)
+            if production:
+                from application.reply_outbox import snapshot_prepared_replies
+                prepared_snapshots = snapshot_prepared_replies(c.reply_outbox, prepared_replies)
+                if len(prepared_snapshots) != len(prepared_replies):
+                    raise RuntimeError("Durable reply reservation disappeared before send")
         except Exception:
             _restore_webhook_state(snapshot)
             c.repo_sync.abort()
             raise
         finally:
             c.whatsapp = client
-        if production:
-            from application.reply_outbox import send_prepared_replies
-            failed |= send_prepared_replies(c.reply_outbox, client, prepared_replies)
-            # Persist all provider outcomes in one atomic commit.  If this
-            # fails, the durable remote state remains PENDING and blocks blind
-            # retries until reconciliation.
-            c.repo_sync.push("Persist webhook reply outbox", strict=True)
-        if failed:
-            raise RuntimeError("One or more webhook responses need retry")
+    if production and prepared_snapshots:
+        from application.reply_outbox import send_reply_snapshots, merge_reply_outcomes
+        outcomes, send_failed = send_reply_snapshots(client, prepared_snapshots)
+        failed |= send_failed
+        # Reacquire only for the small fresh-read/merge/commit transaction.
+        # Other webhook requests can progress while the Meta call is in flight.
+        with state_lock(c.root, timeout=lock_timeout):
+            c.repo_sync.pull(strict=True)
+            snapshot = _snapshot_webhook_state(c)
+            try:
+                failed |= merge_reply_outcomes(c.reply_outbox, outcomes)
+                c.repo_sync.push("Persist webhook reply outbox", strict=True)
+            except Exception:
+                _restore_webhook_state(snapshot)
+                c.repo_sync.abort()
+                raise
+    if failed:
+        raise RuntimeError("One or more webhook responses need retry")
 
 
 def _process_messages(c, payload: dict) -> bool:

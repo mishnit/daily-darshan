@@ -321,7 +321,9 @@ def run_pages(container: Container, git: LocalGitRepository, on_date: date,
     if approved_path:
         committed.append(approved_path)
         import json
-        stamp_path = os.path.join(container.config.get("delivery", {}).get("pages_dir", "docs"), ".image-approval.json")
+        # Must be a non-dotfile: GitHub Pages otherwise excludes it from the
+        # public artifact, making the post-deployment approval check fail.
+        stamp_path = os.path.join(container.config.get("delivery", {}).get("pages_dir", "docs"), "image-approval.json")
         git.write_file(stamp_path, json.dumps({"id": decision["id"], "date": decision["date"],
                        "sha256": decision["sha256"]}).encode(), "Record rendered image approval")
         committed.append(stamp_path)

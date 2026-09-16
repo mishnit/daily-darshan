@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 
 import pytest
 
@@ -382,6 +384,50 @@ def test_process_payload_never_raises_on_handler_error(app_client, monkeypatch):
     }}]}]}
     with pytest.raises(RuntimeError, match="responses need retry"):
         main._process_payload(main.container, payload)
+
+
+def test_meta_send_does_not_hold_state_lock_or_lose_concurrent_status(app_client):
+    """A slow provider call must not block another durable webhook transaction."""
+    main, _ = app_client
+    from tests.conftest import FakeWhatsApp
+
+    c = main.container
+    c.config["persistence"] = {"mode": "github_api"}
+    c.repo_sync = SimpleNamespace(
+        enabled=True, pull=lambda **kwargs: None,
+        push=lambda *args, **kwargs: [], abort=lambda: None,
+    )
+    entered = threading.Event()
+    release = threading.Event()
+
+    class SlowWhatsApp(FakeWhatsApp):
+        def send_buttons(self, *args, **kwargs):
+            entered.set()
+            assert release.wait(3)
+            return super().send_buttons(*args, **kwargs)
+
+    c.whatsapp = SlowWhatsApp()
+    customer = _tap_payload("9777", "PLAN_monthly", "slow-send", name="Radha")
+    status = {"entry": [{"changes": [{"value": {"statuses": [{
+        "id": "unrelated-provider-id", "recipient_id": "9888", "status": "delivered",
+    }]}}]}]}
+
+    with ThreadPoolExecutor(2) as pool:
+        slow = pool.submit(main._process_payload, c, customer, 0.2)
+        assert entered.wait(2)
+        concurrent = pool.submit(main._process_payload, c, status, 0.2)
+        # This completes while the first thread is still inside Meta transport.
+        concurrent.result(timeout=1)
+        assert not slow.done()
+        release.set()
+        slow.result(timeout=2)
+
+    assert c.subscribers.find("9777") is not None
+    status_rows = c.message_statuses._csv.all()
+    assert any(r["message_id"] == "unrelated-provider-id" and r["status"] == "delivered"
+               for r in status_rows)
+    replies = [r for r in c.reply_outbox.all() if r.get("mobile") == "9777"]
+    assert len(replies) == 1 and replies[0]["status"] == "SENT"
 
 
 def test_failed_whatsapp_reply_rolls_back_webhook_state(app_client):

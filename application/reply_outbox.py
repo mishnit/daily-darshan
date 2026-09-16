@@ -144,3 +144,68 @@ def send_prepared_replies(repository, client, prepared, now=None):
         repository.upsert(row["id"], row)
         failed |= not result.ok
     return failed
+
+
+def snapshot_prepared_replies(repository, prepared):
+    """Copy durable PENDING reservations before releasing the state lock.
+
+    The returned dictionaries are detached from the CSV repository, so another
+    webhook transaction may safely refresh local files while Meta is called.
+    """
+    wanted = set(prepared)
+    rows = {row["id"]: dict(row) for row in repository.all() if row["id"] in wanted}
+    return [rows[reply_id] for reply_id in prepared if reply_id in rows]
+
+
+def send_reply_snapshots(client, snapshots, now=None):
+    """Contact Meta without reading or writing shared CSV state."""
+    now = time.time() if now is None else now
+    outcomes = []
+    failed = False
+    for reserved in snapshots:
+        row = dict(reserved)
+        if row.get("status") != "PENDING":
+            failed = True
+            continue
+        args, kwargs = json.loads(row["arguments"])
+        try:
+            result = getattr(client, row["method"])(*args, **kwargs)
+        except Exception as exc:
+            # Keep the durable row PENDING. The provider outcome is ambiguous.
+            row.update(status="PENDING", error=f"transport_exception:{type(exc).__name__}")
+            outcomes.append(row)
+            failed = True
+            continue
+        attempts = max(1, int(row.get("attempts") or 1))
+        row.update(status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
+                   whatsapp_message_id=result.message_id or "", error=result.error or "",
+                   next_attempt=str(now + min(3600, 60 * 2 ** (attempts - 1))))
+        outcomes.append(row)
+        failed |= not result.ok
+    return outcomes, failed
+
+
+def merge_reply_outcomes(repository, outcomes):
+    """Merge provider results into a freshly pulled snapshot without clobbering it."""
+    failed = False
+    for outcome in outcomes:
+        current = repository.find(outcome["id"])
+        if current is None:
+            failed = True
+            continue
+        # A later status callback or reconciliation decision is authoritative.
+        if current.get("status") != "PENDING":
+            continue
+        # Bind the result to the exact reservation that was sent.
+        reservation_fields = ("method", "arguments", "mobile", "version", "fingerprint", "attempts")
+        if any(current.get(field, "") != outcome.get(field, "") for field in reservation_fields):
+            failed = True
+            continue
+        current.update(
+            status=outcome["status"],
+            whatsapp_message_id=outcome.get("whatsapp_message_id", ""),
+            error=outcome.get("error", ""),
+            next_attempt=outcome.get("next_attempt", current.get("next_attempt", "0")),
+        )
+        repository.upsert(current["id"], current)
+    return failed
