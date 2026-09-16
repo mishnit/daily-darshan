@@ -324,6 +324,8 @@ def _iter_statuses(payload: dict):
 def _webhook_paths(c) -> list[str]:
     paths = c.config["paths"]
     return [
+        paths.get("image_reviews_csv", "csv/image_reviews.csv"),
+        paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv"),
         paths["subscribers_csv"], paths["payments_csv"],
         paths.get("processed_csv", "csv/processed.csv"), paths["logs_csv"],
         paths["sentlog_csv"], paths["renewals_csv"],
@@ -587,7 +589,10 @@ def _send_menu(c, mobile: str) -> None:
         rows.append(("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
     result = c.whatsapp.send_list(
         mobile,
-        body,
+        (("🙏 Welcome to Daily Darshan! Receive temple darshan on WhatsApp, enjoy an HD image "
+          "on your personal page, and share the image with family and friends. "
+          "Choose a plan, make payment and confirm your UTR to request activation.\n\n")
+         if not any(row.get("mobile") == mobile for row in c.welcomes.all()) else "") + body,
         "Open menu",
         rows,
     )
@@ -666,10 +671,15 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
     """
     svc = c.subscriber_service
     wa = c.whatsapp
+    if (kind == "text" and value.strip().upper() == "ADMIN") or (kind == "button" and value.startswith("ADM_")):
+        from application.admin_whatsapp import handle_admin
+        handle_admin(c, mobile, value.strip())
+        return
 
     if kind == "media":
         _require_send(wa.send_text(mobile,
-            "Thanks for sharing. Please send your 12-digit UTR as text (for example, UTR: 123456789012). "
+            "Thanks for sharing. Please send your payment reference and 12-digit UTR as text "
+            "in the format *UTR Txn_Ref_ID UTR_ID*. Example: *UTR DD2609130001 123456789012*. "
             "A screenshot alone cannot be recorded for payment review."), "UTR text request")
         return
 
@@ -841,7 +851,7 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
             _resume_conversation(c, mobile)
             return
         elif any(p.mobile == mobile and p.status.value == "SUPERSEDED" for p in c.payments.all()):
-            _require_send(wa.send_text(mobile, "You have changed checkout plans. To match your payment correctly, send UTR followed by the reference from the instructions you paid against and your 12-digit UTR, for example: UTR DD2609130001 123456789012. Do not pay again."), "payment reference")
+            _require_send(wa.send_text(mobile, "You have changed checkout plans. To match your payment correctly, send UTR followed by the reference from the instructions you paid against and your 12-digit UTR, for example: *UTR DD2609130001 123456789012*. Do not pay again."), "payment reference")
             return
         if payment is None:
             _send_menu(c, mobile)
@@ -888,7 +898,7 @@ def _handle_utr_confirmation(c, mobile: str, value: str) -> None:
         state.update(utr_draft="", utr_reference="", utr_confirmation="")
         c.conversations.upsert(mobile, state)
         _require_send(c.whatsapp.send_text(mobile,
-            f"Please send the correct UTR, for example: UTR {reference} 123456789012. "
+            f"Please send the correct UTR, for example: *UTR {reference} 123456789012*. "
             "You will be asked to confirm it before submission. Do not pay again."), "change UTR")
         return
     if any(p.mobile == mobile and p.reference_id != reference
@@ -969,7 +979,7 @@ def _send_payment_instructions(c, mobile, payment, returning=False):
         f"Pay via UPI:\n{intent}\n\n"
         f"Reference: {payment.reference_id}\n"
         f"After paying, reply with your payment reference and 12-digit UTR.\n"
-        f"Example: UTR {payment.reference_id} 123456789012\n"
+        f"Format: *UTR Txn_Ref_ID UTR_ID*\nExample: *UTR {payment.reference_id} 123456789012*\n"
         "We will ask you to confirm the UTR before submitting it for admin verification.\n"
         f"If you changed plans, use the reference from the instructions you paid against. "
         "If you already paid against older instructions, use that older reference; do not pay again.",
@@ -1049,7 +1059,7 @@ def _payment_status_text(c, payment):
             plan_action = "You may choose Change plan."
         return (f"Payment verification pending for {ref}. Please allow the admin time to verify it. "
                 f"If you have already made payment, please confirm your UTR in this format: "
-                f"UTR {ref} 123456789012 (replace the last 12 digits with your UTR). "
+                f"*UTR {ref} 123456789012* (replace the last 12 digits with your UTR). "
                 f"{plan_action} Do not pay again if this payment is already complete.")
     return f"Payment {ref} is awaiting payment. Send MENU and select Payment instructions."
 

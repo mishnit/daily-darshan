@@ -1,6 +1,9 @@
 name: Regenerate Daily Pages
 
 on:
+  push:
+    branches: [main]
+    paths: ["csv/pipeline_requests.csv"]
   workflow_dispatch:
     inputs:
       image_source:
@@ -13,7 +16,19 @@ permissions:
   contents: write
 
 jobs:
+  approval:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.gate.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - id: gate
+        run: python3 -m application.image_approval
   pages:
+    needs: approval
+    if: needs.approval.outputs.ready == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
@@ -21,6 +36,9 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -64,5 +82,5 @@ jobs:
       - name: Regenerate pages from today's or latest earlier stored image
         env:
           GITHUB_REPO: ${{ github.repository }}
-          IMAGE_SOURCE: ${{ inputs.image_source }}
+          IMAGE_SOURCE: ${{ inputs.image_source || 'canonical' }}
         run: python scheduler.py pages --image-source "$IMAGE_SOURCE"

@@ -43,12 +43,15 @@ def test_pending_utr_alert_runs_at_9pm_ist_and_only_alerts_for_missing_utr():
 
     assert "workflow_dispatch:" in workflow
     assert "\n  schedule:" not in workflow
-    assert 'ZoneInfo("Asia/Kolkata")' in workflow
-    assert 'row.get("status", "").strip().upper() == "PENDING"' in workflow
-    assert 'not row.get("utr", "").strip()' in workflow
-    assert "if: steps.pending.outputs.count != '0'" in workflow
-    assert 'name: "daily_darshan_ops_alert"' in workflow
-    assert '${{ github.repository }}/actions/runs/${{ github.run_id }}' in workflow
+    assert "python -m application.admin_alert payments" in workflow
+    assert "WHATSAPP_ADMIN_NUMBERS" in workflow
+    from application.admin_alert import payment_counts
+    from datetime import date
+    assert payment_counts([
+        {"reference_id": "DD2609160001", "status": "PENDING", "utr": ""},
+        {"reference_id": "DD2609150001", "status": "PENDING", "utr": "123456789012"},
+        {"reference_id": "DD2609140001", "status": "SUCCESS", "utr": "999999999999"},
+    ], date(2026, 9, 16)) == (1, 1)
 
 def test_ops_alert_passes_job_suffix_for_template_button_base():
     workflow = _workflow("ops-alert.yml")

@@ -34,7 +34,7 @@ def test_retry_renders_latest_subscriber_and_downloads_only_once(tmp_path, monke
         def collect(day):
             downloads.append(day)
             return [b"downloaded-image"]
-        return SimpleNamespace(root=root, image_service=SimpleNamespace(collect_daily_images=collect))
+        return SimpleNamespace(root=root, config=config, image_service=SimpleNamespace(collect_daily_images=collect))
     monkeypatch.setattr(publication, "Container", container)
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
     monkeypatch.setattr(publication.time, "sleep", lambda _: None)

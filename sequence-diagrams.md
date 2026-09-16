@@ -29,8 +29,8 @@ local disk vs. the shared GitHub repo (`main` branch)**.
 
 Three kinds of flows:
 
-- **Scheduled entry point** — only `Daily Image` has a cron (`03:01 UTC`, `08:31 IST target`).
-  Successful completion starts the Pages-deployment and delivery chain.
+- **Image entry point** — Daily Image currently uses manual/external dispatch. Collection
+  queues admin review; the committed decision starts regeneration, deployment and delivery.
 - **Manual Actions** — image, Pages deployment, page regeneration and delivery can be run from
   the Actions tab. Direct delivery does not rebuild or redeploy pages.
 - **Event-driven (untimed)** — the webhook on Render, triggered by WhatsApp/Meta. Writes via
@@ -40,16 +40,16 @@ Three kinds of flows:
 | Operation | Trigger | Time (UTC / IST) | Writes to repo? |
 |-----------|---------|------------------|-----------------|
 | Prune `logs.csv` + `sentlog.csv` | image and delivery workflows | At workflow execution | Only when rows outside the inclusive 30-day window exist |
-| Fetch/store image + render pages | `image.yml` cron or manual | 03:01 / 08:31 target, or manual | Yes — signed commits of UUID-prefixed candidates, canonical image and pages |
+| Fetch/store image candidates | `image.yml` manual/external dispatch | On demand | Yes — candidates and pending admin review batch |
 | Expire subscriptions + prune inactive pages | end of `image.yml`; delivery safety repeat | Before publication | Yes when state/pages change |
-| Deploy `docs/` | successful `Daily Image`, or manual | Event-driven | No repo write; one GitHub Pages deployment |
+| Deploy `docs/` | successful approved page regeneration, or manual | Event-driven | No repo write; gate requires approved bytes and rendered stamp |
 | Send renewal reminders | successful Pages deployment, or manual delivery | After publication | Yes — renewals, shared sentlog and logs |
 | Deliver today's page link | same delivery run | After renewal/gap | Yes — sentlog and logs |
 | GET `/webhook` (verify) | Meta handshake | any (setup) | No — read-only |
 | POST `/webhook` (inbound) | user message | any | Yes — `RepoSync` pull then push |
 | opt-in / name / subscribe / plan | inside POST | any | Yes (via the POST push) |
 | User makes payment (UTR) | inside POST | any | Yes (via the POST push) |
-| Admin verification | `admin.py` (manual) | any | Only with `--commit` |
+| Admin verification | WhatsApp ADMIN or CLI | any | Atomic webhook commit, or CLI with `--commit` |
 | renewal reminder opt-out (STOP) | inside POST | any | Yes (via the POST push) |
 
 Webhook persistence has no clock-based quiet window. Fixed windows cannot cover delayed or
@@ -83,68 +83,44 @@ before acknowledgement for the webhook.
 
 ---
 
-## 1. Scheduled/manual image → publish → delivery pipeline
+## 1. Image collection → admin selection → publication → delivery
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant Trigger as Cron / manual image run
-    participant Runner as Runner (checked-out repo = local)
-    participant Sched as scheduler.py
+    participant Runner as GitHub Actions
+    participant Repo as Git main
+    participant Admin as Admin WhatsApp
+    participant Web as Render webhook
     participant Pages as GitHub Pages
-    participant WA as WhatsApp (Meta)
-    participant Repo as GitHub repo (main)
-
-    Note over Trigger,Repo: Daily Image — 03:01 UTC / 08:31 IST target, or manual on main
-    Trigger->>Runner: checkout main
-    Runner->>Sched: python scheduler.py cleanup (signed commit only if rows expire)
-    Runner->>Sched: python scheduler.py image
-    Sched->>Sched: fetch and validate configured weekday sources, then select largest
-    Sched->>Runner: write UUID-prefixed candidates + canonical image  📝 LOCAL
-    Sched->>Runner: render ALL per-subscriber pages (write_all)  📝 LOCAL
-    Sched->>Repo: git commit + push (image + pages)  ✅ REMOTE (after job)
-    Runner->>Sched: python scheduler.py expiry
-    Sched->>Sched: for each ACTIVE past end_date: re-read row, flip -> EXPIRED  📝 LOCAL
-    Sched->>Sched: prune inactive subscriber pages beyond grace period
-    Sched->>Repo: git commit + push (subscribers.csv, logs.csv)  ✅ REMOTE (after job)
-
-    alt image stored and image workflow succeeds on main
-        Runner->>Pages: upload docs/ artifact and deploy once
-        Pages-->>Runner: deployment success
-    else image/deployment fails or image ran on another branch
-        Note over Runner,WA: Stop — no automatic WhatsApp delivery
+    participant User as Subscriber
+    Runner->>Repo: Store candidate images and pending review batch
+    Runner-->>Admin: Ops template invites reply ADMIN
+    Note over Runner,User: No page regeneration or delivery while approval is missing
+    Admin->>Web: ADMIN then Select daily image
+    Web-->>Admin: Source list
+    Admin->>Web: Select source
+    Web-->>Admin: Image preview and Approve image button
+    opt View another candidate
+        Admin->>Web: Other sources then another source
+        Web-->>Admin: New preview and new confirmation
     end
-
-    Note over Sched,Repo: Daily Delivery starts only after Pages succeeds
-    Runner->>Sched: cleanup + idempotent expiry safety sweep
-    Runner->>Sched: python scheduler.py renewal
-    Sched->>Sched: find active opted-in subs expiring in [3,2,1]
-    Sched->>Sched: verify personalized page is published
-    Sched->>Repo: commit PENDING date+mobile reservation
-    Sched->>WA: send reminder if date+mobile daily slot is free
-    Sched->>Repo: commit + push renewals.csv, sentlog.csv, logs.csv
-
-    Note over Sched,Repo: Daily delivery for remaining eligible subscribers
-    Runner->>Sched: python scheduler.py delivery
-    Sched->>Sched: require today's valid image + free date+mobile slot
-    Sched->>Sched: verify public page ID, date and expiry
-    Sched->>Repo: commit PENDING reservation before send
-    Sched->>WA: send published utility page link (bounded retries)
-    Sched->>Runner: append sentlog.csv (date+mobile)  📝 LOCAL
-    Sched->>Repo: git commit + push outcome per contact, then command logs
+    Admin->>Web: Approve image
+    Web->>Repo: Atomically commit approved source and publication request
+    Repo-->>Runner: Publication request push starts page regeneration
+    Runner->>Repo: Read fresh main and verify approved bytes
+    Runner->>Repo: Commit canonical image, subscriber pages and approval stamp
+    Runner->>Pages: Deploy matching artifact
+    Pages-->>Runner: Deployment succeeded
+    Runner->>Pages: Verify live approval stamp and subscriber page
+    Runner->>Repo: Reserve daily contact slot
+    Runner-->>User: Welcome or renewal or delivery
+    Runner->>Repo: Persist accepted or failed or ambiguous result
 ```
 
-**Key stages where writes happen (scheduled):** each job writes to the runner's **local**
-checkout first (📝 LOCAL), then does a **single `git commit` + `push` at the end of the job**
-(✅ REMOTE). There is no mid-job repo write per subscriber — the CSV is committed once per
-job. The runner's local disk is discarded when the job ends, so anything **not** committed is
-lost; that's why every job commits before finishing.
-
-**Page rendering here (image job):** `write_all()` writes
-`docs/<subscription_id>/index.html` for **every** subscriber to the runner's local disk
-(📝 LOCAL), and they are pushed with the image in the same end-of-job commit (✅ REMOTE).
-Pages are regenerated **every run** so a subscriber who signed up since the last run gets a
-page. The page is public only after the subsequent Pages deployment succeeds.
+A stale preview, changed image, previous-day selection or unauthorized sender cannot approve.
+Pending runs release their runners. Page publication rebuilds from fresh main on bounded Git
+conflicts. A repeat image run preserves an already-approved selection. Each send reservation
+is committed before contacting Meta; ambiguous outcomes remain blocked for reconciliation.
 
 ---
 
@@ -424,47 +400,42 @@ sequenceDiagram
 
 ---
 
-## 5. Admin verification (out-of-band, manual)
+## 5. Admin payment verification on WhatsApp
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant Admin
-    participant CLI as admin.py
-    participant Pay as PaymentService
-    participant Sub as SubscriberService
-    participant WA as WhatsApp (Meta)
-    participant Local as Local CSVs
-    participant Repo as GitHub repo (main)
-
-    Admin->>CLI: python admin.py verify [ref] --activate --commit
-    CLI->>Pay: verify_payment(ref)  (status -> SUCCESS)
-    Pay->>Local: write payments.csv  📝 LOCAL
-    alt new subscriber
-        CLI->>Sub: activate(mobile)  (PENDING -> ACTIVE)
-        Note right of Sub: start_date = TODAY, end_date = TODAY + plan_days
-    else existing (ACTIVE/PAUSED/EXPIRED) or --renew
-        CLI->>Sub: renew(mobile)  (extend from current expiry, else today)
-    end
-    Sub->>Local: write subscribers.csv  📝 LOCAL
-    CLI->>Local: queue payment-keyed welcome in welcomes.csv
-    Note over CLI,WA: applied_payment_refs is the idempotent welcome-task key
-    CLI->>Local: render THIS subscriber's page (write_page, one page)  📝 LOCAL
-    alt --commit
-        CLI->>Repo: git commit + push (payments, subscribers, welcomes, logs, this page)
-        Note over CLI,Repo: Manually run Deploy Daily Darshan Pages to publish, success starts delivery
-    else no --commit
-        Note over CLI,Local: changes stay 📝 LOCAL only — must git commit + push MANUALLY
+    participant Customer
+    participant Admin as Admin 919535507255
+    participant Web as Business 916361699109
+    participant Git as Git main
+    participant Jobs as Publication pipeline
+    Customer->>Web: Confirm UTR
+    Web->>Git: Save UTR and confirmation timestamp
+    Note over Admin,Git: Payment alert invites ADMIN to review confirmed payments
+    Admin->>Web: ADMIN then Review payments
+    Web-->>Admin: Confirmed payment list
+    Admin->>Web: Select reference
+    Web-->>Admin: Customer, plan, amount, UTR and Approve or Reject
+    Admin->>Admin: Match UTR and amount against bank records
+    alt Approve current snapshot
+        Admin->>Web: Approve payment
+        Web->>Web: Recheck admin identity and unchanged payment snapshot
+        Web->>Git: Atomically apply entitlement, welcome and publication request
+        Note over Web,Git: Start is customer confirmation day in IST
+        Note over Web,Git: End is max of old expiry and confirmation day plus purchased days
+        Git-->>Jobs: Regenerate only after today's image approval
+        Jobs->>Jobs: Deploy before welcome or daily delivery
+    else Reject
+        Admin->>Web: Reject payment
+        Web->>Git: Record FAILED without adding entitlement
     end
 ```
 
-**Admin machine + push:** `admin.py` runs on **whatever machine you invoke it on** (your
-laptop or a maintenance box with a repo checkout), using the **git CLI** — the same mechanism
-as the scheduler, not the webhook's Git Data API. It renders **only the one subscriber's**
-page (`write_page`), not all of them. The push is **not automatic**: it happens **only with
-`--commit`** (at the end of the command). Without `--commit`, the CSV and page edits sit on
-your local disk and you must `git add/commit/push` them yourself, or the delivery job (which
-reads the repo) never sees the activation.
+CLI verification remains available. With image approval enabled, it queues publication rather
+than rendering locally. Use `--commit` to publish the CSV transaction; if its Git credentials do
+not trigger push workflows, manually run Regenerate Daily Pages. Records without a historical
+confirmation timestamp use the approval date. Applied payment references prevent double credit.
+Approval is a human check against bank evidence, not automated financial verification.
 
 ---
 
@@ -549,41 +520,15 @@ reruns until reconciled, preventing duplicate customer messages.
 
 ## When does web-page rendering happen?
 
-A per-subscriber page is `docs/<subscription_id>/index.html` (the GitHub Pages target that the
-utility-template link points to). It is rendered in **two** places:
+With production image approval enabled, Regenerate Daily Pages is the rendering entry point.
+Admin image approval and payment activation create idempotent publication requests. If today's
+image is not yet approved, the request's workflow skips and the eventual image approval starts a
+fresh run covering all active subscribers. Manual page regeneration enforces the same gate.
 
-| Trigger | Machine | What renders | Scope | Pushed to remote? |
-|---------|---------|--------------|-------|-------------------|
-| **Daily image job** (03:01 UTC / 08:31 IST target) | GitHub Actions | `PageRenderer.write_all()` | **All** subscribers, followed by inactive-page pruning | ✅ Committed automatically; published by the following Pages workflow |
-| **Admin verification** with `--activate` | The machine running `admin.py` (e.g. your laptop) | `PageRenderer.write_page()` | **Only that one** subscriber | ⚠️ Only if you also pass `--commit`; otherwise **manual** push |
-
-**Does payment verification render pages?** Yes — but only when you run `verify` with
-`--activate`, and only for the **single** subscriber being activated. It runs on **whichever
-machine you run `admin.py` on** (not Render, not the Actions runner unless you run it there).
-
-**Is that render auto-pushed and published?** `admin.py` pushes only with `--commit`; without
-it, you must commit/push manually. Even after a push, Actions-based Pages requires a deployment.
-Run **Deploy Daily Darshan Pages** manually after reviewing a mid-day admin page; successful
-publication then starts Daily Delivery.
-
-**Why render on verification at all, instead of waiting for the next image job?**
-
-Because the gap between activation and the next 03:01 UTC image job can be up to ~24 hours,
-and during that gap the subscriber's link would be broken. Concretely:
-
-1. **Immediate working link.** When you activate a subscriber mid-day, they may receive (or
-   look up) their branded page URL right away. If the page didn't exist until the next image
-   job, the URL would **404** until then. Rendering on activation guarantees the URL works
-   after the explicit Pages deployment succeeds.
-2. **Localized, cheap.** Activation already has the subscriber loaded and is already writing
-   CSVs, so rendering that one page is a tiny extra step — no need to wait for or depend on the
-   batch job.
-3. **Non-blocking.** Page rendering on activation is best-effort: if it fails, activation still
-   succeeds (the code logs a warning), and the next image job will render the page anyway.
-
-So the two renders are complementary: **verification** covers the "works right now for this
-one person" case; the **daily image job** is the catch-all that (re)builds **every** page
-(and refreshes them for the new day's image).
+The job checks the selected image hash, renders subscriber pages and an approval stamp, then
+deploys. Customer message jobs verify that stamp is live and check individual subscriber pages.
+CLI activation does not write pages in this mode. Existing public pages remain available while
+approval is pending. The old automatic image/render path is used only if approval is disabled.
 
 ---
 
@@ -619,11 +564,11 @@ sequenceDiagram
   Unknown attempts require reconciliation; a user-requested resend may duplicate an earlier
   message already accepted by Meta, but never repeats the payment/activation mutation.
 
-- **Only Daily Image has a fixed target time:** `03:01 UTC` / `08:31 IST`. Its successful
-  completion triggers one Pages deployment; successful publication triggers delivery.
+- **Image collection and payment alerts are manual/external entry points.** Image approval
+  starts regeneration, then successful deployment triggers delivery.
 - **All webhook operations are event-driven** (no fixed time): verification, subscribe, plan,
   name, opt-in, UTR, opt-out. They publish the state transaction before HTTP acknowledgement.
   Failures request retries with 503. Manual/delayed workflows use repository conflict detection;
   no fixed time window makes the webhook unavailable.
-- **Admin verification is manual** (run whenever a real payment is confirmed) and only writes
-  to the repo when `--commit` is passed.
+- **Admin verification is a human decision.** WhatsApp approval commits automatically through
+  the webhook transaction; CLI approval still needs `--commit`.

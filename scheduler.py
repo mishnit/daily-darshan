@@ -155,6 +155,9 @@ def run_image(
     container: Container, git: LocalGitRepository, on_date: date, *, render_pages: bool = True
 ) -> int:
     """Fetch/store a day's images, optionally regenerating subscriber pages."""
+    from application.image_approval import required, collect_for_review
+    if required(container.config):
+        return collect_for_review(container, git, on_date)
     path = container.image_service.canonical_path(on_date)
     candidates: list[Image] = []
     try:
@@ -239,8 +242,20 @@ def run_pages(container: Container, git: LocalGitRepository, on_date: date,
     them to another stored candidate. Missing/invalid images fall back to the
     latest valid earlier asset of the same source, without fetching or renaming.
     """
+    from application.image_approval import required, require_ready, materialize, approved
+    approved_path = None
+    if required(container.config):
+        require_ready(container, on_date)
+        decision = approved(container, on_date)
+        if image_source not in {"", "canonical", "auto", decision["source"]}:
+            raise RuntimeError("Manual source override differs from admin-approved image")
+        approved_path = materialize(container, git, on_date)
+        image_source = "canonical"
     selected_source = image_source.strip().lower().replace("-", "_") or "canonical"
-    if selected_source in {"canonical", "auto"}:
+    if approved_path:
+        image_path = approved_path
+        image_label = "canonical"
+    elif selected_source in {"canonical", "auto"}:
         try:
             image_path = container.image_service.canonical_path(on_date, create=False)
         except TypeError:  # Backward-compatible test/integration doubles.
@@ -303,6 +318,17 @@ def run_pages(container: Container, git: LocalGitRepository, on_date: date,
         details=f"{on_date.isoformat()}:count={len(pages)}:source={image_label}:image={image_path}",
     )
     committed = list(pages)
+    if approved_path:
+        committed.append(approved_path)
+        import json
+        stamp_path = os.path.join(container.config.get("delivery", {}).get("pages_dir", "docs"), ".image-approval.json")
+        git.write_file(stamp_path, json.dumps({"id": decision["id"], "date": decision["date"],
+                       "sha256": decision["sha256"]}).encode(), "Record rendered image approval")
+        committed.append(stamp_path)
+        delivery_cfg = container.config.get("delivery", {})
+        committed.extend(container.image_service.prune_images(
+            keep=int(delivery_cfg.get("image_retention_days", 7)),
+            fallback_name=delivery_cfg.get("fallback_image", "fallback.jpg"), root=container.root))
     logs_path = container.config["paths"].get("logs_csv")
     if logs_path:
         committed.append(logs_path)
@@ -329,6 +355,8 @@ def _prepare_contact_safety(container, git):
 
 
 def run_welcome(container: Container, git: LocalGitRepository, on_date: date) -> int:
+    from application.image_approval import require_published
+    require_published(container, on_date)
     from application.welcome_service import drain_welcomes, queue_missing_welcomes
     from adapters.published_page import PublishedPageChecker
     paths = container.config["paths"]
@@ -357,6 +385,8 @@ def run_welcome(container: Container, git: LocalGitRepository, on_date: date) ->
 
 
 def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -> int:
+    from application.image_approval import require_published
+    require_published(container, on_date)
     _prepare_contact_safety(container, git)
     mode = container.config.get("delivery", {}).get("mode", "image")
     if mode == "utility_template":
@@ -422,6 +452,8 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
 
 
 def run_renewal(container: Container, git: LocalGitRepository, on_date: date) -> int:
+    from application.image_approval import require_published
+    require_published(container, on_date)
     _prepare_contact_safety(container, git)
     header_image_url = None
     if container.renewal_service.requires_image_header:
@@ -537,9 +569,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     on_date = date.fromisoformat(args.date) if args.date else datetime.now(ZoneInfo("Asia/Kolkata")).date()
-    if args.job in ("image", "image-only") and os.environ.get("GITHUB_ACTIONS") == "true":
+    if args.job in ("image", "image-only", "pages") and os.environ.get("GITHUB_ACTIONS") == "true":
         from application.image_publication import publish_image
-        return publish_image(os.getcwd(), on_date, render_pages=args.job == "image")
+        return publish_image(os.getcwd(), on_date, render_pages=args.job != "image-only",
+                             regenerate_only=args.job == "pages", image_source=args.image_source)
     container = Container()
     git = LocalGitRepository(root=container.root)
 

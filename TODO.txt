@@ -5,6 +5,18 @@ https://api.vipseva.com points to https://daily-darshan-webhook.onrender.com in 
 https://api.vipseva.com/health and https://api.vipseva.com/webhook work as well
 
 ----------------------------
+confirm if below changes are implemented wrt https://github.com/mishnit/daily-darshan/pull/101
+
+[a] Ensure we cnfirm UTR from user before saving it and sending it for admin approval and make UTR confirmation format "UTR Txn_Ref_ID UTR_ID" bold as part of example in all payment instructions related responses for better visibility
+[b] Ensure when user opts for renewal or exntending the plan, we update start_date as date on which UTR was comnfirmed from user (not on which UTR was approved by admin) and we ads new plan days in remaining active days (if any) to mark end_date correctly 
+[c] can we allow admin verification of each UTR and activation of approporiate subscription/renewal/extension from whatsapp 916361699109 at the time of payment-utr-alert
+[d] can we not auto select daily image based on highest resolution available from sources for the day and instead ask admin to confirm the images source using visuals on whatsapp as an autoaalert once imae runs completes. Alsoo, regeneration of subscribers page, deployment of subscribers page and delievery is blocked untile admin selcection happens, and succeeds only when admin selection done
+[e] canonical image should not get updated automatically until admin selects over whatsapp, post selection it should trigger page regeneration, page deployment and delivery automatically
+[f]] why isckon banaglore image lower resolution was saved during last image run when its better resolution version was available..also why isckon bangalore image was delivered as attached header over whatsapp whle clearly isckon hyderabad won
+check run: https://github.com/mishnit/daily-darshan/actions/runs/35058127022
+[g] why utr payment verification alert not going for pending payemnt verification on whatsapp to admin so that auto subscription update happens for all pending payments users while auto delivery could happen for new subscribers using payment-utr-alert.yml and admin_whatsapp
+check run: https://github.com/mishnit/daily-darshan/actions/runs/35107485565
+[h] why whatsapp admin selection not being sent to confirm which images to be selected 
+---------------------------------
 update all 3 templates config to dailydarshan_subscription_status once approved, until then all pr merge ci will break (shoudl not impact image creation and elivery meanwhile) due to new tests already being in-place for templates which are pending approval
-implement support for adding timestamp in welcomes.csv for welcome message statuses tracking
-upi link need to be updated and verified
+upi link and VIP seva profile pic on whatsapp need to be updated

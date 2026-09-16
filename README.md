@@ -186,7 +186,9 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 |-----|---------|
 | `plans` | Plan catalog: `{ "<plan>": { "amount": <int>, "days": <int> } }`. Drives pricing, UPI amount, and subscription length. |
 | `upi` | `payee_vpa`, `payee_name`, `currency` used to build the UPI intent string. |
-| `daily_image_rotation` | Weekday-to-source mapping. Multiple sources on a day are all downloaded; the largest valid result becomes canonical. |
+| `daily_image_rotation` | Weekday-to-source mapping. Store all valid candidates and ask the admin to preview and approve one source. |
+| `admin.require_image_approval` | Enabled in production. Blocks pages, deployment and customer messages until today's image is approved. |
+| `admin.image_preview_base` | HTTPS repository content base used for WhatsApp image previews before Pages deployment. Must be publicly reachable by Meta. |
 | `temple_sources` | Named temple page URLs and `enabled` flags used by the weekday rotation. |
 | `image_sources` / `image_source_config` | Legacy generic source fallback used only when no enabled named temple sources are configured. |
 | `image_validation` | `min_width`, `min_height`, `allowed_formats` for `ImageValidator`. |
@@ -202,7 +204,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 - **Change a price or plan length** — edit `plans.<plan>.amount` / `.days`. No code change.
 - **Add a new plan** — add a `plans` entry; it becomes selectable in the webhook automatically.
 - **Change the weekday rotation** — edit `daily_image_rotation.<weekday>`. When a weekday
-  lists multiple sources, the job stores every valid candidate and selects the largest.
+  lists multiple sources, the job stores every valid candidate for admin selection.
 - **Enable, disable or repoint a temple** — edit `temple_sources.<source>`.
 - **Change reminder cadence** — edit `renewal.reminder_days` (`3`, `2`, and `1` are mapped
   to reminder types today; see [Extending](#extending-the-system) to add more).
@@ -365,12 +367,12 @@ To enable:
 1. Push this repository to GitHub.
 2. Add the Actions secrets listed above.
 3. Ensure workflow permissions allow writes: the scheduler YAMLs declare `permissions: contents: write`. Also confirm *Settings → Actions → General → Workflow permissions* is set to **Read and write**.
-4. The image workflow runs on its cron schedule. A successful image run automatically triggers
-   one Pages deployment, which triggers delivery only after publication succeeds. Image, Pages
-   deployment, and delivery also support **workflow_dispatch** for recovery/testing.
+4. Run **Daily Image** manually or through your external scheduler. The current YAML has no cron.
+   The admin selects an image on WhatsApp before pages are regenerated, deployed and delivered.
+   All recovery workflows also support **workflow_dispatch** and enforce the same approval gates.
 5. Under *Settings → Pages → Build and deployment → Source*, select **GitHub Actions**. The
-   `Deploy Daily Darshan Pages` workflow then publishes `docs/` exactly once after each successful
-   `Daily Image` workflow, instead of the legacy branch publisher rebuilding on every commit.
+   `Deploy Daily Darshan Pages` publishes only after the approved image is rendered. An image
+   collection run awaiting approval may start a gated workflow but does not deploy an artifact.
 
 ---
 
@@ -403,7 +405,7 @@ Bot:  Radhe Radhe Deep Ji! Plan: monthly
       Pay via UPI: upi://pay?...
       Reference: DD2608190001
       After paying, reply with your payment reference and 12-digit UTR.
-      Example: UTR DD2608190001 123456789012
+      Example: *UTR DD2608190001 123456789012*
 User: UTR DD2608190001 123456789012                     ← free text (UTR)
 Bot:  Please check your UTR 123456789012 for payment DD2608190001.
       [ Confirm UTR ]  [ Change UTR ]
@@ -438,7 +440,7 @@ Bot:  Radhe Radhe Deep Ji! Renewing your yearly plan.   ← stored name reused
       Pay via UPI: upi://pay?...
       Reference: DD2608190002
       After paying, reply with your payment reference and 12-digit UTR.
-      Example: UTR DD2608190002 123456789012
+      Example: *UTR DD2608190002 123456789012*
 ```
 
 ### Menu state examples and recovery
@@ -500,8 +502,8 @@ Details:
   UTR format so the customer can identify the checkout actually paid. Choosing another plan
   creates a new checkout; a customer who already paid must confirm the older paid-against
   reference as `UTR <reference> <12-digit UTR>` and must not pay again.
-- Sending a reference-qualified UTR again for the same payment corrects and replaces the
-  previously stored UTR. The acknowledgement names the latest UTR and payment reference,
+- Sending a reference-qualified UTR again creates a correction draft. Only tapping Confirm UTR
+  replaces the previously stored UTR. The acknowledgement names the latest UTR and payment reference,
   confirms that it is awaiting admin verification within 24 hours, and tells the user to send
   MENU for payment status; it never activates the subscription without administrator approval.
 - If administrators approve multiple genuine payments, every payment reference is applied
@@ -534,7 +536,7 @@ Details:
   only after `reopen-payment <reference> --no-payment-confirmed --commit`, or the original
   payment is verified after proof review. The explicit flag must never be used if payment occurred.
 - A newly verified purchase can reactivate a CANCELLED subscriber once, starting a fresh term
-  from the current IST date without silently restoring consent. Old cancelled/paused/expired
+  from the UTR-confirmation IST date without silently restoring consent. Old cancelled/paused/expired
   activation welcomes are cancelled rather than announcing an active subscription.
 - UTR text may be 12 digits or `UTR: 123456789012`. Image/document captions in that format
   are accepted; screenshots without a valid UTR caption prompt the user to send it as text.
@@ -546,7 +548,7 @@ Details:
   of accidental-signup / wrong-plan bugs from free-text parsing.
 - **Free text is limited to name and UTR.** When the bot is awaiting a name, the next text is
   stored as the name (a 12-digit value is treated as a UTR, never a name; a blank re-prompts).
-  A 12-digit message is recorded as the UTR against the latest pending payment. Any other
+  A 12-digit message creates a draft for the latest pending payment and requests confirmation. Any other
   typed text shows the CTA menu.
 - **Name capture is explicit** (WhatsApp profile name is unreliable). If the inbound webhook
   already carries a profile name, the prompt is skipped and that name is used.
@@ -717,50 +719,63 @@ template is attempted per subscriber per date.
 
 | Workflow | Schedule (UTC) | Local time | Does |
 |----------|----------------|------------|------|
-| `image.yml` | `1 3 * * *` | 08:31 IST target | Test → verify GPG signing → prune operational logs → fetch all configured sources, store the largest valid canonical image, regenerate pages, expire lapsed subscribers, prune inactive pages and old images, then commit. Historical backfill misses warn and continue; today's image is mandatory. |
-| `payment-utr-alert.yml` | Manual only | On demand | If any payment created today is still `PENDING` with an empty UTR, send one admin WhatsApp alert through `daily_darshan_ops_alert`. No alert is sent when the count is zero. |
-| `deploy-pages.yml` | After successful `Daily Image` completion; manual on demand | After image preparation | Publish the current default branch's `docs/` exactly once. A failed/cancelled or non-default-branch image run fails this gate and cannot trigger delivery. |
-| `delivery.yml` | After successful `Deploy Daily Darshan Pages`; manual on demand | After publication | Validate WhatsApp secrets → test → verify GPG signing → prune logs → run an idempotent expiry safety sweep → send renewal reminders → deliver today's published personalized page link → signed commits. |
-| `pages.yml` | Manual only | On demand | Regenerate pages using today's selected stored image, or the latest valid earlier image for that same source. No remote image fetching. |
+| `image.yml` | Manual / external scheduler | On demand | Store valid source candidates, then invite admin to reply ADMIN for visual selection. No automatic highest-resolution selection. |
+| `payment-utr-alert.yml` | Manual only | On demand | Alert admin about confirmed UTRs awaiting review and today's checkouts missing a UTR. Uses `daily_darshan_ops_alert`. |
+| `pages.yml` | Push to `csv/pipeline_requests.csv` on main; manual | After admin approval | Check today's approval, copy only approved bytes to canonical image, regenerate pages and record the approval stamp. |
+| `deploy-pages.yml` | Successful Daily Image or Regenerate Daily Pages; manual | After rendering | Deploy only if approval, canonical bytes and rendered stamp agree. Collection-only completion skips deployment. |
+| `delivery.yml` | Successful deployment; manual | After publication | Require today's approval and live public stamp, then run welcome, renewal and delivery with the shared daily contact limit. |
 
-Page regeneration prefers today's image. If missing or invalid, it searches retained images
-newest-first, ignoring future dates and invalid files. An explicitly selected source never
-silently switches to another source. If no valid matching image exists, the job fails without
-regenerating pages. The older filename and watermarked date are preserved; page generation
-and subscription-expiry calculations still use today's date. The selected image path is logged.
+With `admin.require_image_approval=true`, no previous-date fallback or manual source override
+can bypass today's admin decision. Jobs exit/skip while waiting; no runner sleeps waiting for
+the admin. The admin's committed decision creates a durable publication request, triggering
+page regeneration automatically. A failed workflow can be rerun after correcting its cause.
+Successful page regeneration triggers deployment, then delivery. The existing once-per-day
+ledger still prevents repeat customer messages.
 
-GitHub cron schedules are targets rather than exact start-time guarantees and may be delayed
-under runner load. Workflow YAML is authoritative; `config.json.schedule` is informational.
-Delivery has no cron of its own. The normal scheduled/manual image chain is image preparation →
-one Pages deployment → delivery. Direct manual delivery does not redeploy an unchanged site.
-Manual page regeneration does not publish by itself; after verification, manually run **Deploy
-Daily Darshan Pages**, which publishes once and then starts delivery.
+The former automatic largest-image selection and previous-date page fallback remain available
+only when image approval is explicitly disabled in configuration. Production enables approval.
 
 ### End-to-end production journey
 
-1. A customer sends **Radhe Radhe**. Render verifies and deduplicates the webhook, advances the
-   CTA/name/consent/payment conversation, and persists subscriber, payment and processed-message
-   CSV changes to `main` through an atomic Git Data API commit before HTTP 200.
-2. An administrator verifies the UTR and activates or renews the subscriber. This commits the
-   subscriber page, but the commit itself does not publish Pages in Actions-based mode.
-3. At 08:31 IST (target time), **Daily Image** fetches every source configured for the weekday,
-   stores UUID-prefixed candidates, chooses the largest valid image, regenerates subscriber pages,
-   expires lapsed subscriptions and applies retention cleanup. Today's valid image is mandatory;
-   historical backfill misses only warn.
-4. A successful default-branch image run starts **Deploy Daily Darshan Pages**. Publication occurs
-   once from the current `main` checkout. A failed Pages deployment stops the automatic chain.
-5. Successful publication starts **Daily Delivery**. For each eligible subscriber it attempts a
-   renewal reminder first, otherwise the delivery-status template. A persisted successful send in
-   `sentlog.csv` blocks every later scheduled or manual contact for that subscriber on that date.
-   A failed reminder does not consume the slot, so delivery may still be attempted.
-6. Render commits, admin commits, pull-request merges and other pushes to `main` still run CI tests,
-   but they do not publish Pages. For an immediate mid-day activation, run **Deploy Daily Darshan
-   Pages** manually; for a new image plus the complete chain, run **Daily Image** manually on `main`.
+1. Customer sees the value proposition if no welcome row exists, chooses a plan, supplies a
+   name and consent, pays, and sends **UTR Txn_Ref_ID UTR_ID**. Payment responses highlight the
+   real example using WhatsApp bold: `*UTR DD2609160001 123456789012*`.
+2. Customer confirms the displayed UTR. Only then does `payments.csv.utr` become reviewable.
+   `utr_confirmed_at` records the confirmation timestamp with the IST timezone.
+3. Admin `919535507255` sends **ADMIN** to business sender `916361699109`, selects
+   **Review payments**, checks the UTR/amount against bank records, and taps **Approve payment**.
+   The webhook atomically commits payment, subscription, queued welcome and publication request.
+   Rejection adds no entitlement. A changed UTR invalidates an old approval button.
+4. Activation uses `start_date = confirmation date (IST)` and
+   `end_date = max(previous expiry, confirmation date) + purchased days` for renewals/extensions.
+   Example: confirmation Sep 16, existing expiry Sep 20, 30-day purchase, admin approval Sep 18:
+   start Sep 16, end Oct 20. For an already expired subscriber, end is Oct 16. Legacy records
+   without a confirmation timestamp use the approval date; no historical date is invented.
+5. **Daily Image** collects candidates. Admin receives an ops alert, replies **ADMIN**, selects
+   **Select daily image**, previews a source, and taps **Approve image** (or **Other sources**).
+   Even a single available source requires approval. An older day's preview cannot be approved.
+6. The approval commit updates `csv/pipeline_requests.csv`, triggering **Regenerate Daily Pages**.
+   It validates approved image bytes and renders pages from fresh main, retrying bounded Git
+   collisions. **Deploy Daily Darshan Pages** publishes the matching artifact.
+7. **Daily Delivery** verifies the live approval stamp and personalized pages before sending.
+   Welcome, renewal and delivery retain separate audit records and share the daily contact slot.
+   No approval means no generation/deployment/customer send; already published pages remain viewable.
 
-Direct **Daily Delivery** runs never rebuild or deploy the site and should be used only after the
-current page is public. Successful **Regenerate Daily Pages** runs on the default branch automatically
-trigger Pages deployment, followed by Daily Delivery with daily-send safeguards. Previously published pages remain viewable until a later deployment
-replaces or prunes them.
+Setup: add `WHATSAPP_ADMIN_NUMBERS=919535507255` to **Render environment** and **GitHub Actions
+repository variables** before rollout. GitHub image/payment-alert jobs use the existing WhatsApp
+access-token and phone-number-ID secrets. Render still uses its existing GitHub PAT with Contents
+read/write to main. This PAT's publication-request commit triggers Actions; the automatic Actions
+token does not trigger another push workflow. No new Meta template is needed: the existing
+`daily_darshan_ops_alert` tells the admin to reply ADMIN, opening the conversation for interactive
+reviews and image previews. The template's URL button remains a workflow-run link.
+
+New operational schemas (existing headers migrate on write):
+- `payments.csv`: adds `utr_confirmed_at`.
+- `conversations.csv`: adds draft and admin decision fields; only opaque, sender-bound buttons
+  for the current snapshot can approve.
+- `image_reviews.csv`: `id,date,generation,source,path,sha256,status,approved_by,approved_at`.
+- `pipeline_requests.csv`: `id,reason,created_at`; payment-reference/image-generation keys
+  make repeat approvals idempotent. This is a trigger/audit ledger, not a queue to delete.
 
 **Idempotency** (safe to re-run):
 - Renewal and delivery share `date + mobile` reservations in `sentlog.csv`. The scheduler commits
@@ -777,12 +792,11 @@ replaces or prunes them.
 - The **expiry sweep** only transitions `ACTIVE` subscribers whose `end_date` has passed; an
   already-`EXPIRED` subscriber is skipped, so re-runs are safe. `PAUSED` (intentional hold)
   and `CANCELLED` (terminal) are never auto-expired.
-- Image collection fetches the configured weekday sources on every run, stores every valid
-  source candidate, and selects the largest as the canonical dated image. Page generation
-  also runs every time, so a subscriber added later still receives a refreshed page.
+- Before approval, image reruns replace the pending batch and invalidate stale previews.
+  After approval, reruns preserve the chosen source. Regenerate pages to publish later activations.
 
 **Subscription expiry.** Eligibility is date-gated (an expired subscriber is excluded from
-delivery/reminders regardless of stored status). The image workflow runs the primary **expiry
+delivery/reminders regardless of stored status). Approved page publication runs the primary **expiry
 sweep** before publication, and `delivery.yml` repeats it as an idempotent manual-run safety check.
 The sweep flips the stored status
 `ACTIVE → EXPIRED` once `end_date` has passed, keeping reports and admin views truthful. A
@@ -793,11 +807,11 @@ dates).
 **Page timing (utility-template mode).** Each subscriber's page lives at
 `docs/<subscription_id>/index.html` and is the target of the utility-template link. Pages are
 produced in two places so a subscriber's branded URL is never a 404 when they receive it:
-1. The daily **image job** regenerates all pages every run (even if the image already exists).
-2. **Activation** (`admin.py verify --activate`) renders and optionally commits that subscriber's
-   page. A commit alone does not publish under Actions-based Pages. To make a mid-day page live,
-   manually run **Deploy Daily Darshan Pages** after activation; successful publication then
-   triggers delivery.
+1. **Regenerate Daily Pages** renders all pages after today's source is approved.
+2. **Activation**, through WhatsApp or `admin.py verify --activate --commit`, queues a publication
+   request when image approval is enabled. It never renders a page before source approval.
+   If a CLI commit uses credentials that suppress push workflows, manually run **Regenerate
+   Daily Pages**. Successful regeneration triggers deployment and then delivery.
 > A page becomes reachable after the Pages deployment succeeds, not merely after its Git commit.
 
 **Fault tolerance:** image sources are tried in priority order; a failing source falls
