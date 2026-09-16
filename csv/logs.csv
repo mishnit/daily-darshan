@@ -329,3 +329,4 @@ timestamp,event,mobile,details
 2026-09-16T14:13:03.687502,PAYMENT_CREATED,919535507255,DD2609160001
 2026-09-16T14:15:21.611976,PAYMENT_UTR_RECEIVED,919535507255,DD2609160001:112233446677
 2026-09-16T14:26:25.770714,WHATSAPP_SEND_FAILED,919108711599,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (dailydarsha"
+2026-09-16T14:34:16.034704,WHATSAPP_SEND_FAILED,919108711599,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (dailydarsha"
