@@ -72,8 +72,13 @@ class Container:
         self.conversations = CSVRepository(
             p(paths.get("conversations_csv", "csv/conversations.csv")),
             ["mobile", "version", "last_inbound", "last_recovery",
-             "utr_draft", "utr_reference", "utr_confirmation"], "mobile",
+             "utr_draft", "utr_reference", "utr_confirmation",
+             "admin_kind", "admin_reference", "admin_fingerprint", "admin_token"], "mobile",
         )
+        self.image_reviews = CSVRepository(p(paths.get("image_reviews_csv", "csv/image_reviews.csv")),
+            ["id", "date", "generation", "source", "path", "sha256", "status", "approved_by", "approved_at"], "id")
+        self.pipeline_requests = CSVRepository(p(paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv")),
+            ["id", "reason", "created_at"], "id")
         self.welcomes = CSVRepository(
             p(paths.get("welcomes_csv", "csv/welcomes.csv")),
             ["reference_id", "mobile", "status", "whatsapp_message_id", "error", "publication_verified"],
@@ -178,6 +183,8 @@ class Container:
             )
         # Files the webhook mutates and must share with the scheduler/admin.
         tracked = [
+            paths.get("image_reviews_csv", "csv/image_reviews.csv"),
+            paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv"),
             paths.get("conversations_csv", "csv/conversations.csv"),
             paths.get("reply_outbox_csv", "csv/reply_outbox.csv"),
             paths.get("welcomes_csv", "csv/welcomes.csv"),

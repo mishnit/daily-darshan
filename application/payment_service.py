@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from domain.enums import PaymentStatus
-from domain.clock import today_ist
+from domain.clock import today_ist, INDIA_TZ
 from domain.payment import Payment, build_reference_id, is_valid_utr
 from application.ports.repositories import (
     LogRepositoryPort,
@@ -115,6 +115,7 @@ class PaymentService:
         ):
             raise PaymentError("Another payment is already under review")
         payment.record_utr(utr)
+        payment.utr_confirmed_at = datetime.now(INDIA_TZ)
         self._payments.update(payment)
         if reconcile_checkout:
             self._supersede_pending(payment.mobile, keep_reference_id=reference_id)

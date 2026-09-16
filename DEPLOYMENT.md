@@ -126,14 +126,40 @@ GPG public key to the GitHub account; a successful scheduler commit should displ
 
 ### D. Confirm the workflows are registered
 
+Before deploying this release, set `WHATSAPP_ADMIN_NUMBERS=919535507255` in Render's environment
+and in GitHub Actions repository **Variables**. Keep `WHATSAPP_PHONE_NUMBER_ID` mapped to the
+business sender 916361699109 in both environments. No customer number is authorized by default.
+Image and payment alerts reuse the existing WhatsApp secrets and `daily_darshan_ops_alert` with
+language `en`; its URL button base is `https://github.com/mishnit/daily-darshan/actions/runs/`
+and the dynamic suffix is the run ID. The body tells the admin to reply ADMIN. Ordinary
+interactive review messages follow that inbound message; no new approved template is needed.
+
+Keep Render's GitHub PAT able to write Contents on main. It commits `csv/pipeline_requests.csv`,
+whose push starts page regeneration. Confirm the repository allows Actions from that PAT.
+The image preview base in `config.json` uses publicly accessible raw repository images; a private
+repository requires a separate HTTPS preview host accessible to Meta before enabling this flow.
+
+Schema changes are backward-compatible: `payments.csv` adds `utr_confirmed_at`; conversation
+rows add draft/admin decision fields. New `image_reviews.csv` and `pipeline_requests.csv` are
+created automatically and included in atomic webhook persistence. Do not manually reset their
+rows to force retries. Reopen ADMIN to review a fresh snapshot after corrections.
+
+Payment dates use the customer-confirmation timestamp in IST. Example: confirmed Sep 16,
+expiry Sep 20, purchased 30 days, approved Sep 18 → start Sep 16, expiry Oct 20. With no remaining
+days, expiry is Oct 16. Approval delay consumes calendar days under this requested policy.
+Legacy payments without a timestamp use approval day. Correcting and confirming a UTR sets
+the timestamp for the newly confirmed value. Reapproving a payment never adds its days twice.
+
 Once pushed, the image, Pages-deployment and delivery workflows appear under **Actions**.
-Only Daily Image has a cron; successful completion advances through the gated chain:
+The current image and payment-alert workflows are manual entry points. External scheduling
+can dispatch Daily Image. Admin approval advances the gated publication chain:
 
 | Workflow | Cron (UTC) | Local time | Action |
 |----------|-----------|------------|--------|
-| **Daily Image** (`image.yml`) | `1 3 * * *` | 08:31 IST target | Prune logs, store UUID-prefixed candidates/canonical image, regenerate pages, expire subscribers and prune inactive pages/old images → signed commits |
-| **Pending Payment UTR Alert** (`payment-utr-alert.yml`) | Manual only | On demand | Send one administrator alert when payments created today remain `PENDING` without a UTR; skip silently when none qualify |
-| **Deploy Daily Darshan Pages** (`deploy-pages.yml`) | Event-driven | After successful image | Publish `docs/` once through GitHub Actions |
+| **Daily Image** (`image.yml`) | Manual / external dispatch | On demand | Store source candidates, alert admin and wait for visual source approval without holding a runner |
+| **Pending Payment UTR Alert** (`payment-utr-alert.yml`) | Manual only | On demand | Count confirmed UTRs awaiting review and today's missing UTRs; invite admin to reply ADMIN |
+| **Regenerate Daily Pages** (`pages.yml`) | Publication-request push / manual | After approval | Validate chosen bytes, render pages and approval stamp |
+| **Deploy Daily Darshan Pages** (`deploy-pages.yml`) | Event-driven | After approved rendering | Publish only an artifact matching today's approved image |
 | **Daily Delivery** (`delivery.yml`) | Event-driven | After successful Pages deployment | Renewal reminder or today's published page link, at most one successful contact per subscriber/date |
 
 ### E. Test without waiting for the cron (manual run)
@@ -147,8 +173,8 @@ The image, Pages-deployment and delivery workflows support `workflow_dispatch`:
 
 Choose the recovery entry point deliberately:
 
-- **Daily Image** on `main` performs image preparation and automatically continues through one
-  Pages deployment and Daily Delivery. Historical backfill misses warn; today's image must exist.
+- **Daily Image** on `main` stores candidates and asks the admin to preview/approve a source.
+  Approval triggers regeneration, deployment and delivery. A single source still requires approval.
 - **Deploy Daily Darshan Pages** publishes the current `main` `docs/` tree once and then starts
   Daily Delivery. Use this after a mid-day activation or manual page regeneration.
 - **Daily Delivery** sends against the already-published site. It does not build or deploy Pages.
@@ -174,10 +200,12 @@ Use this sequence when validating a release end to end:
    UTR step. Confirm Render returns 2xx responses, deduplicates the inbound message ID and commits
    the updated subscriber/payment/processed CSVs to `main` in one Git Data API commit before 200.
    Inject a reply/persistence failure and expect 503 rather than a false acknowledgement.
-2. Verify the payment and activate or renew the subscriber. Confirm the signed commit includes the
-   CSV state and subscriber page. This commit runs **Tests**, but does not itself publish Pages.
-3. For the normal daily path, wait for or manually run **Daily Image** on `main`. Confirm today's
-   UUID-prefixed canonical image and pages are committed and the run succeeds.
+2. From admin 919535507255, send ADMIN to business sender 916361699109. Review the confirmed UTR
+   against bank records and approve. Confirm payment, subscription, welcome and pipeline request
+   persist atomically; no customer message is sent before publication.
+3. Run **Daily Image** on `main`, then use ADMIN → Select daily image → preview → Approve image.
+   Confirm no pages/deployment/delivery occurs before approval. Check regeneration uses the selected
+   source even when another candidate has a higher resolution.
 4. Confirm exactly one **Deploy Daily Darshan Pages** run follows and completes before delivery.
 5. Confirm exactly one automatic **Daily Delivery** run follows publication. A successful renewal
    reminder or delivery first commits a `date + mobile` PENDING reservation in `sentlog.csv`,

@@ -11,7 +11,7 @@ from .csv_repository import CSVRepository
 FIELDNAMES = [
     "reference_id", "mobile", "plan", "amount",
     "status", "utr", "created_at", "verified_at",
-    "activation_state",
+    "activation_state", "utr_confirmed_at",
 ]
 
 

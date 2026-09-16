@@ -23,8 +23,9 @@ class PublicationFiles(LocalGitRepository):
         self.files.update(path for path in files if not os.path.isabs(path))
 
 
-def publish_image(root, on_date, *, render_pages=True, attempts=5):
-    from scheduler import run_image, run_expiry_sweep
+def publish_image(root, on_date, *, render_pages=True, attempts=5, regenerate_only=False, image_source="canonical"):
+    from scheduler import run_image, run_pages, run_expiry_sweep
+    from application.image_approval import ready, required, approved
 
     if not 1 <= attempts <= 5:
         raise ValueError("Image publication allows one to five attempts")
@@ -44,15 +45,17 @@ def publish_image(root, on_date, *, render_pages=True, attempts=5):
                 config = load_config(os.path.join(checkout, "config.json"))
                 config["paths"]["logs_csv"] = str(audit_path)
                 container = Container(config=config, root=checkout)
-                if cached is None:
+                already_approved = required(config) and approved(container, on_date)
+                if cached is None and not regenerate_only and not already_approved:
                     # Network collection happens once, before any publication retry.
                     cached = container.image_service.collect_daily_images(on_date)
                 container.image_service.collect_daily_images = lambda date: cached
                 transaction = PublicationFiles(checkout)
-                result = run_image(container, transaction, on_date, render_pages=render_pages)
+                result = (run_pages(container, transaction, on_date, image_source=image_source)
+                          if regenerate_only else run_image(container, transaction, on_date, render_pages=render_pages))
                 if result:
                     return result
-                if render_pages:
+                if render_pages and ready(container, on_date):
                     run_expiry_sweep(container, transaction, on_date)
                 transaction._stage_files(sorted(transaction.files))
                 if not transaction._git("diff", "--cached", "--name-only", capture=True).strip():

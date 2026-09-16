@@ -70,7 +70,7 @@ def test_payment_review_cannot_be_replaced_by_stale_cta(container, action):
     assert preserved.status == PaymentStatus.SUPERSEDED
     assert preserved.utr == "123456789012"
     assert container.subscribers.find("9199").to_row() == entitlement_before
-    assert f"Example: UTR {replacement.reference_id} 123456789012" in container.whatsapp.sent[-1]["message"]
+    assert f"Example: *UTR {replacement.reference_id} 123456789012*" in container.whatsapp.sent[-1]["message"]
 
     main._handle_message(container, "9199", "text", f"UTR {paid.reference_id} 123456789012")
     main._handle_message(container, "9199", "button", container.whatsapp.sent[-1]["buttons"][0])
@@ -134,7 +134,7 @@ def test_active_continue_shows_renewal_checkout_not_only_subscription_status(con
     main._resume_conversation(container, "9199")
     payment_message = container.whatsapp.sent[-1]["message"]
     assert payment.reference_id in payment_message
-    assert f"Example: UTR {payment.reference_id} 123456789012" in payment_message
+    assert f"Example: *UTR {payment.reference_id} 123456789012*" in payment_message
     main._send_subscription_status(container, "9199")
     assert "active" in container.whatsapp.sent[-1]["message"]
     assert payment.reference_id in container.whatsapp.sent[-1]["message"]

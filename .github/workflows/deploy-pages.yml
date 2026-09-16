@@ -31,12 +31,19 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
 
+      - name: Verify approved image has been published to the page artifact
+        id: approval
+        run: python3 -m application.image_approval --published
+
       - uses: actions/configure-pages@v5
+        if: steps.approval.outputs.ready == 'true'
 
       - uses: actions/upload-pages-artifact@v4
+        if: steps.approval.outputs.ready == 'true'
         with:
           path: docs
 
       - name: Deploy GitHub Pages
+        if: steps.approval.outputs.ready == 'true'
         id: deployment
         uses: actions/deploy-pages@v4

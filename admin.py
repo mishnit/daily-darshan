@@ -50,7 +50,8 @@ def _larger_plan(container: Container, current: str, candidate: str) -> str:
 def _changed_csv_paths(container: Container) -> list[str]:
     paths = container.config["paths"]
     return [paths["payments_csv"], paths["subscribers_csv"], paths["logs_csv"],
-            paths.get("welcomes_csv", "csv/welcomes.csv")]
+            paths.get("welcomes_csv", "csv/welcomes.csv"),
+            paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv")]
 
 
 def _commit(container: Container, message: str, include_pages: bool = False) -> None:
@@ -97,6 +98,7 @@ def _verify_locked(container: Container, args) -> int:
 
     if args.activate:
         try:
+            effective_date = today_ist(payment.utr_confirmed_at) if payment.utr_confirmed_at else today_ist()
             svc = container.subscriber_service
             existing = container.subscribers.find(payment.mobile)
             from domain.subscriber import Subscriber
@@ -118,7 +120,7 @@ def _verify_locked(container: Container, args) -> int:
                 from zoneinfo import ZoneInfo
                 from domain.enums import SubscriberStatus
                 sub.plan = payment.plan
-                sub.start_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+                sub.start_date = effective_date
                 sub.end_date = sub.start_date + timedelta(days=container.payment_service.plan_days(payment.plan))
                 sub.status = SubscriberStatus.ACTIVE
                 action = "Reactivated"
@@ -127,11 +129,12 @@ def _verify_locked(container: Container, args) -> int:
                 # later approval for a smaller plan must not downgrade the
                 # subscriber's active plan label.
                 sub.plan = _larger_plan(container, sub.plan, payment.plan) if already else payment.plan
-                sub.renew(container.payment_service.plan_days(payment.plan))
+                sub.renew(container.payment_service.plan_days(payment.plan), effective_date)
+                sub.start_date = effective_date
                 action = "Renewed"
             else:
                 sub.plan = payment.plan
-                sub.activate(container.payment_service.plan_days(payment.plan))
+                sub.activate(container.payment_service.plan_days(payment.plan), effective_date)
                 action = "Activated"
             sub.ensure_subscription_id()
             applied.add(reference_id)
@@ -148,6 +151,9 @@ def _verify_locked(container: Container, args) -> int:
                     "reference_id": reference_id, "mobile": sub.mobile,
                     "status": "QUEUED", "whatsapp_message_id": "", "error": "",
                 })
+            from application.image_approval import required, queue_request
+            if required(container.config):
+                queue_request(container, f"payment-{reference_id}", "Payment approved; publish subscriber pages")
         except SubscriberError as exc:
             print(f"ERROR during activation: {exc}", file=sys.stderr)
             print("Payment was verified but subscriber activation failed. "
@@ -159,16 +165,18 @@ def _verify_locked(container: Container, args) -> int:
         # Generate the per-subscriber page now so their branded URL works
         # immediately (not only after the next daily image job).
         try:
-            container.page_renderer.write_page(
-                sub, today_ist(), delivered=False,
-                images_dir=container.config["paths"]["images_dir"], root=container.root,
-            )
+            if not getattr(args, "skip_render", False) and not required(container.config):
+                container.page_renderer.write_page(
+                    sub, today_ist(), delivered=False,
+                    images_dir=container.config["paths"]["images_dir"], root=container.root,
+                )
         except Exception as exc:  # page generation must not block activation
             print(f"WARN: could not render page for {payment.mobile}: {exc}", file=sys.stderr)
         committed_msg = f"Verify payment {reference_id} and activate {payment.mobile}"
 
     if args.commit:
-        _commit(container, committed_msg, include_pages=args.activate)
+        from application.image_approval import required
+        _commit(container, committed_msg, include_pages=args.activate and not required(container.config))
         print(f"Committed changes: {committed_msg!r}")
     else:
         print("Changes written to CSV (not committed). "
