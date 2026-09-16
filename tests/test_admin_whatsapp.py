@@ -151,8 +151,8 @@ def test_image_preview_cannot_be_approved_after_refresh(review):
     assert not c.pipeline_requests.all()
 
 
-def test_image_publication_checks_approved_bytes_and_stamp(review):
-    from application.image_approval import materialize
+def test_image_publication_checks_approved_bytes_and_stamp(review, monkeypatch):
+    from application.image_approval import materialize, require_published
     c = review
     seed_images(c)
     main._handle_message(c, ADMIN, "button", "ADM_IMG_source_a")
@@ -167,8 +167,22 @@ def test_image_publication_checks_approved_bytes_and_stamp(review):
     Path(c.root, "config.json").write_text(json.dumps(c.config))
     assert not deployment_ready(c.root, today_ist())
     row = c.image_reviews.find("source_a")
-    git.write_file("docs/.image-approval.json", json.dumps({"id": row["id"], "date": row["date"], "sha256": row["sha256"]}).encode(), "test")
+    git.write_file("docs/image-approval.json", json.dumps({"id": row["id"], "date": row["date"], "sha256": row["sha256"]}).encode(), "test")
     assert deployment_ready(c.root, today_ist())
+    c.config["delivery"] = {"page_base_url": "https://vipseva.com"}
+    requested = {}
+    class Response:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {"id": row["id"], "date": row["date"], "sha256": row["sha256"]}
+    def get(url, **kwargs):
+        requested.update(url=url, **kwargs)
+        return Response()
+    monkeypatch.setattr("requests.get", get)
+    require_published(c, today_ist())
+    assert requested["url"] == "https://vipseva.com/image-approval.json"
+    assert requested["params"] == {"approval": row["id"]}
 
 
 def test_first_time_value_proposition_uses_welcome_history(review):

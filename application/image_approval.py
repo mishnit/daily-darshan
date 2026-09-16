@@ -6,6 +6,11 @@ from uuid import uuid4, uuid5, NAMESPACE_URL
 
 from domain.clock import INDIA_TZ
 
+# GitHub Pages omits dotfiles unless Jekyll is explicitly disabled.  This
+# approval stamp is part of the public deployment proof, so it must have a
+# normal public filename.
+PUBLIC_APPROVAL_STAMP = "image-approval.json"
+
 
 def required(config):
     return config.get("admin", {}).get("require_image_approval", False)
@@ -37,7 +42,7 @@ def require_published(c, on_date):
     base = c.config.get("delivery", {}).get("page_base_url", "").rstrip("/")
     if not base.startswith("https://"):
         raise RuntimeError("Public page URL is required to verify image approval deployment")
-    response = requests.get(base + "/.image-approval.json", params={"approval": row["id"]},
+    response = requests.get(base + "/" + PUBLIC_APPROVAL_STAMP, params={"approval": row["id"]},
                             headers={"Cache-Control": "no-cache"}, timeout=10)
     response.raise_for_status()
     if response.json() != {"id": row["id"], "date": row["date"], "sha256": row["sha256"]}:
@@ -111,7 +116,7 @@ def deployment_ready(root, on_date):
     if len(rows) != 1:
         return False
     row = rows[0]
-    stamp = root / config.get("delivery", {}).get("pages_dir", "docs") / ".image-approval.json"
+    stamp = root / config.get("delivery", {}).get("pages_dir", "docs") / PUBLIC_APPROVAL_STAMP
     if not stamp.exists():
         return False
     try:
