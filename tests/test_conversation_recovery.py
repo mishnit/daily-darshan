@@ -13,6 +13,9 @@ from application.reply_outbox import (
     drain_replies,
     prepare_replies,
     send_prepared_replies,
+    merge_reply_outcomes,
+    send_reply_snapshots,
+    snapshot_prepared_replies,
 )
 
 
@@ -121,6 +124,56 @@ def test_worker_backoff_and_unknown_not_retried(container):
     container.reply_outbox.upsert(row["id"], row)
     drain_replies(container.reply_outbox, container.whatsapp, lambda: None, container, now + 999)
     assert len(calls) == 2
+
+
+def test_detached_send_outcome_merges_without_overwriting_newer_rows(container):
+    prepare(container)
+    queued = QueuedReplies(container.reply_outbox, container)
+    queued.send_text("9199", "instructions")
+    ids, failed = prepare_replies(container.reply_outbox, container, mobiles={"9199"})
+    assert not failed
+    snapshots = snapshot_prepared_replies(container.reply_outbox, ids)
+
+    # Simulate unrelated durable state committed by another webhook while Meta
+    # is handling this reservation.
+    container.reply_outbox.upsert("newer", {
+        "id": "newer", "method": "send_text", "arguments": "[]",
+        "status": "QUEUED", "mobile": "9200",
+    })
+    outcomes, failed = send_reply_snapshots(container.whatsapp, snapshots, now=100)
+    assert not failed
+    assert not merge_reply_outcomes(container.reply_outbox, outcomes)
+    assert container.reply_outbox.find("newer")["status"] == "QUEUED"
+    assert container.reply_outbox.find(ids[0])["status"] == "SENT"
+
+
+def test_detached_send_exception_keeps_durable_pending_reservation(container):
+    prepare(container)
+    queued = QueuedReplies(container.reply_outbox, container)
+    queued.send_text("9199", "instructions")
+    ids, _ = prepare_replies(container.reply_outbox, container, mobiles={"9199"})
+    snapshots = snapshot_prepared_replies(container.reply_outbox, ids)
+    container.whatsapp.send_text = lambda *a, **k: (_ for _ in ()).throw(TimeoutError())
+    outcomes, failed = send_reply_snapshots(container.whatsapp, snapshots)
+    assert failed
+    assert merge_reply_outcomes(container.reply_outbox, outcomes) is False
+    row = container.reply_outbox.find(ids[0])
+    assert row["status"] == "PENDING"
+    assert row["whatsapp_message_id"] == ""
+
+
+def test_merge_never_downgrades_provider_reconciled_state(container):
+    prepare(container)
+    queued = QueuedReplies(container.reply_outbox, container)
+    queued.send_text("9199", "instructions")
+    ids, _ = prepare_replies(container.reply_outbox, container, mobiles={"9199"})
+    snapshots = snapshot_prepared_replies(container.reply_outbox, ids)
+    outcomes, _ = send_reply_snapshots(container.whatsapp, snapshots)
+    current = container.reply_outbox.find(ids[0])
+    current["status"] = "DELIVERED"
+    container.reply_outbox.upsert(current["id"], current)
+    assert not merge_reply_outcomes(container.reply_outbox, outcomes)
+    assert container.reply_outbox.find(ids[0])["status"] == "DELIVERED"
 
 
 def test_prepared_reply_is_reserved_before_provider_send(container):

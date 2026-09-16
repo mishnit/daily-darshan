@@ -9,6 +9,10 @@ Reply reservations are committed before contacting WhatsApp; provider acceptance
 does not mean delivery. Customer requests process only that customer's queued replies,
 while the retry endpoint processes a bounded batch (five). PENDING/UNKNOWN attempts
 are not blindly retried and survive sent-log retention for reconciliation.
+The state lock covers only the GitHub read/commit phases. WhatsApp network calls use a
+detached copy of the durable reservation outside the lock, then a fresh snapshot merges
+only the provider-outcome fields. Concurrent callbacks and customer requests therefore
+do not wait behind Meta latency or overwrite each other's CSV changes.
 
 These safeguards do not make Git a highly available database or provide exactly-once
 WhatsApp delivery. See [deployment limits and follow-up work](DEPLOYMENT.md#consistency-limits-and-follow-up-work).
@@ -322,11 +326,13 @@ WhatsApp secrets as environment variables on the host.
 > return **403**; malformed JSON is acknowledged and ignored without executing actions.
 >
 > **Persist before acknowledgement.** Processing runs in a worker thread under a cross-process
-> local state lock, but HTTP **200** is returned only after the GitHub commit succeeds. A process
+> local state lock during each Git transaction, but HTTP **200** is returned only after both
+> the initial GitHub commit and any provider-outcome commit succeed. A process
 > failure before commit leaves the request unacknowledged. Tracked CSVs are fetched concurrently
 > from one immutable commit; an unchanged snapshot is reused after a one-request branch check.
 > The inbound transition and outbound PENDING reservation share one atomic commit, followed by
-> one batched provider-outcome commit. Meta is never contacted before PENDING is durable. A
+> one batched provider-outcome commit. The lock is released during the Meta request and
+> reacquired for a fresh-read/field-level outcome merge. Meta is never contacted before PENDING is durable. A
 > bounded lock wait returns 503 instead of leaving webhook/retry callers hanging indefinitely.
 > Interactive replies are not exactly-once. A transactional database-backed queue remains the
 > recommended upgrade for higher throughput. Production fails

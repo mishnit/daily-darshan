@@ -160,7 +160,7 @@ sequenceDiagram
     User->>Meta: taps/sends message
     Meta->>Web: POST /webhook (signed)
     Web->>Web: verify HMAC signature
-    Note over Web,Repo: Worker thread holds local state lock, then HTTP response waits
+    Note over Web,Repo: First short lock protects the read and intent commit
     Web->>Repo: RepoSync.pull() — fetch latest CSVs  ⬇️ REPO READ
     Repo-->>Local: overwrite local subscribers/payments/processed/logs
 
@@ -187,9 +187,14 @@ sequenceDiagram
         Web->>User: UPI intent + reference id, "reply with 12-digit UTR"
     end
 
-    Note over Web,Repo: after handling all messages in the payload
-    Web->>Repo: RepoSync.push() — one atomic Git tree commit
-    alt durable commit and replies succeeded
+    Note over Web,Repo: Replies above are queued locally during handling
+    Web->>Repo: Commit state and PENDING reply reservations
+    Note over Web,Meta: Release lock before provider network call
+    Web->>Meta: Send detached durable reservations
+    Meta-->>Web: accepted, failed or ambiguous
+    Note over Web,Repo: Reacquire short lock and refresh main
+    Web->>Repo: Merge matching outcome fields and commit
+    alt durable commits and replies succeeded
         Web-->>Meta: 200 accepted
     else persistence or reply failure
         Web-->>Meta: 503 retry

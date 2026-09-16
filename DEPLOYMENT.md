@@ -352,8 +352,10 @@ still receives nothing, inspect reply_outbox status/error and the configured sen
   and manual workflows; repository conflicts fail closed with 503 so Meta can retry safely.
   CSV snapshot files are fetched concurrently and unchanged snapshots are reused. Inbound state
   and the outbound PENDING reservation are committed atomically before Meta is contacted; provider
-  outcomes are persisted in one follow-up commit. A bounded state-lock wait makes webhook and
-  retry-worker contention fail fast instead of occupying an Actions job for three minutes.
+  outcomes are persisted in one follow-up commit. Meta transport runs outside the state lock;
+  outcome persistence refreshes main and updates only the matching reservation fields, preserving
+  concurrent status callbacks and customer changes. A bounded wait still returns 503 if one of
+  the short Git transactions overlaps; Render logs this expected backpressure as one warning line.
 - Callback records can precede send records and are reconciled on later webhook/delivery runs.
   A delivered/read callback must not be reversed by a delayed failed callback.
 
