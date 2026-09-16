@@ -151,7 +151,7 @@ def test_image_preview_cannot_be_approved_after_refresh(review):
     assert not c.pipeline_requests.all()
 
 
-def test_image_publication_checks_approved_bytes_and_stamp(review, monkeypatch):
+def test_image_publication_checks_approved_bytes_and_stamp(review):
     from application.image_approval import materialize, require_published
     c = review
     seed_images(c)
@@ -179,8 +179,12 @@ def test_image_publication_checks_approved_bytes_and_stamp(review, monkeypatch):
     def get(url, **kwargs):
         requested.update(url=url, **kwargs)
         return Response()
-    monkeypatch.setattr("requests.get", get)
-    require_published(c, today_ist())
+    patch = pytest.MonkeyPatch()
+    patch.setattr("requests.get", get)
+    try:
+        require_published(c, today_ist())
+    finally:
+        patch.undo()
     assert requested["url"] == "https://vipseva.com/image-approval.json"
     assert requested["params"] == {"approval": row["id"]}
 
