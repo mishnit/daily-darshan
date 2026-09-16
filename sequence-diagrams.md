@@ -220,7 +220,7 @@ sequenceDiagram
     end
 ```
 
-Failed conversational replies restore pre-message state. STOP and UTR are retained with a
+Failed conversational replies restore pre-message state. STOP and confirmed UTR are retained with a
 durable acknowledgement retry record instead. Callbacks are stored even before their send row
 exists; delivered/read evidence wins over delayed failures. Uncertain sends hold the daily slot.
 
@@ -284,12 +284,20 @@ sequenceDiagram
     Web-->>User: Payment instructions or Payment status
     User->>Web: sends a 12-digit UTR
     alt No superseded checkout exists
-        Web->>State: attach UTR to current pending payment
+        Web->>State: save conversation draft for current payment
     else Checkout was changed
         Web-->>User: request original reference and 12-digit UTR
         User->>Web: UTR DD2609130001 123456789012
-        Web->>State: validate ownership and restore original checkout for review
+        Web->>State: validate ownership and save conversation draft
     end
+    Web-->>User: Confirm UTR or Change UTR
+    opt Customer changes the number
+        User->>Web: Change UTR then corrected reference and UTR
+        Web->>State: replace draft and invalidate old confirmation
+        Web-->>User: Confirm corrected UTR or Change UTR
+    end
+    User->>Web: Confirm UTR
+    Web->>State: recheck sender and payment then record confirmed UTR
     Web-->>User: latest UTR and reference recorded, review within 24 hours, do not pay again
     alt acknowledgement fails
         Web->>State: retain UTR + store acknowledgement in reply_retries.csv
@@ -303,8 +311,8 @@ sequenceDiagram
     Web-->>User: navigation menu
     Note over State: existing UTR remains attached until admin accepts or rejects it
     User->>Web: taps stale plan or sends a different UTR during review
-    Web-->>User: payment under review, do not pay again
-    Note over Web,State: no checkout replacement or UTR overwrite
+    Web-->>User: a reference-qualified correction needs confirmation
+    Note over Web,State: existing confirmed UTR remains until correction is confirmed
     alt Admin rejects payment
         State-->>Web: FAILED payment
         Web-->>User: Rejection notice, Payment status and Request review
@@ -360,6 +368,9 @@ sequenceDiagram
         User->>Webhook: sends invalid UTR
         Webhook-->>User: request UTR reference and twelve digits
         User->>Webhook: retries valid UTR
+        Webhook->>State: save conversation draft only
+        Webhook-->>User: Confirm UTR or Change UTR
+        User->>Webhook: Confirm UTR
         Webhook->>State: attach UTR to pending payment
     else active yearly within three days
         Webhook-->>User: Subscription status and Renew
@@ -397,6 +408,12 @@ sequenceDiagram
     User->>Meta: pays via UPI, replies with 12-digit UTR
     Meta->>Web: POST /webhook - text = UTR
     Web->>Repo: RepoSync.pull  ⬇️ REPO READ
+    Web->>Local: save recoverable conversation draft only
+    Web->>Repo: persist draft and confirmation reply
+    Web-->>User: Confirm UTR or Change UTR
+    User->>Meta: taps Confirm UTR for latest draft
+    Meta->>Web: POST interactive confirmation
+    Web->>Repo: refresh state and validate sender and payment
     Web->>Pay: record_utr(reference_id, utr)
     Pay->>Local: write payments.csv (UTR attached, still PENDING)  📝 LOCAL
     Web->>User: Received your UTR. Activates once an admin verifies.

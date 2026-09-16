@@ -51,8 +51,15 @@ def test_failed_utr_ack_does_not_lose_or_reassign_payment(app_client):
     main, client = app_client
     c = main.container
     payment = c.payment_service.create_payment("9199", "monthly", TODAY)
+    c.whatsapp = FakeWhatsApp()
+    assert client.post("/webhook", json=text_payload("123456789012")).status_code == 200
+    assert c.payments.find(payment.reference_id).utr == ""
+    confirm = c.whatsapp.sent[-1]["buttons"][0]
     c.whatsapp = FakeWhatsApp(always_fail=True)
-    payload = text_payload("123456789012")
+    payload = text_payload("")
+    message = payload["entry"][0]["changes"][0]["value"]["messages"][0]
+    message.update(id="confirm-utr", type="interactive",
+                   interactive={"button_reply": {"id": confirm}})
     assert client.post("/webhook", json=payload).status_code == 503
     assert c.payments.find(payment.reference_id).utr == "123456789012"
     next_payment = c.payment_service.create_payment("9199", "monthly", TODAY)
@@ -60,6 +67,19 @@ def test_failed_utr_ack_does_not_lose_or_reassign_payment(app_client):
     assert client.post("/webhook", json=payload).status_code == 200
     assert c.payments.find(next_payment.reference_id).utr == ""
 
+def test_failed_utr_confirmation_prompt_does_not_submit_for_review(app_client):
+    main, client = app_client
+    c = main.container
+    payment = c.payment_service.create_payment("9199", "monthly", TODAY)
+    c.whatsapp = FakeWhatsApp(always_fail=True)
+    payload = text_payload("123456789012")
+    assert client.post("/webhook", json=payload).status_code == 503
+    assert not c.payments.find(payment.reference_id).utr
+    assert not (c.conversations.find("9199") or {}).get("utr_confirmation")
+    c.whatsapp = FakeWhatsApp()
+    assert client.post("/webhook", json=payload).status_code == 200
+    assert not c.payments.find(payment.reference_id).utr
+    assert c.whatsapp.sent[-1]["buttons"][0].startswith("UTR_CONFIRM_")
 
 @pytest.mark.parametrize("command", ["Hi", "Radhe Radhe", "RENEW", "SUBSCRIBE", "MENU"])
 def test_restart_command_is_not_saved_as_name(app_client, command):

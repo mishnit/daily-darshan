@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import time
+from uuid import uuid4
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -674,6 +675,9 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
 
     # ---------------- Button / list taps (CTAs) ---------------- #
     if kind == "button":
+        if value.startswith(("UTR_CONFIRM_", "UTR_EDIT_")):
+            _handle_utr_confirmation(c, mobile, value)
+            return
         payment = _checkout_payment(c, mobile)
         if (payment and payment.status.value != "PENDING"
                 and (value in {"CTA_SUBSCRIBE", "CTA_RENEW"} or value.startswith("PLAN_"))):
@@ -845,21 +849,62 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         if payment.utr and not referenced_utr:
             _resume_conversation(c, mobile)
             return
-        latest_utr = text
-        c.payment_service.record_utr(
-            payment.reference_id, text, reconcile_checkout=bool(referenced_utr)
-        )
-        _send_intent_reply(c,
-            mobile,
-            f"Your latest UTR {latest_utr} for payment {payment.reference_id} has been recorded.\n"
-            "It replaced the previous UTR (if any) and is now awaiting admin verification.\n"
-            "We aim to review it within 24 hours. You do not need to pay again.\n"
-            "Please send MENU to check payment status.",
-        )
+        state = c.conversations.find(mobile) or {"mobile": mobile, "version": "0"}
+        token = uuid4().hex
+        state.update(utr_draft=text, utr_reference=payment.reference_id, utr_confirmation=token)
+        c.conversations.upsert(mobile, state)
+        _send_utr_confirmation(c, mobile, state)
         return
 
     # (c) Anything else typed -> present the CTA menu (no free-text commands).
     _send_menu(c, mobile)
+
+
+def _send_utr_confirmation(c, mobile: str, state: dict) -> None:
+    token = state["utr_confirmation"]
+    _require_send(c.whatsapp.send_buttons(mobile,
+        f"Please check your UTR {state['utr_draft']} for payment {state['utr_reference']}.\n"
+        "Is this correct? Confirm to submit it for admin verification, or change it. "
+        "This UTR has not been submitted for review yet.",
+        [(f"UTR_CONFIRM_{token}", "Confirm UTR"), (f"UTR_EDIT_{token}", "Change UTR")],
+    ), "UTR confirmation")
+
+
+def _handle_utr_confirmation(c, mobile: str, value: str) -> None:
+    """Only the current, sender-bound draft can become payment evidence."""
+    state = c.conversations.find(mobile) or {}
+    token = state.get("utr_confirmation")
+    if not token or value not in {f"UTR_CONFIRM_{token}", f"UTR_EDIT_{token}"}:
+        _require_send(c.whatsapp.send_text(mobile,
+            "This confirmation is no longer current. Send your payment reference and UTR again to check it."), "stale UTR confirmation")
+        return
+    reference = state.get("utr_reference", "")
+    payment = c.payments.find(reference)
+    if (not payment or payment.mobile != mobile
+            or payment.status.value not in {"PENDING", "SUPERSEDED"}):
+        _send_menu(c, mobile)
+        return
+    if value.startswith("UTR_EDIT_"):
+        state.update(utr_draft="", utr_reference="", utr_confirmation="")
+        c.conversations.upsert(mobile, state)
+        _require_send(c.whatsapp.send_text(mobile,
+            f"Please send the correct UTR, for example: UTR {reference} 123456789012. "
+            "You will be asked to confirm it before submission. Do not pay again."), "change UTR")
+        return
+    if any(p.mobile == mobile and p.reference_id != reference
+           and p.status.value == "PENDING" and p.utr for p in c.payments.all()):
+        _require_send(c.whatsapp.send_text(mobile,
+            "Another payment is under review. Please wait for administrator verification and do not pay again."), "payment review")
+        return
+    utr = state.get("utr_draft", "")
+    c.payment_service.record_utr(reference, utr, reconcile_checkout=True)
+    state.update(utr_draft="", utr_reference="", utr_confirmation="")
+    c.conversations.upsert(mobile, state)
+    _send_intent_reply(c, mobile,
+        f"Your latest UTR {utr} for payment {reference} has been recorded.\n"
+        "It replaced the previous UTR (if any) and is now awaiting admin verification.\n"
+        "We aim to review it within 24 hours. You do not need to pay again.\n"
+        "Please send MENU to check payment status.")
 
 
 def _handle_opt_out(c, mobile: str) -> None:
@@ -925,6 +970,7 @@ def _send_payment_instructions(c, mobile, payment, returning=False):
         f"Reference: {payment.reference_id}\n"
         f"After paying, reply with your payment reference and 12-digit UTR.\n"
         f"Example: UTR {payment.reference_id} 123456789012\n"
+        "We will ask you to confirm the UTR before submitting it for admin verification.\n"
         f"If you changed plans, use the reference from the instructions you paid against. "
         "If you already paid against older instructions, use that older reference; do not pay again.",
     )
@@ -932,6 +978,12 @@ def _send_payment_instructions(c, mobile, payment, returning=False):
 
 
 def _resume_conversation(c, mobile):
+    state = c.conversations.find(mobile) or {}
+    draft_payment = c.payments.find(state.get("utr_reference", "")) if state.get("utr_confirmation") else None
+    if (draft_payment and draft_payment.mobile == mobile
+            and draft_payment.status.value in {"PENDING", "SUPERSEDED"}):
+        _send_utr_confirmation(c, mobile, state)
+        return
     sub = c.subscribers.find(mobile)
     payment = _checkout_payment(c, mobile)
     if payment and (payment.utr or payment.status.value != "PENDING"):

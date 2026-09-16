@@ -47,6 +47,7 @@ def test_greeting_reopens_relevant_step_without_reset(container, greeting, stage
         assert 'CTA_PAYMENT' in reply['rows']
         if stage == 'utr':
             main._handle_message(container, '9199', 'text', '123456789012')
+            main._handle_message(container, '9199', 'button', container.whatsapp.sent[-1]['buttons'][0])
             assert container.payments.find(p.reference_id).utr == '123456789012'
 
 
@@ -72,6 +73,7 @@ def test_original_payment_reference_required_after_plan_change(container):
     main._handle_message(container, '9199', 'text', '123456789012')
     assert not any(p.utr for p in container.payments.all())
     main._handle_message(container, '9199', 'text', f'UTR {old.reference_id} 123456789012')
+    main._handle_message(container, '9199', 'button', container.whatsapp.sent[-1]['buttons'][0])
     assert container.payments.find(old.reference_id).utr == '123456789012'
     assert container.payments.find(old.reference_id).plan == 'monthly'
     assert container.payments.find(new.reference_id).status == PaymentStatus.SUPERSEDED

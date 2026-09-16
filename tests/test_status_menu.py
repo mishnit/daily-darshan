@@ -433,18 +433,28 @@ def test_production_utr_ack_is_persisted_and_sent_once(container, text):
         "from": "9199", "type": "text", "text": {"body": text}}]}}]}]}
     main._process_payload(container, payload)
     main._process_payload(container, payload)
-    assert container.payments.find(payment.reference_id).utr == "123456789012"
+    assert container.payments.find(payment.reference_id).utr == ""
     assert len(container.whatsapp.sent) == 1
-    message = container.whatsapp.sent[0]["message"]
+    confirm = container.whatsapp.sent[-1]["buttons"][0]
+    payload["entry"][0]["changes"][0]["value"]["messages"] = [{
+        "id": "utr-confirm", "from": "9199", "type": "interactive",
+        "interactive": {"button_reply": {"id": confirm}},
+    }]
+    commits.clear()
+    main._process_payload(container, payload)
+    main._process_payload(container, payload)
+    assert container.payments.find(payment.reference_id).utr == "123456789012"
+    assert len(container.whatsapp.sent) == 2
+    message = container.whatsapp.sent[-1]["message"]
     assert "within 24 hours" in message
     assert "awaiting admin verification" in message
     assert "within 24 hours" in message
     assert payment.reference_id in message
     # The inbound state and send reservation are committed atomically before
     # Meta is contacted; there is no redundant QUEUED-only GitHub commit.
-    assert commits[0][0]["status"] == "PENDING"
-    assert commits[1][0]["status"] == "SENT"
-    assert "within 24 hours" in json.loads(commits[0][0]["arguments"])[0][1]
+    assert commits[0][-1]["status"] == "PENDING"
+    assert commits[1][-1]["status"] == "SENT"
+    assert "within 24 hours" in json.loads(commits[0][-1]["arguments"])[0][1]
 
 
 def test_screenshot_requests_utr_text_without_recording_payment(container):

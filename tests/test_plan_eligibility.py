@@ -129,6 +129,7 @@ def test_window_is_rechecked_after_subscription_extension(journey):
     main._handle_message(journey, "9199", "button", "CTA_PAYMENT")
     assert journey.payments.find(old.reference_id).status == PaymentStatus.SUPERSEDED
     main._handle_message(journey, "9199", "text", f"UTR {old.reference_id} 123456789012")
+    main._handle_message(journey, "9199", "button", journey.whatsapp.sent[-1]["buttons"][0])
     restored = journey.payments.find(old.reference_id)
     assert restored.utr == "123456789012"
     assert restored.status == PaymentStatus.PENDING
