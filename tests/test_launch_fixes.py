@@ -266,6 +266,8 @@ def test_signup_to_render_to_delivery_to_stop_end_to_end(webhook, tmp_path):
     post(_tap(mobile, "CTA_OPTIN_AGREE", "e2e-consent"))
     payment = main.container.payments.all()[0]
     post(_msg(mobile, "123456789012", "e2e-utr"))
+    assert main.container.payments.find(payment.reference_id).utr == ""
+    post(_tap(mobile, fake.sent[-1]["buttons"][0], "e2e-utr-confirm"))
     assert main.container.payments.find(payment.reference_id).utr == "123456789012"
 
     main.container.payment_service.verify_payment(payment.reference_id)

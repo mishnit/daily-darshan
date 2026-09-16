@@ -71,7 +71,8 @@ class Container:
         )
         self.conversations = CSVRepository(
             p(paths.get("conversations_csv", "csv/conversations.csv")),
-            ["mobile", "version", "last_inbound", "last_recovery"], "mobile",
+            ["mobile", "version", "last_inbound", "last_recovery",
+             "utr_draft", "utr_reference", "utr_confirmation"], "mobile",
         )
         self.welcomes = CSVRepository(
             p(paths.get("welcomes_csv", "csv/welcomes.csv")),

@@ -405,6 +405,10 @@ Bot:  Radhe Radhe Deep Ji! Plan: monthly
       After paying, reply with your payment reference and 12-digit UTR.
       Example: UTR DD2608190001 123456789012
 User: UTR DD2608190001 123456789012                     ← free text (UTR)
+Bot:  Please check your UTR 123456789012 for payment DD2608190001.
+      [ Confirm UTR ]  [ Change UTR ]
+      This UTR has not been submitted for review yet.
+User: (taps Confirm UTR)
 Bot:  Your latest UTR 123456789012 for payment DD2608190001 has been recorded.
       It replaced the previous UTR (if any) and is now awaiting admin verification.
       We aim to review it within 24 hours. You do not need to pay again.
@@ -412,6 +416,18 @@ Bot:  Your latest UTR 123456789012 for payment DD2608190001 has been recorded.
 ```
 
 Returning subscriber (Upgrade outside the renewal window, Renew near expiry or after expiry):
+
+UTR confirmation applies to first subscriptions, renewals, extensions and corrections.
+Before confirmation, the number is saved only as a recoverable conversation draft in
+`conversations.csv` (`utr_draft`, `utr_reference`, `utr_confirmation`). It is not written
+to `payments.csv.utr` or submitted for admin review. Subscription status and paid dates
+stay unchanged. The payment remains an unpaid/pending checkout until confirmation.
+`Change UTR` invalidates the old confirmation and requests a corrected reference-qualified
+UTR. Sending a new UTR also replaces the draft. `Payment instructions`/`Payment status`
+resumes an outstanding confirmation. Only the latest confirmation for the same sender
+is accepted, and payment ownership/status are checked again when it is tapped.
+Previously confirmed UTR evidence stays in place until a correction is confirmed.
+These are interactive replies; no new Meta template or secret is required.
 
 ```
 User: (taps Upgrade while on Monthly, expiry beyond 3 days)
@@ -468,7 +484,7 @@ Details:
   duration (`days`), then price (`amount`) for equal durations.
 - Unpaid PENDING checkouts for lower plans or same-plan renewals outside the window become
   SUPERSEDED when the subscriber returns. Payment instructions, consent recovery, retries,
-  and old plan buttons recheck eligibility. A submitted UTR remains available for review;
+  and old plan buttons recheck eligibility. A confirmed UTR remains available for review;
   someone who paid using older instructions can still submit its reference-qualified UTR.
   Expired subscribers can choose any configured plan. Approval of recorded payments and
   preservation of already-paid days continue to use the existing admin flow.
@@ -500,7 +516,7 @@ Details:
   Publication is independent of whether Meta accepts/delivers the welcome message.
 - **Hi / Hello / Radhe Radhe / MENU never resets signup or payment.** During name entry the
   missing-name prompt is shown again; during consent the disclosure is shown; while awaiting
-  UTR the existing checkout options are shown. A submitted UTR stays under review. Navigation
+  UTR the existing checkout options are shown. A confirmed UTR stays under review. Navigation
   is never saved as a name and never creates a replacement payment.
 - **Changed-plan payment matching:** after a checkout has been superseded, a bare UTR is
   ambiguous and is not recorded. Send `UTR <original-reference> <12-digit-UTR>`, using the

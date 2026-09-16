@@ -51,6 +51,7 @@ def test_payment_review_cannot_be_replaced_by_stale_cta(container, action):
     main._handle_message(container, "9199", "button", "PLAN_quarterly")
     paid = container.payments.all()[0]
     main._handle_message(container, "9199", "text", f"UTR {paid.reference_id} 123456789012")
+    main._handle_message(container, "9199", "button", container.whatsapp.sent[-1]["buttons"][0])
     main._send_menu(container, "9199")
     assert "CTA_PAYMENT" in container.whatsapp.sent[-1]["rows"]
     assert "CTA_RENEW" in container.whatsapp.sent[-1]["rows"]
@@ -72,6 +73,7 @@ def test_payment_review_cannot_be_replaced_by_stale_cta(container, action):
     assert f"Example: UTR {replacement.reference_id} 123456789012" in container.whatsapp.sent[-1]["message"]
 
     main._handle_message(container, "9199", "text", f"UTR {paid.reference_id} 123456789012")
+    main._handle_message(container, "9199", "button", container.whatsapp.sent[-1]["buttons"][0])
     assert container.payments.find(paid.reference_id).status == PaymentStatus.PENDING
     assert container.payments.find(replacement.reference_id).status == PaymentStatus.SUPERSEDED
     assert "awaiting admin verification" in container.whatsapp.sent[-1]["message"]
@@ -84,6 +86,7 @@ def test_payment_status_during_review_explains_reference_qualified_utr(container
     main._handle_message(container, "9199", "button", "PLAN_quarterly")
     payment = container.payments.all()[0]
     main._handle_message(container, "9199", "text", "123456789012")
+    main._handle_message(container, "9199", "button", container.whatsapp.sent[-1]["buttons"][0])
     main._handle_message(container, "9199", "button", "CTA_PAYMENT")
     message = container.whatsapp.sent[-1]["message"]
     assert "verification pending" in message
@@ -97,7 +100,10 @@ def test_reference_qualified_utr_correction_overwrites_previous_value(container)
     main._handle_message(container, "9199", "button", "PLAN_quarterly")
     payment = container.payments.all()[0]
     main._handle_message(container, "9199", "text", f"UTR {payment.reference_id} 123456789012")
+    main._handle_message(container, "9199", "button", container.whatsapp.sent[-1]["buttons"][0])
     main._handle_message(container, "9199", "text", f"UTR {payment.reference_id} 999999999999")
+    assert container.payments.find(payment.reference_id).utr == "123456789012"
+    main._handle_message(container, "9199", "button", container.whatsapp.sent[-1]["buttons"][0])
     assert container.payments.find(payment.reference_id).utr == "999999999999"
     assert "Your latest UTR 999999999999 for payment" in container.whatsapp.sent[-1]["message"]
     assert "It replaced the previous UTR (if any)" in container.whatsapp.sent[-1]["message"]
@@ -181,6 +187,7 @@ def test_messages_do_not_advertise_obsolete_navigation(container, stage):
         main._handle_message(container, "9199", "button", "PLAN_quarterly")
         if stage == "review":
             main._handle_message(container, "9199", "text", "123456789012")
+            main._handle_message(container, "9199", "button", container.whatsapp.sent[-1]["buttons"][0])
     container.whatsapp.sent.clear()
     main._send_menu(container, "9199")
     rows = container.whatsapp.sent[-1]["rows"]
@@ -206,6 +213,7 @@ def test_approval_applies_selected_plan_once_and_queues_welcome(container, expir
     original = setup_sub(container, expired=expired)
     main._handle_message(container, "9199", "button", "PLAN_yearly")
     main._handle_message(container, "9199", "text", "123456789012")
+    main._handle_message(container, "9199", "button", container.whatsapp.sent[-1]["buttons"][0])
     payment = main._latest_pending_payment(container, "9199")
     args = SimpleNamespace(reference_id=payment.reference_id, activate=True, renew=False, commit=False)
     before_sends = len(container.whatsapp.sent)

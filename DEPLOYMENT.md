@@ -237,7 +237,7 @@ Use this sequence when validating a release end to end:
   send MENU and choose the relevant action for a fresh response. PENDING/UNKNOWN attempts remain blocked and
   produce a failing retry job for operator investigation; they are never blindly resent.
 - Payment instructions/Payment status reconstructs the current checkout from saved data.
-  Existing payment references are reused and submitted UTRs show verification pending.
+  Existing payment references are reused and confirmed UTRs show verification pending.
   Subscription status shows entitlement without applying another activation. Continue,
   Resend and Back are hidden; legacy inputs remain accepted for older messages.
   A user-requested payment instruction is a fresh reply, separate from the daily send ledger. If an
@@ -307,7 +307,12 @@ Activation/renewal approval continues to queue a welcome-status record after pub
 share the maximum-one-per-day date+mobile reservation in `sentlog.csv`.
 Run `pytest -q` including `tests/test_product_journey.py`; live acceptance must additionally
 exercise each menu using the configured production sender and verify Meta callbacks.
-After a valid 12-digit UTR, verify the reply names the latest UTR and payment reference, says it
+After a valid 12-digit UTR, verify the bot displays `Confirm UTR` and `Change UTR`.
+The draft is persisted in `conversations.csv` only; `payments.csv.utr` and subscription
+state must remain unchanged. Existing conversation CSV headers are expanded on write.
+Test a corrected draft, an old confirmation button, a different sender, and a restart
+before confirmation. Opening payment details should resume the confirmation.
+Only after tapping `Confirm UTR`, verify the reply names the latest UTR and payment reference, says it
 replaced the previous UTR (if any), requests admin verification within 24 hours, and says not to
 pay again. Production saves that acknowledgement in the outbox
 before sending; retrying the same inbound message must not duplicate it. If the live user
