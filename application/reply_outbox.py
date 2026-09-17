@@ -3,7 +3,8 @@ import json
 import time
 from uuid import uuid4
 from application.ports.whatsapp import WhatsAppResult
-
+import logging
+log = logging.getLogger(__name__)
 
 class QueuedReplies:
     def __init__(self, repository, container=None):
@@ -78,45 +79,85 @@ def drain_replies(repository, client, persist, container=None, now=None):
 
 
 def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5):
-    """Reserve eligible replies for sending in the caller's next commit.
-
-    The returned IDs are safe to send only after that commit succeeds.  This
-    lets the webhook persist its inbound state and PENDING send reservations
-    atomically, removing a redundant GitHub commit without weakening the
-    crash/duplicate safeguard.
-    """
+    """Reserve eligible replies for sending in the caller's next commit."""
     now = time.time() if now is None else now
     prepared = []
     failed = False
+
     for row in repository.all():
+        row_id = row.get("id", "unknown")
+        
+        # Filter by mobile if specified
         if mobiles is not None and row.get('mobile') not in mobiles:
             continue
-        if row["status"] in {"PENDING", "UNKNOWN"}:
-            failed = True
-            continue
-        if row["status"] not in {"QUEUED", "FAILED"}:
-            continue
-        if container:
-            from application.conversation_recovery import state_fingerprint
-            state = container.conversations.find(row.get("mobile", "")) or {}
-            if (not row.get("version") or row["version"] != state.get("version")
-                    or row.get("fingerprint") != state_fingerprint(container, row.get("mobile", ""))
-                    or float(row.get("expires_at") or 0) <= now):
-                row.update(status="CANCELLED", error="Superseded state or expired reply window; send MENU")
-                repository.upsert(row["id"], row)
+
+        status = row.get("status")
+
+        # Handle stuck PENDING or UNKNOWN messages
+        if status in {"PENDING", "UNKNOWN"}:
+            # Check if it has been stuck in PENDING for more than 60 seconds
+            updated_at = float(row.get("updated_at") or 0)
+            if updated_at > 0 and (now - updated_at) > 60:
+                log.warning(f"Outbox item {row_id} was stuck in {status}. Resetting to FAILED for retry.")
+                row["status"] = "FAILED"
+                status = "FAILED"
+            else:
+                log.warning(f"Outbox item {row_id} is currently in-flight ({status}).")
+                failed = True
                 continue
+
+        if status not in {"QUEUED", "FAILED"}:
+            continue
+
+        # Validate state and expiration if container is provided
+        if container:
+            try:
+                from application.conversation_recovery import state_fingerprint
+                mobile = row.get("mobile", "")
+                state = container.conversations.find(mobile) or {}
+                
+                expires_at = float(row.get("expires_at") or 0)
+                is_expired = (expires_at > 0 and expires_at <= now)
+                
+                version_mismatch = bool(row.get("version")) and (row.get("version") != state.get("version"))
+                fingerprint_mismatch = bool(row.get("fingerprint")) and (row.get("fingerprint") != state_fingerprint(container, mobile))
+
+                if version_mismatch or fingerprint_mismatch or is_expired:
+                    reason = "expired reply window" if is_expired else "superseded state"
+                    log.info(f"Cancelling outbox item {row_id}: {reason}")
+                    row.update(status="CANCELLED", error=f"Superseded state or expired reply window ({reason}); send MENU")
+                    repository.upsert(row_id, row)
+                    continue
+            except Exception as e:
+                log.exception(f"Error validating conversation state for outbox item {row_id}: {e}")
+                failed = True
+                continue
+
+        # Check attempt backoff
         if float(row.get("next_attempt") or 0) > now:
             continue
+
         attempts = int(row.get("attempts") or 0)
         if attempts >= 5:
+            log.error(f"Outbox item {row_id} has exceeded max attempts ({attempts}/5). Marking failed.")
             failed = True
             continue
+
         if len(prepared) >= limit:
             continue
+
+        # Mark as PENDING for outbound delivery
         row["status"] = "PENDING"
         row["attempts"] = str(attempts + 1)
-        repository.upsert(row["id"], row)
-        prepared.append(row["id"])
+        row["updated_at"] = str(now)
+        
+        try:
+            repository.upsert(row_id, row)
+            prepared.append(row_id)
+        except Exception as e:
+            log.exception(f"Failed to update outbox item {row_id} to PENDING: {e}")
+            failed = True
+
     return prepared, failed
 
 
