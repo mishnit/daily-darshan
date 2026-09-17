@@ -35,6 +35,27 @@ def test_retry_worker_yields_to_busy_customer_transaction(app_client):
         task.result()
 
 
+def test_early_delivery_receipt_reconciles_before_webhook_returns(app_client):
+    main, _ = app_client
+    c = main.container
+    c.config['persistence'] = {'mode': 'github_api'}
+    c.repo_sync = SimpleNamespace(enabled=True, pull=lambda **kw: None,
+        push=lambda *a, **kw: None, abort=lambda: None)
+    from application.ports.whatsapp import WhatsAppResult
+    def send(*a, **kw):
+        # Callback has already been durably received before send returns.
+        c.message_statuses.record('wamid.early', 'delivered')
+        return WhatsAppResult(ok=True, message_id='wamid.early')
+    c.whatsapp = SimpleNamespace(send_list=send, send_text=send, send_buttons=send)
+    payload = {'entry': [{'changes': [{'value': {'messages': [
+        {'id': 'early-receipt', 'from': '9199', 'type': 'text', 'text': {'body': 'MENU'}}
+    ]}}]}]}
+    main._process_payload(c, payload)
+    rows = c.reply_outbox.all()
+    assert len(rows) == 1
+    assert rows[0]['status'] == 'DELIVERED'
+
+
 @pytest.mark.parametrize('command', ['Hi', 'MENU', 'STATUS', 'Radhe Radhe'])
 def test_webhook_command_latency_with_pending_backlog(app_client, command):
     import time

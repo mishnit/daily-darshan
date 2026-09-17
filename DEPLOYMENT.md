@@ -612,6 +612,21 @@ Do **not** hand-edit CSVs while a scheduler job might be committing:
 - Git history is the audit trail — every verification/activation is a traceable commit.
 # Webhook reply priority and recovery
 
+Consistency review: inbound changes and reply reservations are committed to one
+GitHub snapshot before sending. Non-force branch updates reject conflicting
+writers; persistence failures remain retryable HTTP 503 responses. Meta transport
+runs outside the local state lock. After transport, the outcome is merged into a
+fresh snapshot and any already-recorded delivery receipt is reconciled immediately.
+Thread-lock and process-lock waits share one timeout budget rather than restarting
+the budget between locks.
+
+This is not an exactly-once distributed transaction. A crash after Meta acceptance
+but before storing the message ID can leave an ambiguous reservation. Do not reset
+it blindly: use provider evidence to reconcile it. A fresh user command can still
+proceed. GitHub outages prevent synchronous durable processing, and retry scheduling
+does not guarantee eventual delivery after exhaustion or expiry. Cancelled replies
+need a fresh user request; a missing receipt cannot be treated as delivery proof.
+
 UTF-8 CSV writes are embedded in the Git tree request, followed by one commit
 and one non-force branch update. This removes one network request per changed
 CSV while retaining atomic persistence. Binary writes retain explicit blob uploads.

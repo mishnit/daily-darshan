@@ -299,6 +299,9 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
             try:
                 if merge_reply_outcomes(c.reply_outbox, outcomes):
                     failed_phases.append("merge_reply_outcomes")
+                # A receipt may arrive while transport is outside the lock,
+                # before its message ID has been attached to the outbox row.
+                c.message_statuses.reconcile(c.reply_outbox)
                 c.repo_sync.push("Persist webhook reply outbox", strict=True)
             except Exception as e:
                 log.exception(f"Exception raised inside merge state lock: {e}")
