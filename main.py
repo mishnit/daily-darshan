@@ -21,7 +21,7 @@ from uuid import uuid4
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, Query, Request, Response
+from fastapi import FastAPI, Query, Request, Response, BackgroundTasks
 from starlette.concurrency import run_in_threadpool
 from domain.enums import PaymentStatus
 from repositories.state_lock import state_lock
@@ -165,7 +165,7 @@ async def retry_replies(request: Request) -> Response:
 
 
 @app.post("/webhook")
-async def receive_webhook(request: Request) -> Response:
+async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -> Response:
     raw_body = await request.body()
 
     # Reject forged/unsigned requests before doing any work (must be synchronous).
@@ -186,18 +186,43 @@ async def receive_webhook(request: Request) -> Response:
     if not isinstance(payload, dict):
         return _json({"status": "ignored"})
 
-    # Keep the event loop free, but do not acknowledge before durable commit.
-    try:
-        await run_in_threadpool(_process_payload, c, payload, 10.0)
-    except StateLockTimeout:
-        # Expected backpressure if a short Git commit phase overlaps. Meta will
-        # retry; log one line rather than an alarming stack trace.
-        log.warning("Webhook state is busy; returning 503 for provider retry")
-        return _json({"status": "retry"}, 503)
-    except Exception:
-        log.exception("Webhook not completed; request must be retried")
-        return _json({"status": "retry"}, 503)
+    # ---> NEW: Add the task to the background queue instead of awaiting it
+    background_tasks.add_task(_process_payload_with_retries, c, payload, 10.0)
+    
+    # ---> NEW: Immediately return a 200 OK (accepted) to prevent the 503 timeouts
     return _json({"status": "accepted"})
+
+def _process_payload_with_retries(c, payload: dict, lock_timeout: float | None = None) -> None:
+    """
+    Wraps _process_payload to handle internal retries 
+    since the webhook provider is no longer retrying for us.
+    """
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            _process_payload(c, payload, lock_timeout)
+            return  # Success, exit the loop
+            
+        except StateLockTimeout:
+            if attempt < max_retries - 1:
+                log.warning(f"Webhook state is busy. Retrying internally... (Attempt {attempt + 1}/{max_retries})")
+                time.sleep(2)
+            else:
+                log.error("Permanent failure: StateLockTimeout after max retries.")
+                break
+                
+        except RuntimeError as e:
+            if "need retry" in str(e) and attempt < max_retries - 1:
+                log.warning(f"Webhook processing failed. Retrying... (Attempt {attempt + 1}/{max_retries})")
+                time.sleep(2)
+            else:
+                log.exception("Webhook completely failed after max retries")
+                break
+                
+        except Exception:
+            log.exception("Unexpected error during webhook background processing")
+            break
 
 
 def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> None:
