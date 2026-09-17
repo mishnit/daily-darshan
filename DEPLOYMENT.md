@@ -612,6 +612,20 @@ Do **not** hand-edit CSVs while a scheduler job might be committing:
 - Git history is the audit trail — every verification/activation is a traceable commit.
 # Webhook reply priority and recovery
 
+UTF-8 CSV writes are embedded in the Git tree request, followed by one commit
+and one non-force branch update. This removes one network request per changed
+CSV while retaining atomic persistence. Binary writes retain explicit blob uploads.
+Performance regression tests cover signed Hi, MENU, STATUS and Radhe Radhe
+requests with simulated 20 ms storage operations and a pending reply backlog.
+Their one-second local ceiling is a regression budget, not a production SLA;
+Render/GitHub/Meta latency still requires live measurement.
+
+Changed immutable CSV blobs are fetched with at most four concurrent reads.
+All reads must succeed before the refreshed snapshot is installed. Retry workers
+yield immediately when the state lock is occupied and reserve only one reply per
+invocation, reducing interference with current customer requests. This is bounded
+background work, not a strict priority queue across Render processes.
+
 Customer requests send only replies created by that request. Conversation state
 and outbound reservations are committed before transport; provider outcomes are
 committed afterward. Old pending replies do not cause a new request to return
