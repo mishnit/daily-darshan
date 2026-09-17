@@ -223,10 +223,10 @@ Use this sequence when validating a release end to end:
   immutable GitHub reads and atomic multi-file publication. No new secret is required; the PAT
   still needs repository Contents read/write. Branch rules may reject API-generated commits;
   test persistence before enabling live traffic and do not weaken signing/protection rules.
-- The new `csv/message_statuses.csv` and `csv/reply_retries.csv` are initialized automatically
+- The new `csv/message_statuses.csv` and `csv/reply_outbox.csv` are initialized automatically
   and included in webhook persistence. Keep them private with the other operational CSVs.
 - Simulate a failed STOP/UTR acknowledgement: the instruction remains saved, HTTP is 503, and
-  redelivery retries only the stored acknowledgement. No background task is relied on after 200.
+  the independent worker retries only a still-relevant stored acknowledgement. No background task is relied on after 200.
 - Repeat the same `admin.py verify ... --activate`: dates must not extend twice. New activations
   store `applied_payment_refs` with subscriber dates and `activation_state` on the payment.
   A legacy SUCCESS payment without markers fails closed: reconcile whether it was applied before
@@ -249,12 +249,11 @@ Use this sequence when validating a release end to end:
   `subscription_id`, and append the genuine reference to semicolon-separated
   `applied_payment_refs`. Do not create another subscriber row or page ID for the same mobile.
 - Production webhook replies are persisted in `csv/reply_outbox.csv` with conversation state
-  before contacting Meta. Subsequent webhook processing drains queued/failed replies; uncertain
-  attempts remain blocked. `Retry WhatsApp Replies` is currently manual-only and calls Render
-  when dispatched. Set repository variable
-  `WEBHOOK_BASE_URL=https://daily-darshan-webhook.onrender.com` and repository secret
-  `WHATSAPP_APP_SECRET` to the same app secret configured in Render. Deploy the new Render
-  code before enabling the workflow; the endpoint rejects unsigned and stale requests.
+  before contacting Meta. Customer requests send only their own new replies; uncertain
+  attempts remain blocked. The Retry WhatsApp Replies workflow has been removed.
+  Recovery requires an explicit signed call to POST /internal/retry-replies with a JSON
+  timestamp and X-Hub-Signature-256 HMAC using Render's WHATSAPP_APP_SECRET.
+  The endpoint rejects unsigned and stale requests; there is no automatic retry schedule.
   Calls use Render's existing state lock and GitHub persistence. Keep one Render instance
   and one Uvicorn worker; this file-lock architecture is not a distributed lock.
   No additional Meta template is needed for these in-session replies.
@@ -612,6 +611,13 @@ Do **not** hand-edit CSVs while a scheduler job might be committing:
 - Git history is the audit trail — every verification/activation is a traceable commit.
 # Webhook reply priority and recovery
 
+The legacy reply_retries.csv is no longer initialized, read, or synchronized.
+Existing copies are retained as historical data, not automatically replayed.
+All new acknowledgement recovery uses reply_outbox.csv. MAX_RETRIES is three:
+one initial send plus three retries. Confirmed failures on the fourth attempt
+become CANCELLED immediately and are excluded from automatic retries. Ambiguous
+PENDING/UNKNOWN outcomes remain held for reconciliation, never blindly resent.
+
 Consistency review: inbound changes and reply reservations are committed to one
 GitHub snapshot before sending. Non-force branch updates reject conflicting
 writers; persistence failures remain retryable HTTP 503 responses. Meta transport
@@ -646,7 +652,7 @@ and outbound reservations are committed before transport; provider outcomes are
 committed afterward. Old pending replies do not cause a new request to return
 503. Persistence and inbound processing failures still return 503 for recovery.
 
-The Retry WhatsApp Replies workflow runs independently every 15 minutes. Confirmed
+There is no scheduled reply retry workflow. Explicit recovery calls retry confirmed
 failed replies receive at most three retries after the initial send, then become
 CANCELLED. Superseded or expired replies are cancelled. PENDING/UNKNOWN sends have
 an ambiguous provider outcome and are never blindly resent: reconcile them using

@@ -15,7 +15,7 @@ def container(tmp_path):
 
 @pytest.mark.parametrize("ledger,key", [
     ("welcomes", "reference_id"), ("reply_outbox", "id"),
-    ("reply_retries", "message_id"), ("message_statuses", "key"),
+    ("message_statuses", "key"),
 ])
 def test_new_records_have_immutable_creation_timestamp(container, ledger, key):
     repository = getattr(container, ledger)

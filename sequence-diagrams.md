@@ -281,7 +281,7 @@ sequenceDiagram
     Web->>State: recheck sender and payment then record confirmed UTR
     Web-->>User: latest UTR and reference recorded, review within 24 hours, do not pay again
     alt acknowledgement fails
-        Web->>State: retain UTR + store acknowledgement in reply_retries.csv
+        Web->>State: retain UTR + store acknowledgement in reply_outbox.csv
         Web-->>User: HTTP 503, Meta may redeliver
         Web->>State: retry acknowledgement only, do not record UTR twice
     else no PENDING payment
@@ -544,20 +544,20 @@ sequenceDiagram
     participant User
     participant Web as Render
     participant Repo as Durable state and outbox
-    participant Worker as Retry workflow
+    participant Worker as Operator
     participant Meta
     User->>Web: Select plan
     Web->>Repo: Commit payment reference and versioned reply
     Web->>Meta: Send reserved reply
     Meta-->>Web: Definitive failure
     Web->>Repo: Save FAILED and next attempt time
-    Worker->>Web: Signed periodic retry request
+    Worker->>Web: Explicit signed recovery request (no scheduled workflow)
     Web->>Repo: Load current state under lock
-    alt Reply is current and retry is due
+    alt Reply is current and retry is due and fewer than three retries used
         Web->>Repo: Persist PENDING attempt
         Web->>Meta: Retry same instructions
-    else State changed or reply window expired
-        Web->>Repo: Cancel obsolete reply
+    else Retry limit reached or state changed or reply window expired
+        Web->>Repo: Cancel reply permanently
     end
     User->>Web: MENU then Payment instructions or Payment status
     Web->>Repo: Read existing payment and advance conversation version
@@ -565,7 +565,7 @@ sequenceDiagram
     Web->>Meta: Send current instructions
 ```
 
-- **Reply recovery** has a best-effort five-minute GitHub Actions schedule and manual dispatch.
+- **Reply recovery** has no GitHub Actions workflow or automatic schedule; it requires an explicit operator call.
   Unknown attempts require reconciliation; a user-requested resend may duplicate an earlier
   message already accepted by Meta, but never repeats the payment/activation mutation.
 

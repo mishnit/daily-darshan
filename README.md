@@ -576,10 +576,10 @@ Details:
   are committed before sending. A failed commit restores local state and sends nothing.
   Failed sends retain committed state and are retried only when safe and still relevant.
   The direct-send/non-production path uses rollback, with STOP/UTR acknowledgement retries
-  retained in `reply_retries.csv`; it is not the production delivery ordering.
+  retained in `reply_outbox.csv`; it is not the production delivery ordering.
 - Meta delivery-status callbacks reconcile an initially accepted template send. A later `failed`
   status changes matching welcome/renewal/delivery ledger rows to `FAILED`, reopening the daily slot.
-  New rows in `welcomes.csv`, `reply_retries.csv`, `reply_outbox.csv`, and
+  New rows in `welcomes.csv`, `reply_outbox.csv`, and
   `message_statuses.csv` include an immutable creation `timestamp`, in UTC formatted
   as `2026-09-11T11:01:06.270845` (six fractional digits, no timezone suffix).
   Status updates and duplicate callbacks preserve it. Legacy headers upgrade on
@@ -617,10 +617,11 @@ Details:
   Customers can send MENU and select Payment instructions or Payment status without
   creating another payment or extending a subscription. Continue, Resend and Back are not
   shown or advertised; legacy commands/buttons remain accepted for older messages.
-  The manually dispatched `Retry WhatsApp Replies` workflow wakes Render to retry eligible
+  The Retry WhatsApp Replies workflow has been removed: no timer drains old replies.
+  An operator can explicitly invoke the signed Render recovery endpoint for eligible
   outbox entries. Conversation versions and subscriber/payment fingerprints cancel stale
-  instructions, and a 23-hour expiry protects the reply window. See DEPLOYMENT.md for the
-  required WEBHOOK_BASE_URL variable and WHATSAPP_APP_SECRET repository secret.
+  instructions, and a 23-hour expiry protects the reply window. Confirmed failures are
+  cancelled after the initial attempt plus three retries. Fresh MENU messages remain usable.
   Both renewal and delivery check the public page's subscription ID, date and expiry metadata
   before sending. Missing, legacy or stale pages must be regenerated and deployed first.
   Daily delivery additionally verifies the actual image URL on the published page has today's

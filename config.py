@@ -85,11 +85,6 @@ class Container:
             "reference_id",
             timestamp_new=True,
         )
-        self.reply_retries = CSVRepository(
-            p(paths.get("reply_retries_csv", "csv/reply_retries.csv")),
-            ["message_id", "mobile", "text"], "message_id",
-            timestamp_new=True,
-        )
         self.referrals = CSVRepository(
             p(paths.get("referrals_csv", "csv/referrals.csv")),
             ["message_id", "visitor_mobile", "referrer_mobile", "recorded_at"],
@@ -195,7 +190,6 @@ class Container:
             paths["sentlog_csv"],
             paths["renewals_csv"],
             paths.get("message_statuses_csv", "csv/message_statuses.csv"),
-            paths.get("reply_retries_csv", "csv/reply_retries.csv"),
             paths.get("referrals_csv", "csv/referrals.csv"),
         ]
         return RepoSync(github, self.root, tracked, enabled)

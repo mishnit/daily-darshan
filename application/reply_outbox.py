@@ -6,6 +6,8 @@ from application.ports.whatsapp import WhatsAppResult
 import logging
 
 log = logging.getLogger(__name__)
+MAX_RETRIES = 3
+MAX_ATTEMPTS = 1 + MAX_RETRIES
 
 
 class QueuedReplies:
@@ -83,7 +85,7 @@ def drain_replies(repository, client, persist, container=None, now=None):
             continue
 
         attempts = int(row.get("attempts") or 0)
-        if attempts >= 4:
+        if attempts >= MAX_ATTEMPTS:
             row.update(status='CANCELLED', error='Retry limit reached; send MENU for a fresh response')
             repository.upsert(row['id'], row)
             persist()
@@ -109,6 +111,8 @@ def drain_replies(repository, client, persist, container=None, now=None):
             next_attempt=str(now + min(3600, 60 * 2 ** attempts)),
             updated_at=str(now),
         )
+        if row['status'] == 'FAILED' and int(row['attempts']) >= MAX_ATTEMPTS:
+            row['status'] = 'CANCELLED'
         repository.upsert(row["id"], row)
         persist()
         failed |= not result.ok
@@ -161,7 +165,7 @@ def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5,
             continue
 
         attempts = int(row.get("attempts") or 0)
-        if attempts >= 4:  # Initial attempt plus at most three retries.
+        if attempts >= MAX_ATTEMPTS:
             row.update(status='CANCELLED', error='Retry limit reached; send MENU for a fresh response')
             repository.upsert(row['id'], row)
             continue
@@ -203,6 +207,8 @@ def send_prepared_replies(repository, client, prepared, now=None):
             next_attempt=str(now + min(3600, 60 * 2 ** (attempts - 1))),
             updated_at=str(now),
         )
+        if row['status'] == 'FAILED' and attempts >= MAX_ATTEMPTS:
+            row['status'] = 'CANCELLED'
         repository.upsert(row["id"], row)
         failed |= not result.ok
     return failed
@@ -242,7 +248,7 @@ def send_reply_snapshots(client, snapshots, now=None):
         row.update(status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
                    whatsapp_message_id=result.message_id or "", error=result.error or "",
                    next_attempt=str(now + min(3600, 60 * 2 ** (attempts - 1))))
-        if row['status'] == 'FAILED' and attempts >= 4:
+        if row['status'] == 'FAILED' and attempts >= MAX_ATTEMPTS:
             row['status'] = 'CANCELLED'
         outcomes.append(row)
         failed |= not result.ok
