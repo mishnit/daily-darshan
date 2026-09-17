@@ -857,10 +857,6 @@ Because both write CSVs on `main`, two mechanisms reduce clobbering risk:
    conflicts abort recovery and fail visibly without overwriting business data.
    Individual Git commands time out after 60 seconds.
 
-   Watermarking preserves the downloaded image's exact pixel width and height.
-   JPEG output uses quality 100 with chroma subsampling disabled; generation fails
-   if the saved dimensions differ. Adding a watermark still requires JPEG re-encoding,
-   so byte-for-byte or mathematically lossless JPEG output is not possible.
    Daily Image uses a stronger publication transaction: fetch `main`, download
    candidates once, then generate pages and expiry changes in a disposable
    checkout. A rejected push discards that checkout and rebuilds from the newest
