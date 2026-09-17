@@ -1,3 +1,17 @@
+Here is the complete revised `application/reply_outbox.py` file.
+
+### Key Enhancements Made
+
+1. **Auto-Cancellation of Stranded `PENDING`/`UNKNOWN` Items:** Instead of returning `failed = True` and permanently blocking the outbox when an abandoned `PENDING` item is encountered, the worker automatically transitions it to `CANCELLED`.
+2. **Zero Duplicate Risk:** `PENDING` items are immediately skipped and never re-attempted.
+3. **Timestamp Tracking:** `updated_at` is updated on every state transition (`QUEUED`, `PENDING`, `CANCELLED`, `SENT`, `FAILED`) to maintain an accurate audit log.
+4. **Valid Expiration Windows:** The fallback calculation for `expires_at` uses `time.time()` when `last_inbound` is zero or missing, ensuring new replies are not created in an expired state.
+
+---
+
+### `application/reply_outbox.py`
+
+```python
 """Persist production webhook replies together with their conversation state."""
 import json
 import time
@@ -19,18 +33,24 @@ class QueuedReplies:
 
         def enqueue(*args, **kwargs):
             key = uuid4().hex
+            now = time.time()
             row = {
-                "id": key, "method": method, "arguments": json.dumps([args, kwargs]),
-                "status": "QUEUED", "whatsapp_message_id": "", "error": "",
+                "id": key,
+                "method": method,
+                "arguments": json.dumps([args, kwargs]),
+                "status": "QUEUED",
+                "whatsapp_message_id": "",
+                "error": "",
+                "updated_at": str(now),
             }
             if self.container:
                 from application.conversation_recovery import state_fingerprint
                 mobile = str(args[0])
                 state = self.container.conversations.find(mobile) or {}
                 
-                # Fix: Use current time if last_inbound is 0/missing so expires_at is valid
+                # Use current time if last_inbound is missing or 0
                 last_inbound = float(state.get("last_inbound") or 0)
-                base_time = last_inbound if last_inbound > 0 else time.time()
+                base_time = last_inbound if last_inbound > 0 else now
                 
                 row.update(
                     mobile=mobile,
@@ -38,7 +58,7 @@ class QueuedReplies:
                     fingerprint=state_fingerprint(self.container, mobile),
                     expires_at=str(base_time + 23 * 3600),
                     attempts="0",
-                    next_attempt="0"
+                    next_attempt="0",
                 )
             self.repository.upsert(key, row)
             return WhatsAppResult(ok=True)
@@ -49,12 +69,21 @@ def drain_replies(repository, client, persist, container=None, now=None):
     now = time.time() if now is None else now
     failed = False
     for row in repository.all():
+        # Auto-cancel stranded PENDING or UNKNOWN items to prevent retries & unblock queue
         if row["status"] in {"PENDING", "UNKNOWN"}:
-            log.warning(f"drain_replies: item {row.get('id')} in state '{row['status']}'")
-            failed = True
+            log.warning(f"drain_replies: auto-cancelling stranded item {row.get('id')} in state '{row['status']}'")
+            row.update(
+                status="CANCELLED",
+                error=f"Cancelled: Abandoned {row['status']} item to prevent duplicate send",
+                updated_at=str(now),
+            )
+            repository.upsert(row["id"], row)
+            persist()
             continue
+
         if row["status"] not in {"QUEUED", "FAILED"}:
             continue
+
         if container:
             from application.conversation_recovery import state_fingerprint
             state = container.conversations.find(row.get("mobile", "")) or {}
@@ -62,29 +91,43 @@ def drain_replies(repository, client, persist, container=None, now=None):
                     or row["version"] != state.get("version")
                     or row.get("fingerprint") != state_fingerprint(container, row.get("mobile", ""))
                     or float(row.get("expires_at") or 0) <= now):
-                row.update(status="CANCELLED", error="Superseded state or expired reply window; send MENU")
+                row.update(
+                    status="CANCELLED",
+                    error="Superseded state or expired reply window; send MENU",
+                    updated_at=str(now),
+                )
                 repository.upsert(row["id"], row)
                 persist()
                 continue
+
         if float(row.get("next_attempt") or 0) > now:
             continue
+
         attempts = int(row.get("attempts") or 0)
         if attempts >= 5:
             failed = True
             continue
+
         row["status"] = "PENDING"
         row["attempts"] = str(attempts + 1)
+        row["updated_at"] = str(now)
         repository.upsert(row["id"], row)
         persist()
+
         args, kwargs = json.loads(row["arguments"])
         try:
             result = getattr(client, row["method"])(*args, **kwargs)
         except Exception:
             failed = True
             continue
-        row.update(status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
-                   whatsapp_message_id=result.message_id or "", error=result.error or "",
-                   next_attempt=str(now + min(3600, 60 * 2 ** attempts)))
+
+        row.update(
+            status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
+            whatsapp_message_id=result.message_id or "",
+            error=result.error or "",
+            next_attempt=str(now + min(3600, 60 * 2 ** attempts)),
+            updated_at=str(now),
+        )
         repository.upsert(row["id"], row)
         persist()
         failed |= not result.ok
@@ -96,15 +139,25 @@ def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5)
     now = time.time() if now is None else now
     prepared = []
     failed = False
+
     for row in repository.all():
         if mobiles is not None and row.get('mobile') not in mobiles:
             continue
+
+        # Auto-cancel stranded PENDING or UNKNOWN items to prevent duplicate sends & unblock queue
         if row["status"] in {"PENDING", "UNKNOWN"}:
-            log.warning(f"prepare_replies: blocking outbox item {row.get('id')} for {row.get('mobile')} in state '{row['status']}'")
-            failed = True
+            log.warning(f"prepare_replies: auto-cancelling stranded item {row.get('id')} for {row.get('mobile')} in state '{row['status']}'")
+            row.update(
+                status="CANCELLED",
+                error=f"Cancelled: Abandoned {row['status']} item to prevent duplicate send",
+                updated_at=str(now),
+            )
+            repository.upsert(row["id"], row)
             continue
+
         if row["status"] not in {"QUEUED", "FAILED"}:
             continue
+
         if container:
             from application.conversation_recovery import state_fingerprint
             state = container.conversations.find(row.get("mobile", "")) or {}
@@ -113,22 +166,32 @@ def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5)
                     or row.get("fingerprint") != state_fingerprint(container, row.get("mobile", ""))
                     or float(row.get("expires_at") or 0) <= now):
                 log.info(f"prepare_replies: cancelling obsolete item {row.get('id')}")
-                row.update(status="CANCELLED", error="Superseded state or expired reply window; send MENU")
+                row.update(
+                    status="CANCELLED",
+                    error="Superseded state or expired reply window; send MENU",
+                    updated_at=str(now),
+                )
                 repository.upsert(row["id"], row)
                 continue
+
         if float(row.get("next_attempt") or 0) > now:
             continue
+
         attempts = int(row.get("attempts") or 0)
         if attempts >= 5:
             log.warning(f"prepare_replies: outbox item {row.get('id')} reached max attempts ({attempts})")
             failed = True
             continue
+
         if len(prepared) >= limit:
             continue
+
         row["status"] = "PENDING"
         row["attempts"] = str(attempts + 1)
+        row["updated_at"] = str(now)
         repository.upsert(row["id"], row)
         prepared.append(row["id"])
+
     return prepared, failed
 
 
@@ -150,9 +213,13 @@ def send_prepared_replies(repository, client, prepared, now=None):
             failed = True
             continue
         attempts = max(1, int(row.get("attempts") or 1))
-        row.update(status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
-                   whatsapp_message_id=result.message_id or "", error=result.error or "",
-                   next_attempt=str(now + min(3600, 60 * 2 ** (attempts - 1))))
+        row.update(
+            status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
+            whatsapp_message_id=result.message_id or "",
+            error=result.error or "",
+            next_attempt=str(now + min(3600, 60 * 2 ** (attempts - 1))),
+            updated_at=str(now),
+        )
         repository.upsert(row["id"], row)
         failed |= not result.ok
     return failed
@@ -180,14 +247,22 @@ def send_reply_snapshots(client, snapshots, now=None):
             result = getattr(client, row["method"])(*args, **kwargs)
         except Exception as exc:
             # Keep the durable row PENDING. The provider outcome is ambiguous.
-            row.update(status="PENDING", error=f"transport_exception:{type(exc).__name__}")
+            row.update(
+                status="PENDING",
+                error=f"transport_exception:{type(exc).__name__}",
+                updated_at=str(now),
+            )
             outcomes.append(row)
             failed = True
             continue
         attempts = max(1, int(row.get("attempts") or 1))
-        row.update(status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
-                   whatsapp_message_id=result.message_id or "", error=result.error or "",
-                   next_attempt=str(now + min(3600, 60 * 2 ** (attempts - 1))))
+        row.update(
+            status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
+            whatsapp_message_id=result.message_id or "",
+            error=result.error or "",
+            next_attempt=str(now + min(3600, 60 * 2 ** (attempts - 1))),
+            updated_at=str(now),
+        )
         outcomes.append(row)
         failed |= not result.ok
     return outcomes, failed
@@ -214,6 +289,9 @@ def merge_reply_outcomes(repository, outcomes):
             whatsapp_message_id=outcome.get("whatsapp_message_id", ""),
             error=outcome.get("error", ""),
             next_attempt=outcome.get("next_attempt", current.get("next_attempt", "0")),
+            updated_at=str(time.time()),
         )
         repository.upsert(current["id"], current)
     return failed
+
+```
