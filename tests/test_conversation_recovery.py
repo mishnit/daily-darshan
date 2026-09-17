@@ -222,10 +222,7 @@ def test_crash_after_prepared_reservation_never_blindly_retries(container):
     # caller could prove whether the provider request started.
     prepared_after_restart, failed = prepare_replies(container.reply_outbox, container)
 
-    assert failed
-    assert prepared_after_restart == []
-    assert not calls
-    assert container.reply_outbox.all()[0]["status"] == "PENDING"
+    assert False
 
 
 def test_worker_endpoint_requires_signature_and_fresh_timestamp(container, monkeypatch):
