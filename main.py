@@ -299,6 +299,9 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
             try:
                 if merge_reply_outcomes(c.reply_outbox, outcomes):
                     failed_phases.append("merge_reply_outcomes")
+                # A receipt may arrive while transport is outside the lock,
+                # before its message ID has been attached to the outbox row.
+                c.message_statuses.reconcile(c.reply_outbox)
                 c.repo_sync.push("Persist webhook reply outbox", strict=True)
             except Exception as e:
                 log.exception(f"Exception raised inside merge state lock: {e}")
@@ -322,14 +325,6 @@ def _process_messages(c, payload: dict) -> bool:
         # Isolate each message: a failure must not abort the batch.
         try:
             snapshot = _snapshot_webhook_state(c)
-            pending_reply = c.reply_retries.find(message_id)
-            if pending_reply:
-                result = c.whatsapp.send_text(pending_reply["mobile"], pending_reply["text"])
-                if not result.ok:
-                    failed = True
-                    continue
-                c.reply_retries.delete(message_id)
-                continue
             # Dedupe on WhatsApp message id: skip a re-delivered message.
             if not c.processed.mark_if_new(message_id, mobile):
                 continue
@@ -361,10 +356,9 @@ def _process_messages(c, payload: dict) -> bool:
                 _handle_message(c, mobile, kind, value, name)
         except CustomerIntentReplyFailed as exc:
             # STOP and received UTR are facts, independent of reply transport.
-            # Keep them and retry only the acknowledgement on redelivery.
-            c.reply_retries.upsert(message_id, {
-                "message_id": message_id, "mobile": exc.mobile, "text": exc.text,
-            })
+            # Preserve the fact and queue its acknowledgement in the sole outbox.
+            from application.reply_outbox import QueuedReplies
+            QueuedReplies(c.reply_outbox, c).send_text(exc.mobile, exc.text)
             failed = True
         except Exception:  # noqa: BLE001 - log + continue
             # The id is claimed first to prevent concurrent duplicate sends.
@@ -415,7 +409,6 @@ def _webhook_paths(c) -> list[str]:
         paths.get("reply_outbox_csv", "csv/reply_outbox.csv"),
         paths.get("conversations_csv", "csv/conversations.csv"),
         paths.get("referrals_csv", "csv/referrals.csv"),
-        paths.get("reply_retries_csv", "csv/reply_retries.csv"),
     ]
 
 

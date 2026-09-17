@@ -67,6 +67,29 @@ def prepare(c):
     return calls
 
 
+def test_legacy_retry_store_is_not_initialized(container):
+    from pathlib import Path
+    assert not hasattr(container, 'reply_retries')
+    assert not Path(container.root, 'csv/reply_retries.csv').exists()
+
+
+@pytest.mark.parametrize('sender', ['drain', 'prepared'])
+def test_all_reply_senders_cancel_after_third_retry(container, sender):
+    prepare(container)
+    QueuedReplies(container.reply_outbox, container).send_text('9199', 'reply')
+    row = container.reply_outbox.all()[0]
+    row.update(attempts='3', status='FAILED', next_attempt='0')
+    container.reply_outbox.upsert(row['id'], row)
+    container.whatsapp.send_text = lambda *a, **kw: WhatsAppResult(ok=False, error='rejected')
+    if sender == 'drain':
+        drain_replies(container.reply_outbox, container.whatsapp, lambda: None, container)
+    else:
+        ids, _ = prepare_replies(container.reply_outbox, container)
+        send_prepared_replies(container.reply_outbox, container.whatsapp, ids)
+    assert container.reply_outbox.find(row['id'])['status'] == 'CANCELLED'
+    assert prepare_replies(container.reply_outbox, container)[0] == []
+
+
 @pytest.mark.parametrize("choice", ["CONTINUE", "RESEND", "BACK"])
 def test_menu_recovery_choices_route_to_existing_commands(container, choice):
     import main

@@ -38,13 +38,16 @@ def test_failed_stop_confirmation_preserves_optout_and_retries_reply_only(app_cl
     assert client.post("/webhook", json=payload).status_code == 503
     assert c.subscribers.find("9199").opt_in is False
     assert c.processed.was_processed("incoming")
-    assert c.reply_retries.find("incoming")
+    assert len(c.reply_outbox.all()) == 1
     # A newer explicit opt-in must not be revoked by retrying an old STOP reply.
     c.subscriber_service.grant_opt_in("9199", "new-consent")
     c.whatsapp = FakeWhatsApp()
     assert client.post("/webhook", json=payload).status_code == 200
     assert c.subscribers.find("9199").opt_in is True
-    assert c.reply_retries.find("incoming") is None
+    from application.reply_outbox import drain_replies
+    drain_replies(c.reply_outbox, c.whatsapp, lambda: None, c)
+    assert c.reply_outbox.all()[0]['status'] == 'CANCELLED'
+    assert not c.whatsapp.sent
 
 
 def test_failed_utr_ack_does_not_lose_or_reassign_payment(app_client):

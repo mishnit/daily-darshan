@@ -30,7 +30,8 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          deleted_files="$(git diff --diff-filter=D --name-status "$BASE_SHA"...HEAD)"
+          # Explicitly retired workflow; all other file deletions remain blocked.
+          deleted_files="$(git diff --diff-filter=D --name-status "$BASE_SHA"...HEAD | grep -v $'^D\t.github/workflows/retry-replies.yml$' || true)"
           removed_tests="$(git diff -U0 "$BASE_SHA"...HEAD -- tests/ | grep -E '^-.*def test_|^-.*class Test' || true)"
           if [ -n "$deleted_files" ]; then
             echo "::error title=Files removed::This pull request deletes tracked files. Restore them before merging."

@@ -15,6 +15,7 @@ class StateLockTimeout(TimeoutError):
 @contextmanager
 def state_lock(root, timeout=None):
     os.makedirs(root, exist_ok=True)
+    deadline = None if timeout is None else time.monotonic() + timeout
     acquired = _threads.acquire() if timeout is None else _threads.acquire(timeout=timeout)
     if not acquired:
         raise StateLockTimeout("webhook state is busy")
@@ -23,7 +24,6 @@ def state_lock(root, timeout=None):
             if timeout is None:
                 fcntl.flock(handle, fcntl.LOCK_EX)
             else:
-                deadline = time.monotonic() + timeout
                 while True:
                     try:
                         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -31,7 +31,7 @@ def state_lock(root, timeout=None):
                     except BlockingIOError:
                         if time.monotonic() >= deadline:
                             raise StateLockTimeout("webhook state is busy")
-                        time.sleep(0.05)
+                        time.sleep(min(0.05, max(0, deadline - time.monotonic())))
             try:
                 yield
             finally:
