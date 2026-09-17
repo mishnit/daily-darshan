@@ -15,6 +15,67 @@ from application.ports.storage import GitHubRepositoryPort
 from repositories.state_lock import StateLockTimeout, state_lock
 
 
+def test_retry_worker_yields_to_busy_customer_transaction(app_client):
+    main, _ = app_client
+    c = main.container
+    held = threading.Event()
+    release = threading.Event()
+    def customer():
+        with state_lock(c.root):
+            held.set()
+            assert release.wait(3)
+    with ThreadPoolExecutor(1) as pool:
+        task = pool.submit(customer)
+        assert held.wait(2)
+        try:
+            with pytest.raises(StateLockTimeout):
+                main._process_payload(c, {}, 5)
+        finally:
+            release.set()
+        task.result()
+
+
+@pytest.mark.parametrize('command', ['Hi', 'MENU', 'STATUS', 'Radhe Radhe'])
+def test_webhook_command_latency_with_pending_backlog(app_client, command):
+    import time
+    from tests.conftest import FakeWhatsApp
+    main, client = app_client
+    c = main.container
+    c.config['persistence'] = {'mode': 'github_api'}
+    events = []
+    def push(*args, **kwargs):
+        time.sleep(0.02)
+        events.append('commit')
+    c.repo_sync = SimpleNamespace(enabled=True, pull=lambda **kw: time.sleep(0.02),
+        push=push, abort=lambda: None)
+    class TimedWhatsApp(FakeWhatsApp):
+        def send_list(self, *args, **kwargs):
+            events.append('reply')
+            assert events[0] == 'commit'
+            return super().send_list(*args, **kwargs)
+        def send_text(self, *args, **kwargs):
+            events.append('reply')
+            assert events[0] == 'commit'
+            return super().send_text(*args, **kwargs)
+    c.whatsapp = TimedWhatsApp()
+    for i in range(20):
+        c.reply_outbox.upsert(str(i), {'id': str(i), 'mobile': '9199', 'status': 'PENDING'})
+    payload = {'entry': [{'changes': [{'value': {'messages': [
+        {'id': 'timed-command', 'from': '9199', 'type': 'text', 'text': {'body': command}}
+    ]}}]}]}
+    started = time.monotonic()
+    import hashlib
+    import hmac
+    c.whatsapp_app_secret = 'performance-test-secret'
+    body = json.dumps(payload).encode()
+    signature = hmac.new(c.whatsapp_app_secret.encode(), body, hashlib.sha256).hexdigest()
+    response = client.post('/webhook', content=body,
+        headers={'X-Hub-Signature-256': 'sha256=' + signature})
+    assert response.status_code == 200
+    assert time.monotonic() - started < 1.0
+    assert events == ['commit', 'reply', 'commit']
+
+
 class FakeGitHub(GitHubRepositoryPort):
     """In-memory GitHub Contents API stand-in."""
 

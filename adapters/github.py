@@ -11,6 +11,8 @@ validate -> replace -> commit -> push. Never force-push.
 from __future__ import annotations
 
 import base64
+import hashlib
+from concurrent.futures import ThreadPoolExecutor
 import os
 import subprocess
 import time
@@ -262,6 +264,7 @@ class GitHubApiRepository(GitHubRepositoryPort):
             return {path: self.read_file(path) for path in paths}
         entries = {entry['path']: entry for entry in tree['tree']}
         result = {}
+        missing = {}
         for path in paths:
             entry = entries.get(path)
             if entry is None:
@@ -272,12 +275,22 @@ class GitHubApiRepository(GitHubRepositoryPort):
             sha = entry['sha']
             cached = self._blob_cache.get(path)
             if cached is None or cached[0] != sha:
-                blob = self._api('get', f'git/blobs/{sha}')
-                if blob.get('encoding') != 'base64':
-                    raise ValueError('Unsupported Git blob encoding')
-                content = base64.b64decode(blob['content'])
+                missing[path] = sha
+            else:
+                result[path] = cached[1]
+        def fetch_blob(sha):
+            blob = self._api('get', f'git/blobs/{sha}')
+            if blob.get('encoding') != 'base64':
+                raise ValueError('Unsupported Git blob encoding')
+            return base64.b64decode(blob['content'])
+        # Immutable object reads can overlap; publish cache updates only after
+        # every read succeeds. RepoSync still installs one complete snapshot.
+        if missing:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                contents = list(pool.map(fetch_blob, missing.values()))
+            for (path, sha), content in zip(missing.items(), contents):
                 self._blob_cache[path] = (sha, content)
-            result[path] = self._blob_cache[path][1]
+                result[path] = content
         return result
 
     def write_file(self, path: str, content: bytes, message: str) -> None:
@@ -291,11 +304,22 @@ class GitHubApiRepository(GitHubRepositoryPort):
         if self._base_commit is None:
             raise RuntimeError("Read a GitHub snapshot before writing")
         entries = {}
+        blob_shas = {}
         for path, content, _ in self._pending:
-            blob = self._api("post", "git/blobs", json={
-                "content": base64.b64encode(content).decode(), "encoding": "base64",
-            })
-            entries[path] = {"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]}
+            entry = {"path": path, "mode": "100644", "type": "blob"}
+            try:
+                # Git's tree API creates UTF-8 blobs in the same request.
+                # CSV transactions need no separate upload per changed file.
+                entry["content"] = content.decode("utf-8")
+                blob_shas[path] = hashlib.sha1(
+                    b"blob " + str(len(content)).encode() + b"\0" + content
+                ).hexdigest()
+            except UnicodeDecodeError:
+                blob = self._api("post", "git/blobs", json={
+                    "content": base64.b64encode(content).decode(), "encoding": "base64",
+                })
+                entry["sha"] = blob_shas[path] = blob["sha"]
+            entries[path] = entry
         tree = self._api("post", "git/trees", json={
             "base_tree": self._base_tree, "tree": list(entries.values()),
         })
@@ -308,7 +332,7 @@ class GitHubApiRepository(GitHubRepositoryPort):
             "sha": commit["sha"], "force": False,
         })
         for path, content, _ in self._pending:
-            self._blob_cache[path] = (entries[path]['sha'], content)
+            self._blob_cache[path] = (blob_shas[path], content)
         self._pending.clear()
         self._base_commit, self._base_tree = commit["sha"], tree["sha"]
         self._snapshot_unchanged = False

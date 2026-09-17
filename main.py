@@ -235,7 +235,8 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
     production = c.config.get("persistence", {}).get("mode") == "github_api"
     prepared_snapshots = []
     failed_phases = []
-    with state_lock(c.root, timeout=lock_timeout):
+    # Background retries yield immediately to an occupied customer transaction.
+    with state_lock(c.root, timeout=lock_timeout if payload else 0):
         # Capture only under the lock: another request temporarily installs
         # QueuedReplies on the shared container while handling its message.
         client = c.whatsapp
@@ -260,7 +261,8 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
                 mobiles = {m.get('from', '') for m, _ in _iter_messages(payload)} if payload else None
                 reply_ids = ({row['id'] for row in c.reply_outbox.all()} - existing_reply_ids) if payload else None
                 prepared_replies, preparation_failed = prepare_replies(
-                    c.reply_outbox, c, mobiles=mobiles, reply_ids=reply_ids)
+                    c.reply_outbox, c, mobiles=mobiles, reply_ids=reply_ids,
+                    limit=5 if payload else 1)
                 if not payload and preparation_failed:
                     failed_phases.append('prepare_replies')
             # In production this atomically persists both the inbound state and

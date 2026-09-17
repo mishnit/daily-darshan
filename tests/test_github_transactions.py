@@ -159,3 +159,61 @@ def test_github_read_error_is_not_treated_as_missing_file():
     server.get = lambda *a, **k: Response(status=503)
     with pytest.raises(requests.HTTPError):
         repo.read_file("subscribers.csv")
+
+
+@pytest.mark.parametrize('count', [1, 5, 12])
+def test_csv_commit_network_cost_is_constant(count):
+    import time
+    server = GitServer()
+    repo = GitHubApiRepository('owner/repo', session=server)
+    repo.begin_snapshot()
+    calls = []
+    original = repo._api
+    def delayed(method, path, **kwargs):
+        calls.append(path)
+        time.sleep(0.02)
+        return original(method, path, **kwargs)
+    repo._api = delayed
+    for i in range(count):
+        repo.write_file(f'{i}.csv', 'name\nRadha 🙏\n'.encode(), 'test')
+    started = time.monotonic()
+    repo.commit([], 'test')
+    elapsed = time.monotonic() - started
+    assert calls == ['git/trees', 'git/commits', 'git/refs/heads/main']
+    assert elapsed < 0.5
+    assert all(entry['content'] == 'name\nRadha 🙏\n' for entry in server.trees[0]['tree'])
+
+
+def test_binary_commit_retains_blob_upload():
+    server = GitServer()
+    repo = GitHubApiRepository('owner/repo', session=server)
+    repo.begin_snapshot()
+    repo.write_file('binary', b'\xff\x00', 'test')
+    repo.commit([], 'test')
+    assert 'sha' in server.trees[0]['tree'][0]
+    assert 'content' not in server.trees[0]['tree'][0]
+
+
+def test_changed_blob_reads_overlap_without_partial_snapshot(monkeypatch):
+    import threading
+    server = GitServer()
+    repo = GitHubApiRepository('owner/repo', session=server)
+    repo.begin_snapshot()
+    barrier = threading.Barrier(2)
+    original = server.get
+    def read(url, **kwargs):
+        if 'git/blobs/' in url:
+            barrier.wait(timeout=2)
+        return original(url, **kwargs)
+    monkeypatch.setattr(server, 'get', read)
+    assert repo.read_files(['subscribers.csv', 'payments.csv']) == {
+        'subscribers.csv': b'original', 'payments.csv': b'original'}
+    repo._blob_cache.clear()
+    def broken(url, **kwargs):
+        if 'git/blobs/' in url:
+            return Response(status=503)
+        return original(url, **kwargs)
+    monkeypatch.setattr(server, 'get', broken)
+    with pytest.raises(requests.HTTPError):
+        repo.read_files(['subscribers.csv', 'payments.csv'])
+    assert repo._blob_cache == {}
