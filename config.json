@@ -19,7 +19,7 @@
     "monday": ["mahakal"],
     "tuesday": ["salangpur"],
     "wednesday": ["iskcon_bangalore", "iskcon_hyderabad"],
-    "thursday": ["swaminarayan"],
+    "thursday": ["swaminarayan", "iskcon_hyderabad"],
     "friday": ["iskcon_vrindavan", "iskcon_mumbai", "iskcon_hyderabad"],
     "saturday": ["iskcon_mumbai", "iskcon_vrindavan", "iskcon_hyderabad"],
     "sunday": ["mayapur", "iskcon_hyderabad"]

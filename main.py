@@ -9,7 +9,7 @@ Conversation flow (section 6, 23):
 Admin verification happens out-of-band (payments.csv / admin UI).
 """
 from __future__ import annotations
-
+import traceback
 import hashlib
 import hmac
 import json
@@ -21,7 +21,7 @@ from uuid import uuid4
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, Query, Request, Response
+from fastapi import FastAPI, Query, Request, Response, BackgroundTasks
 from starlette.concurrency import run_in_threadpool
 from domain.enums import PaymentStatus
 from repositories.state_lock import state_lock
@@ -165,7 +165,7 @@ async def retry_replies(request: Request) -> Response:
 
 
 @app.post("/webhook")
-async def receive_webhook(request: Request) -> Response:
+async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -> Response:
     raw_body = await request.body()
 
     # Reject forged/unsigned requests before doing any work (must be synchronous).
@@ -186,12 +186,10 @@ async def receive_webhook(request: Request) -> Response:
     if not isinstance(payload, dict):
         return _json({"status": "ignored"})
 
-    # Keep the event loop free, but do not acknowledge before durable commit.
+    # Acknowledge only after synchronous durable processing.
     try:
         await run_in_threadpool(_process_payload, c, payload, 10.0)
     except StateLockTimeout:
-        # Expected backpressure if a short Git commit phase overlaps. Meta will
-        # retry; log one line rather than an alarming stack trace.
         log.warning("Webhook state is busy; returning 503 for provider retry")
         return _json({"status": "retry"}, 503)
     except Exception:
@@ -199,71 +197,117 @@ async def receive_webhook(request: Request) -> Response:
         return _json({"status": "retry"}, 503)
     return _json({"status": "accepted"})
 
+def _process_payload_with_retries(c, payload: dict, lock_timeout: float | None = None) -> None:
+    """
+    Wraps _process_payload to handle internal retries 
+    since the webhook provider is no longer retrying for us.
+    """
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            _process_payload(c, payload, lock_timeout)
+            return  # Success, exit the loop
+            
+        except StateLockTimeout:
+            if attempt < max_retries - 1:
+                log.warning(f"Webhook state is busy. Retrying internally... (Attempt {attempt + 1}/{max_retries})")
+                time.sleep(2)
+            else:
+                log.error("Permanent failure: StateLockTimeout after max retries.")
+                break
+                
+        except RuntimeError as e:
+            if "need retry" in str(e) and attempt < max_retries - 1:
+                log.warning(f"Webhook processing failed. Retrying... (Attempt {attempt + 1}/{max_retries})")
+                time.sleep(2)
+            else:
+                log.exception("Webhook completely failed after max retries")
+                break
+                
+        except Exception:
+            log.exception("Unexpected error during webhook background processing")
+            break
+
 
 def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> None:
     """Persist intent, send outside the lock, then merge the provider outcome."""
     production = c.config.get("persistence", {}).get("mode") == "github_api"
     prepared_snapshots = []
-    failed = False
+    failed_phases = []
     with state_lock(c.root, timeout=lock_timeout):
         # Capture only under the lock: another request temporarily installs
         # QueuedReplies on the shared container while handling its message.
         client = c.whatsapp
         if production and not c.repo_sync.enabled:
             raise RuntimeError("Durable persistence is unavailable")
+        
         c.repo_sync.pull(strict=True)
         snapshot = _snapshot_webhook_state(c)
         prepared_replies = []
+        
         try:
             if production:
                 from application.reply_outbox import QueuedReplies, prepare_replies
                 existing_reply_ids = {row['id'] for row in c.reply_outbox.all()}
                 c.whatsapp = QueuedReplies(c.reply_outbox, c)
-            failed = _process_messages(c, payload)
+            
+            # Phase 1: Message Processing
+            if _process_messages(c, payload):
+                failed_phases.append("_process_messages")
+
             if production:
-                # Internal worker (empty payload) drains a bounded global batch.
-                # Customer events never inherit another customer's stuck state.
                 mobiles = {m.get('from', '') for m, _ in _iter_messages(payload)} if payload else None
                 reply_ids = ({row['id'] for row in c.reply_outbox.all()} - existing_reply_ids) if payload else None
                 prepared_replies, preparation_failed = prepare_replies(
                     c.reply_outbox, c, mobiles=mobiles, reply_ids=reply_ids)
-                if not payload:
-                    failed |= preparation_failed
+                if not payload and preparation_failed:
+                    failed_phases.append('prepare_replies')
             # In production this atomically persists both the inbound state and
             # each PENDING outbound reservation before Meta is contacted.
             c.repo_sync.push("Webhook update", strict=True)
+
             if production:
                 from application.reply_outbox import snapshot_prepared_replies
                 prepared_snapshots = snapshot_prepared_replies(c.reply_outbox, prepared_replies)
                 if len(prepared_snapshots) != len(prepared_replies):
                     raise RuntimeError("Durable reply reservation disappeared before send")
-        except Exception:
+
+        except Exception as e:
+            log.exception(f"Exception raised inside primary state lock: {e}")
             _restore_webhook_state(snapshot)
             c.repo_sync.abort()
             raise
         finally:
             c.whatsapp = client
+
+    # Phase 3: Outbound WhatsApp Send (Outside Lock)
     if production and prepared_snapshots:
         from application.reply_outbox import send_reply_snapshots, merge_reply_outcomes
         outcomes, send_failed = send_reply_snapshots(client, prepared_snapshots)
         # Persisted outbound failures belong to the independent retry worker.
         # Redelivering an already saved inbound event cannot repair them.
-        if not payload:
-            failed |= send_failed
+        if not payload and send_failed:
+            failed_phases.append('send_reply_snapshots')
         # Reacquire only for the small fresh-read/merge/commit transaction.
         # Other webhook requests can progress while the Meta call is in flight.
         with state_lock(c.root, timeout=lock_timeout):
             c.repo_sync.pull(strict=True)
             snapshot = _snapshot_webhook_state(c)
             try:
-                failed |= merge_reply_outcomes(c.reply_outbox, outcomes)
+                if merge_reply_outcomes(c.reply_outbox, outcomes):
+                    failed_phases.append("merge_reply_outcomes")
                 c.repo_sync.push("Persist webhook reply outbox", strict=True)
-            except Exception:
+            except Exception as e:
+                log.exception(f"Exception raised inside merge state lock: {e}")
                 _restore_webhook_state(snapshot)
                 c.repo_sync.abort()
                 raise
-    if failed:
-        raise RuntimeError("One or more webhook responses need retry")
+
+    # Clear error reporting
+    if failed_phases:
+        log.error("Webhook processing failed in phases: %s", failed_phases)
+        raise RuntimeError(f"One or more webhook responses need retry (Failures in: {', '.join(failed_phases)})")
 
 
 def _process_messages(c, payload: dict) -> bool:
