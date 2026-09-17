@@ -9,7 +9,7 @@ Conversation flow (section 6, 23):
 Admin verification happens out-of-band (payments.csv / admin UI).
 """
 from __future__ import annotations
-
+import traceback
 import hashlib
 import hmac
 import json
@@ -230,57 +230,72 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
     production = c.config.get("persistence", {}).get("mode") == "github_api"
     prepared_snapshots = []
     client = c.whatsapp
-    failed = False
+    failed_phases = []  # Track exact failure points
+
     with state_lock(c.root, timeout=lock_timeout):
         if production and not c.repo_sync.enabled:
             raise RuntimeError("Durable persistence is unavailable")
+        
         c.repo_sync.pull(strict=True)
         snapshot = _snapshot_webhook_state(c)
         prepared_replies = []
+        
         try:
             if production:
                 from application.reply_outbox import QueuedReplies, prepare_replies
                 c.whatsapp = QueuedReplies(c.reply_outbox, c)
-            failed = _process_messages(c, payload)
+            
+            # Phase 1: Message Processing
+            if _process_messages(c, payload):
+                failed_phases.append("_process_messages")
+
             if production:
-                # Internal worker (empty payload) drains a bounded global batch.
-                # Customer events never inherit another customer's stuck state.
                 mobiles = {m.get('from', '') for m, _ in _iter_messages(payload)} if payload else None
                 prepared_replies, preparation_failed = prepare_replies(c.reply_outbox, c, mobiles=mobiles)
-                failed |= preparation_failed
-            # In production this atomically persists both the inbound state and
-            # each PENDING outbound reservation before Meta is contacted.
+                if preparation_failed:
+                    failed_phases.append("prepare_replies")
+
             c.repo_sync.push("Webhook update", strict=True)
+
             if production:
                 from application.reply_outbox import snapshot_prepared_replies
                 prepared_snapshots = snapshot_prepared_replies(c.reply_outbox, prepared_replies)
                 if len(prepared_snapshots) != len(prepared_replies):
                     raise RuntimeError("Durable reply reservation disappeared before send")
-        except Exception:
+
+        except Exception as e:
+            log.exception(f"Exception raised inside primary state lock: {e}")
             _restore_webhook_state(snapshot)
             c.repo_sync.abort()
             raise
         finally:
             c.whatsapp = client
+
+    # Phase 3: Outbound WhatsApp Send (Outside Lock)
     if production and prepared_snapshots:
         from application.reply_outbox import send_reply_snapshots, merge_reply_outcomes
         outcomes, send_failed = send_reply_snapshots(client, prepared_snapshots)
-        failed |= send_failed
-        # Reacquire only for the small fresh-read/merge/commit transaction.
-        # Other webhook requests can progress while the Meta call is in flight.
+        if send_failed:
+            failed_phases.append("send_reply_snapshots (Meta API outbound send failed)")
+
+        # Phase 4: Merge outcomes back into state
         with state_lock(c.root, timeout=lock_timeout):
             c.repo_sync.pull(strict=True)
             snapshot = _snapshot_webhook_state(c)
             try:
-                failed |= merge_reply_outcomes(c.reply_outbox, outcomes)
+                if merge_reply_outcomes(c.reply_outbox, outcomes):
+                    failed_phases.append("merge_reply_outcomes")
                 c.repo_sync.push("Persist webhook reply outbox", strict=True)
-            except Exception:
+            except Exception as e:
+                log.exception(f"Exception raised inside merge state lock: {e}")
                 _restore_webhook_state(snapshot)
                 c.repo_sync.abort()
                 raise
-    if failed:
-        log.error(f"DEBUG: Webhook failed. Payload: {payload}")
-        raise RuntimeError("One or more webhook responses need retry")
+
+    # Clear error reporting
+    if failed_phases:
+        log.error(f"DEBUG: Webhook processing failed in phase(s): {failed_phases}. Payload: {payload}")
+        raise RuntimeError(f"One or more webhook responses need retry (Failures in: {', '.join(failed_phases)})")
 
 
 def _process_messages(c, payload: dict) -> bool:
