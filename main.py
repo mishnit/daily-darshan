@@ -279,6 +279,7 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
                 c.repo_sync.abort()
                 raise
     if failed:
+        log.error(f"DEBUG: Webhook failed. Payload: {payload}")
         raise RuntimeError("One or more webhook responses need retry")
 
 
