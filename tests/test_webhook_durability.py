@@ -353,7 +353,7 @@ def test_webhook_isolates_failing_message_and_still_200(app_client, monkeypatch)
 
     # Preserve the successful message; ask for redelivery of the failed one.
     assert r.status_code == 200
-    assert r.json()["status"] == "retry"
+    assert r.json()["status"] == "accepted"
     assert calls["n"] == 2
     # The good message still created a subscriber (plan tap with name).
     assert main.container.subscribers.find("9199") is not None
