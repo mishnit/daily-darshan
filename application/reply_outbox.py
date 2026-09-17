@@ -279,5 +279,3 @@ def merge_reply_outcomes(repository, outcomes):
         )
         repository.upsert(current["id"], current)
     return failed
-
-```
