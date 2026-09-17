@@ -55,8 +55,10 @@ def drain_replies(repository, client, persist, container=None, now=None):
         if float(row.get("next_attempt") or 0) > now:
             continue
         attempts = int(row.get("attempts") or 0)
-        if attempts >= 5:
-            failed = True
+        if attempts >= 4:
+            row.update(status='CANCELLED', error='Retry limit reached; send MENU for a fresh response')
+            repository.upsert(row['id'], row)
+            persist()
             continue
         row["status"] = "PENDING"
         row["attempts"] = str(attempts + 1)
@@ -77,7 +79,7 @@ def drain_replies(repository, client, persist, container=None, now=None):
     return failed
 
 
-def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5):
+def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5, reply_ids=None):
     """Reserve eligible replies for sending in the caller's next commit.
 
     The returned IDs are safe to send only after that commit succeeds.  This
@@ -89,6 +91,8 @@ def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5)
     prepared = []
     failed = False
     for row in repository.all():
+        if reply_ids is not None and row['id'] not in reply_ids:
+            continue
         if mobiles is not None and row.get('mobile') not in mobiles:
             continue
         if row["status"] in {"PENDING", "UNKNOWN"}:
@@ -108,8 +112,9 @@ def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5)
         if float(row.get("next_attempt") or 0) > now:
             continue
         attempts = int(row.get("attempts") or 0)
-        if attempts >= 5:
-            failed = True
+        if attempts >= 4:  # Initial attempt plus at most three retries.
+            row.update(status='CANCELLED', error='Retry limit reached; send MENU for a fresh response')
+            repository.upsert(row['id'], row)
             continue
         if len(prepared) >= limit:
             continue
@@ -180,6 +185,8 @@ def send_reply_snapshots(client, snapshots, now=None):
         row.update(status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
                    whatsapp_message_id=result.message_id or "", error=result.error or "",
                    next_attempt=str(now + min(3600, 60 * 2 ** (attempts - 1))))
+        if row['status'] == 'FAILED' and attempts >= 4:
+            row['status'] = 'CANCELLED'
         outcomes.append(row)
         failed |= not result.ok
     return outcomes, failed

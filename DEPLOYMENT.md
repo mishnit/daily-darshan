@@ -610,3 +610,15 @@ Do **not** hand-edit CSVs while a scheduler job might be committing:
   users subscribe. Meta failure-status callbacks also reconcile `csv/sentlog.csv` and
   `csv/renewals.csv`, so pull before editing to pick up any rows it changed.
 - Git history is the audit trail — every verification/activation is a traceable commit.
+# Webhook reply priority and recovery
+
+Customer requests send only replies created by that request. Conversation state
+and outbound reservations are committed before transport; provider outcomes are
+committed afterward. Old pending replies do not cause a new request to return
+503. Persistence and inbound processing failures still return 503 for recovery.
+
+The Retry WhatsApp Replies workflow runs independently every 15 minutes. Confirmed
+failed replies receive at most three retries after the initial send, then become
+CANCELLED. Superseded or expired replies are cancelled. PENDING/UNKNOWN sends have
+an ambiguous provider outcome and are never blindly resent: reconcile them using
+provider evidence. A fresh MENU request can proceed while these records remain.

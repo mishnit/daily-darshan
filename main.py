@@ -204,9 +204,11 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
     """Persist intent, send outside the lock, then merge the provider outcome."""
     production = c.config.get("persistence", {}).get("mode") == "github_api"
     prepared_snapshots = []
-    client = c.whatsapp
     failed = False
     with state_lock(c.root, timeout=lock_timeout):
+        # Capture only under the lock: another request temporarily installs
+        # QueuedReplies on the shared container while handling its message.
+        client = c.whatsapp
         if production and not c.repo_sync.enabled:
             raise RuntimeError("Durable persistence is unavailable")
         c.repo_sync.pull(strict=True)
@@ -215,14 +217,18 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
         try:
             if production:
                 from application.reply_outbox import QueuedReplies, prepare_replies
+                existing_reply_ids = {row['id'] for row in c.reply_outbox.all()}
                 c.whatsapp = QueuedReplies(c.reply_outbox, c)
             failed = _process_messages(c, payload)
             if production:
                 # Internal worker (empty payload) drains a bounded global batch.
                 # Customer events never inherit another customer's stuck state.
                 mobiles = {m.get('from', '') for m, _ in _iter_messages(payload)} if payload else None
-                prepared_replies, preparation_failed = prepare_replies(c.reply_outbox, c, mobiles=mobiles)
-                failed |= preparation_failed
+                reply_ids = ({row['id'] for row in c.reply_outbox.all()} - existing_reply_ids) if payload else None
+                prepared_replies, preparation_failed = prepare_replies(
+                    c.reply_outbox, c, mobiles=mobiles, reply_ids=reply_ids)
+                if not payload:
+                    failed |= preparation_failed
             # In production this atomically persists both the inbound state and
             # each PENDING outbound reservation before Meta is contacted.
             c.repo_sync.push("Webhook update", strict=True)
@@ -240,7 +246,10 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
     if production and prepared_snapshots:
         from application.reply_outbox import send_reply_snapshots, merge_reply_outcomes
         outcomes, send_failed = send_reply_snapshots(client, prepared_snapshots)
-        failed |= send_failed
+        # Persisted outbound failures belong to the independent retry worker.
+        # Redelivering an already saved inbound event cannot repair them.
+        if not payload:
+            failed |= send_failed
         # Reacquire only for the small fresh-read/merge/commit transaction.
         # Other webhook requests can progress while the Meta call is in flight.
         with state_lock(c.root, timeout=lock_timeout):

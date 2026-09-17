@@ -19,6 +19,42 @@ from application.reply_outbox import (
 )
 
 
+def test_current_reply_bypasses_same_customer_pending_backlog(container):
+    import main
+    calls = prepare(container)
+    container.config['persistence'] = {'mode': 'github_api'}
+    container.repo_sync = SimpleNamespace(enabled=True, pull=lambda **kw: None,
+        push=lambda *a, **kw: None, abort=lambda: None)
+    container.reply_outbox.upsert('old', {'id': 'old', 'mobile': '9199', 'status': 'PENDING'})
+    payload = {'entry': [{'changes': [{'value': {'messages': [
+        {'id': 'fresh-menu', 'from': '9199', 'type': 'text', 'text': {'body': 'MENU'}}
+    ]}}]}]}
+    main._process_payload(container, payload)
+    assert len(calls) == 1
+    assert container.reply_outbox.find('old')['status'] == 'PENDING'
+    main._process_payload(container, payload)
+    assert len(calls) == 1  # Provider redelivery never sends twice.
+
+
+def test_reply_stops_after_initial_send_and_three_retries(container):
+    prepare(container)
+    QueuedReplies(container.reply_outbox, container).send_text('9199', 'reply')
+    calls = []
+    def reject(*a, **kw):
+        calls.append(a)
+        return WhatsAppResult(ok=False, error='temporary')
+    client = SimpleNamespace(send_text=reject)
+    for _ in range(6):
+        row = container.reply_outbox.all()[0]
+        row['next_attempt'] = '0'
+        container.reply_outbox.upsert(row['id'], row)
+        ids, _ = prepare_replies(container.reply_outbox, container)
+        outcomes, _ = send_reply_snapshots(client, snapshot_prepared_replies(container.reply_outbox, ids))
+        merge_reply_outcomes(container.reply_outbox, outcomes)
+    assert len(calls) == 4
+    assert container.reply_outbox.all()[0]['status'] == 'CANCELLED'
+
+
 def prepare(c):
     c.subscriber_service.upsert_pending("9199", "monthly", "Nitin")
     c.subscriber_service.grant_opt_in("9199", "test")
@@ -270,8 +306,7 @@ def test_worker_retries_without_new_customer_message_and_cooldown_keeps_current_
     def payload(identifier):
         return {"entry": [{"changes": [{"value": {"messages": [{"id": identifier,
             "from": "9199", "type": "text", "text": {"body": "RESEND"}}]}}]}]}
-    with pytest.raises(RuntimeError):
-        main._process_payload(container, payload("recovery-1"))
+    main._process_payload(container, payload("recovery-1"))
     version = container.conversations.find("9199")["version"]
     main._process_payload(container, payload("recovery-2"))
     assert container.conversations.find("9199")["version"] == version
