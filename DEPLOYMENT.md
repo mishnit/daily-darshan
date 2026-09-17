@@ -174,9 +174,6 @@ The image, Pages-deployment and delivery workflows support `workflow_dispatch`:
 Choose the recovery entry point deliberately:
 
 - **Daily Image** on `main` stores candidates and asks the admin to preview/approve a source.
-- Candidate watermarking retains source pixel dimensions and writes JPEG quality 100
-  with chroma subsampling disabled. A dimension mismatch fails generation rather than
-  silently storing a resized image. JPEG watermarking still requires lossy re-encoding.
   Approval triggers regeneration, deployment and delivery. A single source still requires approval.
 - **Deploy Daily Darshan Pages** publishes the current `main` `docs/` tree once and then starts
   Daily Delivery. Use this after a mid-day activation or manual page regeneration.
