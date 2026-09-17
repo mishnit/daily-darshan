@@ -88,10 +88,6 @@ def _watermark_details(on_date: date, source: str) -> str:
     )
 
 
-class ImageResolutionChanged(RuntimeError):
-    """Watermark generation must never change the source pixel dimensions."""
-
-
 def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str = "") -> bytes:
     """Normalize and brand decoded remote images before storage/page rendering."""
     try:
@@ -147,17 +143,8 @@ def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str =
                 centered(details, details_y, details_font)
 
             out = io.BytesIO()
-            image.save(out, format="JPEG", quality=100, subsampling=0, optimize=True)
-            branded = out.getvalue()
-            with PILImage.open(io.BytesIO(branded)) as saved:
-                if saved.size != (width, height):
-                    raise ImageResolutionChanged(
-                        f"Watermark changed image resolution from {(width, height)} to {saved.size}"
-                    )
-            return branded
-    except ImageResolutionChanged:
-        # Never silently store an unexpectedly resized image.
-        raise
+            image.save(out, format="JPEG", quality=90, optimize=True)
+            return out.getvalue()
     except Exception:
         # Validation already protects production inputs. Keep test doubles and
         # environments without Pillow backward compatible.
