@@ -186,10 +186,15 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
     if not isinstance(payload, dict):
         return _json({"status": "ignored"})
 
-    # ---> NEW: Add the task to the background queue instead of awaiting it
-    background_tasks.add_task(_process_payload_with_retries, c, payload, 10.0)
-    
-    # ---> NEW: Immediately return a 200 OK (accepted) to prevent the 503 timeouts
+    # Acknowledge only after synchronous durable processing.
+    try:
+        await run_in_threadpool(_process_payload, c, payload, 10.0)
+    except StateLockTimeout:
+        log.warning("Webhook state is busy; returning 503 for provider retry")
+        return _json({"status": "retry"}, 503)
+    except Exception:
+        log.exception("Webhook not completed; request must be retried")
+        return _json({"status": "retry"}, 503)
     return _json({"status": "accepted"})
 
 def _process_payload_with_retries(c, payload: dict, lock_timeout: float | None = None) -> None:
@@ -229,10 +234,11 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
     """Persist intent, send outside the lock, then merge the provider outcome."""
     production = c.config.get("persistence", {}).get("mode") == "github_api"
     prepared_snapshots = []
-    client = c.whatsapp
-    failed_phases = []  # Track exact failure points
-
+    failed_phases = []
     with state_lock(c.root, timeout=lock_timeout):
+        # Capture only under the lock: another request temporarily installs
+        # QueuedReplies on the shared container while handling its message.
+        client = c.whatsapp
         if production and not c.repo_sync.enabled:
             raise RuntimeError("Durable persistence is unavailable")
         
@@ -243,6 +249,7 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
         try:
             if production:
                 from application.reply_outbox import QueuedReplies, prepare_replies
+                existing_reply_ids = {row['id'] for row in c.reply_outbox.all()}
                 c.whatsapp = QueuedReplies(c.reply_outbox, c)
             
             # Phase 1: Message Processing
@@ -251,10 +258,13 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
 
             if production:
                 mobiles = {m.get('from', '') for m, _ in _iter_messages(payload)} if payload else None
-                prepared_replies, preparation_failed = prepare_replies(c.reply_outbox, c, mobiles=mobiles)
-                if preparation_failed:
-                    failed_phases.append("prepare_replies")
-
+                reply_ids = ({row['id'] for row in c.reply_outbox.all()} - existing_reply_ids) if payload else None
+                prepared_replies, preparation_failed = prepare_replies(
+                    c.reply_outbox, c, mobiles=mobiles, reply_ids=reply_ids)
+                if not payload and preparation_failed:
+                    failed_phases.append('prepare_replies')
+            # In production this atomically persists both the inbound state and
+            # each PENDING outbound reservation before Meta is contacted.
             c.repo_sync.push("Webhook update", strict=True)
 
             if production:
@@ -275,10 +285,12 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
     if production and prepared_snapshots:
         from application.reply_outbox import send_reply_snapshots, merge_reply_outcomes
         outcomes, send_failed = send_reply_snapshots(client, prepared_snapshots)
-        if send_failed:
-            failed_phases.append("send_reply_snapshots (Meta API outbound send failed)")
-
-        # Phase 4: Merge outcomes back into state
+        # Persisted outbound failures belong to the independent retry worker.
+        # Redelivering an already saved inbound event cannot repair them.
+        if not payload and send_failed:
+            failed_phases.append('send_reply_snapshots')
+        # Reacquire only for the small fresh-read/merge/commit transaction.
+        # Other webhook requests can progress while the Meta call is in flight.
         with state_lock(c.root, timeout=lock_timeout):
             c.repo_sync.pull(strict=True)
             snapshot = _snapshot_webhook_state(c)
@@ -294,7 +306,7 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
 
     # Clear error reporting
     if failed_phases:
-        log.error(f"DEBUG: Webhook processing failed in phase(s): {failed_phases}. Payload: {payload}")
+        log.error("Webhook processing failed in phases: %s", failed_phases)
         raise RuntimeError(f"One or more webhook responses need retry (Failures in: {', '.join(failed_phases)})")
 
 

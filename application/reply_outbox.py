@@ -55,16 +55,9 @@ def drain_replies(repository, client, persist, container=None, now=None):
     now = time.time() if now is None else now
     failed = False
     for row in repository.all():
-        # Auto-cancel stranded PENDING or UNKNOWN items to prevent retries & unblock queue
+        # An in-flight transport may still own this reservation.
         if row["status"] in {"PENDING", "UNKNOWN"}:
-            log.warning(f"drain_replies: auto-cancelling stranded item {row.get('id')} in state '{row['status']}'")
-            row.update(
-                status="CANCELLED",
-                error=f"Cancelled: Abandoned {row['status']} item to prevent duplicate send",
-                updated_at=str(now),
-            )
-            repository.upsert(row["id"], row)
-            persist()
+            failed = True
             continue
 
         if row["status"] not in {"QUEUED", "FAILED"}:
@@ -90,8 +83,10 @@ def drain_replies(repository, client, persist, container=None, now=None):
             continue
 
         attempts = int(row.get("attempts") or 0)
-        if attempts >= 5:
-            failed = True
+        if attempts >= 4:
+            row.update(status='CANCELLED', error='Retry limit reached; send MENU for a fresh response')
+            repository.upsert(row['id'], row)
+            persist()
             continue
 
         row["status"] = "PENDING"
@@ -120,25 +115,27 @@ def drain_replies(repository, client, persist, container=None, now=None):
     return failed
 
 
-def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5):
-    """Reserve eligible replies for sending in the caller's next commit."""
+def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5, reply_ids=None):
+    """Reserve eligible replies for sending in the caller's next commit.
+
+    The returned IDs are safe to send only after that commit succeeds.  This
+    lets the webhook persist its inbound state and PENDING send reservations
+    atomically, removing a redundant GitHub commit without weakening the
+    crash/duplicate safeguard.
+    """
     now = time.time() if now is None else now
     prepared = []
     failed = False
 
     for row in repository.all():
+        if reply_ids is not None and row['id'] not in reply_ids:
+            continue
         if mobiles is not None and row.get('mobile') not in mobiles:
             continue
 
-        # Auto-cancel stranded PENDING or UNKNOWN items to prevent duplicate sends & unblock queue
+        # An in-flight transport may still own this reservation.
         if row["status"] in {"PENDING", "UNKNOWN"}:
-            log.warning(f"prepare_replies: auto-cancelling stranded item {row.get('id')} for {row.get('mobile')} in state '{row['status']}'")
-            row.update(
-                status="CANCELLED",
-                error=f"Cancelled: Abandoned {row['status']} item to prevent duplicate send",
-                updated_at=str(now),
-            )
-            repository.upsert(row["id"], row)
+            failed = True
             continue
 
         if row["status"] not in {"QUEUED", "FAILED"}:
@@ -164,9 +161,9 @@ def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5)
             continue
 
         attempts = int(row.get("attempts") or 0)
-        if attempts >= 5:
-            log.warning(f"prepare_replies: outbox item {row.get('id')} reached max attempts ({attempts})")
-            failed = True
+        if attempts >= 4:  # Initial attempt plus at most three retries.
+            row.update(status='CANCELLED', error='Retry limit reached; send MENU for a fresh response')
+            repository.upsert(row['id'], row)
             continue
 
         if len(prepared) >= limit:
@@ -242,13 +239,11 @@ def send_reply_snapshots(client, snapshots, now=None):
             failed = True
             continue
         attempts = max(1, int(row.get("attempts") or 1))
-        row.update(
-            status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
-            whatsapp_message_id=result.message_id or "",
-            error=result.error or "",
-            next_attempt=str(now + min(3600, 60 * 2 ** (attempts - 1))),
-            updated_at=str(now),
-        )
+        row.update(status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
+                   whatsapp_message_id=result.message_id or "", error=result.error or "",
+                   next_attempt=str(now + min(3600, 60 * 2 ** (attempts - 1))))
+        if row['status'] == 'FAILED' and attempts >= 4:
+            row['status'] = 'CANCELLED'
         outcomes.append(row)
         failed |= not result.ok
     return outcomes, failed

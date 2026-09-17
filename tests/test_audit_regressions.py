@@ -35,7 +35,7 @@ def test_failed_stop_confirmation_preserves_optout_and_retries_reply_only(app_cl
     c.subscriber_service.grant_opt_in("9199", "test")
     c.whatsapp = FakeWhatsApp(always_fail=True)
     payload = text_payload("STOP")
-    assert client.post("/webhook", json=payload).status_code == 200
+    assert client.post("/webhook", json=payload).status_code == 503
     assert c.subscribers.find("9199").opt_in is False
     assert c.processed.was_processed("incoming")
     assert c.reply_retries.find("incoming")
@@ -60,7 +60,7 @@ def test_failed_utr_ack_does_not_lose_or_reassign_payment(app_client):
     message = payload["entry"][0]["changes"][0]["value"]["messages"][0]
     message.update(id="confirm-utr", type="interactive",
                    interactive={"button_reply": {"id": confirm}})
-    assert client.post("/webhook", json=payload).status_code == 200
+    assert client.post("/webhook", json=payload).status_code == 503
     assert c.payments.find(payment.reference_id).utr == "123456789012"
     next_payment = c.payment_service.create_payment("9199", "monthly", TODAY)
     c.whatsapp = FakeWhatsApp()
@@ -73,7 +73,7 @@ def test_failed_utr_confirmation_prompt_does_not_submit_for_review(app_client):
     payment = c.payment_service.create_payment("9199", "monthly", TODAY)
     c.whatsapp = FakeWhatsApp(always_fail=True)
     payload = text_payload("123456789012")
-    assert client.post("/webhook", json=payload).status_code == 200
+    assert client.post("/webhook", json=payload).status_code == 503
     assert not c.payments.find(payment.reference_id).utr
     assert not (c.conversations.find("9199") or {}).get("utr_confirmation")
     c.whatsapp = FakeWhatsApp()
@@ -103,7 +103,7 @@ def test_ack_waits_for_persistence_and_failed_push_is_retryable(app_client, monk
         raise RuntimeError("offline")
     monkeypatch.setattr(c.repo_sync, "push", fail_push)
     payload = _tap_payload("9199", "PLAN_monthly", "durable", name="Nitin")
-    assert client.post("/webhook", json=payload).status_code == 200
+    assert client.post("/webhook", json=payload).status_code == 503
     assert seen == ["push"]
     assert not c.processed.was_processed("durable")
     assert c.subscribers.find("9199") is None
