@@ -4,7 +4,9 @@ import time
 from uuid import uuid4
 from application.ports.whatsapp import WhatsAppResult
 import logging
+
 log = logging.getLogger(__name__)
+
 
 class QueuedReplies:
     def __init__(self, repository, container=None):
@@ -25,10 +27,19 @@ class QueuedReplies:
                 from application.conversation_recovery import state_fingerprint
                 mobile = str(args[0])
                 state = self.container.conversations.find(mobile) or {}
-                row.update(mobile=mobile, version=state.get("version", ""),
-                           fingerprint=state_fingerprint(self.container, mobile),
-                           expires_at=str(float(state.get("last_inbound") or 0) + 23 * 3600),
-                           attempts="0", next_attempt="0")
+                
+                # Fix: Only compute expiration window if last_inbound is valid (>0)
+                last_inbound = float(state.get("last_inbound") or 0)
+                expires_at = str(last_inbound + 23 * 3600) if last_inbound > 0 else "0"
+                
+                row.update(
+                    mobile=mobile,
+                    version=state.get("version", ""),
+                    fingerprint=state_fingerprint(self.container, mobile),
+                    expires_at=expires_at,
+                    attempts="0",
+                    next_attempt="0"
+                )
             self.repository.upsert(key, row)
             return WhatsAppResult(ok=True)
         return enqueue
@@ -38,41 +49,73 @@ def drain_replies(repository, client, persist, container=None, now=None):
     now = time.time() if now is None else now
     failed = False
     for row in repository.all():
-        if row["status"] in {"PENDING", "UNKNOWN"}:
-            failed = True
-            continue
-        if row["status"] not in {"QUEUED", "FAILED"}:
-            continue
-        if container:
-            from application.conversation_recovery import state_fingerprint
-            state = container.conversations.find(row.get("mobile", "")) or {}
-            if (not row.get("version") or row["version"] != state.get("version")
-                    or row.get("fingerprint") != state_fingerprint(container, row.get("mobile", ""))
-                    or float(row.get("expires_at") or 0) <= now):
-                row.update(status="CANCELLED", error="Superseded state or expired reply window; send MENU")
-                repository.upsert(row["id"], row)
-                persist()
+        row_id = row.get("id", "unknown")
+        status = row.get("status")
+
+        if status in {"PENDING", "UNKNOWN"}:
+            updated_at = float(row.get("updated_at") or 0)
+            if updated_at == 0 or (now - updated_at) > 60:
+                log.warning(f"drain_replies: Outbox item {row_id} was stuck in {status}. Resetting to FAILED.")
+                row["status"] = "FAILED"
+                status = "FAILED"
+            else:
+                failed = True
                 continue
+
+        if status not in {"QUEUED", "FAILED"}:
+            continue
+
+        if container:
+            try:
+                from application.conversation_recovery import state_fingerprint
+                mobile = row.get("mobile", "")
+                state = container.conversations.find(mobile) or {}
+
+                expires_at = float(row.get("expires_at") or 0)
+                is_expired = (expires_at > 0 and expires_at <= now)
+
+                version_mismatch = bool(row.get("version")) and (row.get("version") != state.get("version"))
+                fingerprint_mismatch = bool(row.get("fingerprint")) and (row.get("fingerprint") != state_fingerprint(container, mobile))
+
+                if version_mismatch or fingerprint_mismatch or is_expired:
+                    reason = "expired reply window" if is_expired else "superseded state"
+                    row.update(status="CANCELLED", error=f"Superseded state or expired reply window ({reason}); send MENU")
+                    repository.upsert(row_id, row)
+                    persist()
+                    continue
+            except Exception as e:
+                log.exception(f"drain_replies: Error validating state for {row_id}: {e}")
+                failed = True
+                continue
+
         if float(row.get("next_attempt") or 0) > now:
             continue
+
         attempts = int(row.get("attempts") or 0)
         if attempts >= 5:
             failed = True
             continue
+
         row["status"] = "PENDING"
         row["attempts"] = str(attempts + 1)
-        repository.upsert(row["id"], row)
+        row["updated_at"] = str(now)
+        repository.upsert(row_id, row)
         persist()
+
         args, kwargs = json.loads(row["arguments"])
         try:
             result = getattr(client, row["method"])(*args, **kwargs)
         except Exception:
             failed = True
             continue
-        row.update(status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
-                   whatsapp_message_id=result.message_id or "", error=result.error or "",
-                   next_attempt=str(now + min(3600, 60 * 2 ** attempts)))
-        repository.upsert(row["id"], row)
+
+        row.update(
+            status="SENT" if result.ok else "UNKNOWN" if result.unknown else "FAILED",
+            whatsapp_message_id=result.message_id or "",
+            error=result.error or "",
+            next_attempt=str(now + min(3600, 60 * 2 ** attempts))
+        )
+        repository.upsert(row_id, row)
         persist()
         failed |= not result.ok
     return failed
@@ -86,7 +129,7 @@ def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5)
 
     for row in repository.all():
         row_id = row.get("id", "unknown")
-        
+
         # Filter by mobile if specified
         if mobiles is not None and row.get('mobile') not in mobiles:
             continue
@@ -95,10 +138,10 @@ def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5)
 
         # Handle stuck PENDING or UNKNOWN messages
         if status in {"PENDING", "UNKNOWN"}:
-            # Check if it has been stuck in PENDING for more than 60 seconds
             updated_at = float(row.get("updated_at") or 0)
-            if updated_at > 0 and (now - updated_at) > 60:
-                log.warning(f"Outbox item {row_id} was stuck in {status}. Resetting to FAILED for retry.")
+            # Fix: Reset if updated_at is missing/0 OR older than 60s
+            if updated_at == 0 or (now - updated_at) > 60:
+                log.warning(f"Outbox item {row_id} was stuck in {status} (updated_at={updated_at}). Resetting to FAILED for retry.")
                 row["status"] = "FAILED"
                 status = "FAILED"
             else:
@@ -115,10 +158,10 @@ def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5)
                 from application.conversation_recovery import state_fingerprint
                 mobile = row.get("mobile", "")
                 state = container.conversations.find(mobile) or {}
-                
+
                 expires_at = float(row.get("expires_at") or 0)
                 is_expired = (expires_at > 0 and expires_at <= now)
-                
+
                 version_mismatch = bool(row.get("version")) and (row.get("version") != state.get("version"))
                 fingerprint_mismatch = bool(row.get("fingerprint")) and (row.get("fingerprint") != state_fingerprint(container, mobile))
 
@@ -150,7 +193,7 @@ def prepare_replies(repository, container=None, now=None, mobiles=None, limit=5)
         row["status"] = "PENDING"
         row["attempts"] = str(attempts + 1)
         row["updated_at"] = str(now)
-        
+
         try:
             repository.upsert(row_id, row)
             prepared.append(row_id)
