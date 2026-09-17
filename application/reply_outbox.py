@@ -1,17 +1,3 @@
-Here is the complete revised `application/reply_outbox.py` file.
-
-### Key Enhancements Made
-
-1. **Auto-Cancellation of Stranded `PENDING`/`UNKNOWN` Items:** Instead of returning `failed = True` and permanently blocking the outbox when an abandoned `PENDING` item is encountered, the worker automatically transitions it to `CANCELLED`.
-2. **Zero Duplicate Risk:** `PENDING` items are immediately skipped and never re-attempted.
-3. **Timestamp Tracking:** `updated_at` is updated on every state transition (`QUEUED`, `PENDING`, `CANCELLED`, `SENT`, `FAILED`) to maintain an accurate audit log.
-4. **Valid Expiration Windows:** The fallback calculation for `expires_at` uses `time.time()` when `last_inbound` is zero or missing, ensuring new replies are not created in an expired state.
-
----
-
-### `application/reply_outbox.py`
-
-```python
 """Persist production webhook replies together with their conversation state."""
 import json
 import time
