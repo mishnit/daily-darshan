@@ -152,6 +152,7 @@ async def retry_replies(request: Request) -> Response:
     if c.config.get("persistence", {}).get("mode") != "github_api":
         return _json({"status": "durable persistence required"}, 503)
     try:
+        log.warning("retry replies processing....")
         await run_in_threadpool(_process_payload, c, {}, 5.0)
     except StateLockTimeout:
         # Normal backpressure: Meta will retry. Avoid an alarming traceback for
@@ -188,6 +189,7 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
 
     # Acknowledge only after synchronous durable processing.
     try:
+        log.warning("receive webhook processing....")
         await run_in_threadpool(_process_payload, c, payload, 10.0)
     except StateLockTimeout:
         log.warning("Webhook state is busy; returning 503 for provider retry")
