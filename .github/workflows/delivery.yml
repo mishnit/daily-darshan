@@ -4,11 +4,6 @@ on:
   workflow_run:
     workflows: ["Deploy Daily Darshan Pages"]
     types: [completed]
-  # Recovery only: GitHub schedules are best-effort, so this supplements the
-  # deployment-triggered run and the manual Run workflow control.  The
-  # sentlog's date+mobile reservation makes unchanged recipients a no-op.
-  schedule:
-    - cron: "17,47 * * * *"
   workflow_dispatch: {}
 
 permissions:
