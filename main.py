@@ -258,7 +258,7 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
                 reply_ids = ({row['id'] for row in c.reply_outbox.all()} - existing_reply_ids) if payload else None
                 prepared_replies, preparation_failed = prepare_replies(
                     c.reply_outbox, c, mobiles=mobiles, reply_ids=reply_ids,
-                    limit=5 if payload else 1)
+                    limit=5)
                 if not payload and preparation_failed:
                     failed_phases.append('prepare_replies')
             # In production this atomically persists both the inbound state and
