@@ -77,6 +77,23 @@ def test_delivery_continues_when_one_subscriber_fails(repos, plans):
     assert report.failed == 0
 
 
+def test_delivery_persists_reservations_and_outcomes_once_per_batch(repos, plans):
+    for mobile in ("9199", "9200", "9300"):
+        _seed(repos, mobile)
+    commits = []
+    repos["sentlog"].persist = lambda: commits.append(repos["sentlog"].all())
+
+    report = _delivery(repos, FakeWhatsApp(), plans).deliver(
+        date(2026, 8, 19), "http://img/x.jpg", batch_size=2
+    )
+
+    assert report.sent == 3
+    # Each two-recipient chunk is checkpointed before and after Meta sends:
+    # 2 chunks x 2 writes, rather than 2 writes per recipient.
+    assert len(commits) == 4
+    assert all(row["status"] == "PENDING" for row in commits[0])
+
+
 def test_delivery_uses_media_upload_when_bytes_provided(repos, plans):
     # fix #6: with image_bytes, upload once and send by media id (private-repo safe).
     _seed(repos)
@@ -147,7 +164,7 @@ def test_scheduler_reports_partial_delivery_failure():
         image_service=SimpleNamespace(canonical_path=lambda on_date: "docs/images/today.jpg"),
         image_validator=SimpleNamespace(validate=lambda image: True),
         delivery_service=SimpleNamespace(
-            deliver=lambda on_date: SimpleNamespace(sent=1, skipped=0, failed=1)
+                deliver=lambda on_date, **_kwargs: SimpleNamespace(sent=1, skipped=0, failed=1)
         ),
     )
 

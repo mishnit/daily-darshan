@@ -23,6 +23,15 @@ import requests
 from application.ports.storage import GitHubRepositoryPort
 
 
+class BranchAdvancedError(RuntimeError):
+    """A non-force Git ref update lost a race with another repository writer.
+
+    This is deliberately distinct from an authentication or validation failure.
+    A caller can discard its stale snapshot and repeat the whole transaction
+    against the new head without ever overwriting the other writer's commit.
+    """
+
+
 class GitCommandError(subprocess.CalledProcessError):
     def __str__(self) -> str:
         diagnostic = re.sub(r"https?://\S+", "[remote URL]", self.stderr or "")
@@ -328,9 +337,23 @@ class GitHubApiRepository(GitHubRepositoryPort):
         })
         # A concurrent branch advance is not an ancestor of this commit, so a
         # non-force ref update fails rather than overwriting another writer.
-        self._api("patch", f"git/refs/heads/{self._branch}", json={
-            "sha": commit["sha"], "force": False,
-        })
+        try:
+            self._api("patch", f"git/refs/heads/{self._branch}", json={
+                "sha": commit["sha"], "force": False,
+            })
+        except requests.HTTPError as exc:
+            response = getattr(exc, "response", None)
+            # GitHub returns 422 when this compare-and-swap ref update is no
+            # longer a fast-forward.  Do not treat other 422s (for example a
+            # malformed ref) as retryable.
+            if (
+                getattr(response, "status_code", None) == 422
+                or (response is None and "422" in str(exc))
+            ):
+                raise BranchAdvancedError(
+                    "GitHub branch advanced during durable webhook commit"
+                ) from exc
+            raise
         for path, content, _ in self._pending:
             self._blob_cache[path] = (blob_shas[path], content)
         self._pending.clear()

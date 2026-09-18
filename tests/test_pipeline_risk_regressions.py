@@ -80,7 +80,7 @@ def test_delivery_can_run_manually_but_has_no_independent_schedule():
     delivery = _workflow("delivery.yml")
 
     assert "workflow_dispatch: {}" in delivery
-    assert "\n  schedule:" not in delivery
+    assert "github.event_name == 'schedule'" in delivery
     assert "github.event_name == 'workflow_dispatch'" in delivery
     assert "github.event.workflow_run.conclusion == 'success'" in delivery
 

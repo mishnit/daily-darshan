@@ -3,7 +3,7 @@ import base64
 import requests
 import pytest
 
-from adapters.github import GitHubApiRepository
+from adapters.github import BranchAdvancedError, GitHubApiRepository
 from adapters.repo_sync import RepoSync
 
 
@@ -143,7 +143,7 @@ def test_concurrent_remote_update_is_never_overwritten():
     repo.read_file("subscribers.csv")
     repo.write_file("subscribers.csv", b"stale modification", "m")
     server.head = "another-writers-commit"
-    with pytest.raises(requests.HTTPError):
+    with pytest.raises(BranchAdvancedError):
         repo.commit(["subscribers.csv"], "m")
     assert server.head == "another-writers-commit"
     assert repo._pending

@@ -72,6 +72,7 @@
     "image_public_base": "https://vipseva.com",
     "image_url_path": "images",
     "caption": "Daily Darshan - {date}",
+    "send_batch_size": 100,
     "max_send_retries": 3,
     "log_retention_days": 30,
     "image_retention_days": 7,

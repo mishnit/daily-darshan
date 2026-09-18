@@ -412,9 +412,14 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
             image_url = container.page_renderer.image_url(
                 on_date, image_name=os.path.basename(image_path)
             )
-            report = container.delivery_service.deliver(on_date, image_url=image_url)
+            report = container.delivery_service.deliver(
+                on_date, image_url=image_url,
+                batch_size=container.config.get("delivery", {}).get("send_batch_size", 100),
+            )
         else:
-            report = container.delivery_service.deliver(on_date)
+            report = container.delivery_service.deliver(
+                on_date, batch_size=container.config.get("delivery", {}).get("send_batch_size", 100),
+            )
     else:
         try:
             image_path = container.image_service.canonical_path(on_date, create=False)
@@ -435,7 +440,10 @@ def run_delivery(container: Container, git: LocalGitRepository, on_date: date) -
             image_bytes = fallback_bytes
             image_url = _fallback_public_url(container.config)
             container.logs.log("DELIVERY_FALLBACK_USED", details=fallback_path)
-        report = container.delivery_service.deliver(on_date, image_url, image_bytes)
+        report = container.delivery_service.deliver(
+            on_date, image_url, image_bytes,
+            batch_size=container.config.get("delivery", {}).get("send_batch_size", 100),
+        )
     sentlog_path = container.config["paths"]["sentlog_csv"]
     git.commit([sentlog_path, container.config["paths"]["logs_csv"]],
                f"Daily delivery {on_date.isoformat()}")

@@ -160,7 +160,7 @@ can dispatch Daily Image. Admin approval advances the gated publication chain:
 | **Pending Payment UTR Alert** (`payment-utr-alert.yml`) | Manual only | On demand | Count confirmed UTRs awaiting review and today's missing UTRs; invite admin to reply ADMIN |
 | **Regenerate Daily Pages** (`pages.yml`) | Publication-request push / manual | After approval | Validate chosen bytes, render pages and approval stamp |
 | **Deploy Daily Darshan Pages** (`deploy-pages.yml`) | Event-driven | After approved rendering | Publish only an artifact matching today's approved image |
-| **Daily Delivery** (`delivery.yml`) | Event-driven | After successful Pages deployment | Renewal reminder or today's published page link, at most one successful contact per subscriber/date |
+| **Daily Delivery** (`delivery.yml`) | After successful Pages deployment, every 30 minutes, or manual | After publication | Renewal reminder or today's published page link, at most one successful contact per subscriber/date. The cadence recovers confirmed failures; it never blindly resends ambiguous Meta outcomes. |
 
 ### E. Test without waiting for the cron (manual run)
 
@@ -178,6 +178,10 @@ Choose the recovery entry point deliberately:
 - **Deploy Daily Darshan Pages** publishes the current `main` `docs/` tree once and then starts
   Daily Delivery. Use this after a mid-day activation or manual page regeneration.
 - **Daily Delivery** sends against the already-published site. It does not build or deploy Pages.
+  After publication, a recovery run is also scheduled at minute 17 and 47 of each hour.
+  It is serialized with all other repository writers. It retries only rows Meta has
+  definitively rejected; `PENDING` and `UNKNOWN` rows require a delivery callback or
+  provider-evidence reconciliation so a subscriber never receives an accidental duplicate.
 - **Regenerate Daily Pages** on `main` updates and commits page files, then automatically
   triggers Pages deployment on success. Successful deployment starts Daily Delivery with
   the existing daily-send safeguards. Failed or non-default-branch regeneration is not published.

@@ -22,7 +22,11 @@ jobs:
         run: python3 -m application.image_approval --published
   delivery:
     needs: approval
-    if: needs.approval.outputs.ready == 'true' && ((github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'))
+    if: >-
+      needs.approval.outputs.ready == 'true' &&
+      (github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch) ||
+       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:

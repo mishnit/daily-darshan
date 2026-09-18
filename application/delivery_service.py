@@ -122,6 +122,7 @@ class DeliveryService:
         on_date: date,
         image_url: str | None = None,
         image_bytes: bytes | None = None,
+        batch_size: int = 1,
     ) -> DeliveryReport:
         """Deliver today's darshan to eligible subscribers.
 
@@ -133,13 +134,59 @@ class DeliveryService:
             (private-repo safe), falls back to image_url.
         """
         if self._mode == "utility_template":
-            return self._deliver_template(on_date, image_url)
-        return self._deliver_image(on_date, image_url, image_bytes)
+            return self._deliver_template(on_date, image_url, batch_size)
+        return self._deliver_image(on_date, image_url, image_bytes, batch_size)
+
+    def _send_batches(self, on_date, candidates, report, batch_size, send, success_event):
+        """Checkpoint reservations/outcomes once per bounded batch.
+
+        A reservation batch is committed before its first Meta request.  A
+        crash therefore leaves PENDING rows (safe, reconcile-only) rather
+        than allowing an unrecorded duplicate on a later workflow run.
+        """
+        size = max(1, int(batch_size or 1))
+        persist = getattr(self._sentlog, "persist", None)
+        for start in range(0, len(candidates), size):
+            chunk = candidates[start:start + size]
+            pending = []
+            if callable(persist):
+                self._sentlog.persist = lambda: None
+            try:
+                for sub, label in chunk:
+                    reservation = self._sentlog.reserve(on_date, sub.mobile, label)
+                    if reservation is None:
+                        report.skipped += 1
+                    else:
+                        pending.append((sub, reservation))
+            finally:
+                if callable(persist):
+                    self._sentlog.persist = persist
+            if pending and callable(persist):
+                persist()
+
+            if callable(persist):
+                self._sentlog.persist = lambda: None
+            try:
+                for sub, reservation in pending:
+                    result = send(sub)
+                    self._sentlog.complete(reservation, result)
+                    if result.ok:
+                        report.sent += 1
+                        self._log(success_event, sub.mobile, result.message_id)
+                    else:
+                        report.failed += 1
+                        report.failures.append(sub.mobile)
+                        self._log("WHATSAPP_SEND_FAILED", sub.mobile, result.error)
+            finally:
+                if callable(persist):
+                    self._sentlog.persist = persist
+            if pending and callable(persist):
+                persist()
 
     # ------------------------------------------------------------------ #
     # Utility-template mode (per-subscriber page URL)
     # ------------------------------------------------------------------ #
-    def _deliver_template(self, on_date: date, image_url: str | None = None) -> DeliveryReport:
+    def _deliver_template(self, on_date: date, image_url: str | None = None, batch_size: int = 1) -> DeliveryReport:
         report = DeliveryReport()
         if not self._template_name or not self._page_base_url:
             self._log("DELIVERY_ABORTED", "", "template_name/page_base_url not configured")
@@ -150,6 +197,7 @@ class DeliveryService:
             report.failures.append("configuration")
             return report
 
+        candidates = []
         for sub in self._subscribers.all():
             mobile = sub.mobile
             if self._sentlog.was_sent(on_date, mobile):
@@ -170,35 +218,22 @@ class DeliveryService:
                 report.failures.append(mobile)
                 self._log("DELIVERY_PAGE_NOT_PUBLISHED", mobile, "")
                 continue
-            # (#7) Sanitize name for the WhatsApp template param; safe fallback.
-            body = template_body(self._template_name, sub, on_date)
-            reservation = self._sentlog.reserve(on_date, mobile, page_url)
-            if reservation is None:
-                report.skipped += 1
-                continue
-            result = self._retry(lambda: self._whatsapp.send_template_params(
-                mobile,
-                self._template_name,
-                body,
-                self._template_lang,
-                url_button_param=sub.subscription_id,
-                header_image_url=image_url if self._template_header == "image" else None,
-            ))
-            self._sentlog.complete(reservation, result)
-            if result.ok:
-                report.sent += 1
-                self._log("WHATSAPP_SEND_ACCEPTED", mobile, result.message_id)
-            else:
-                report.failed += 1
-                report.failures.append(mobile)
-                self._log("WHATSAPP_SEND_FAILED", mobile, result.error)
+            candidates.append((sub, page_url))
+        self._send_batches(
+            on_date, candidates, report, batch_size,
+            lambda sub: self._retry(lambda: self._whatsapp.send_template_params(
+                sub.mobile, self._template_name, template_body(self._template_name, sub, on_date),
+                self._template_lang, url_button_param=sub.subscription_id,
+                header_image_url=image_url if self._template_header == "image" else None)),
+            "WHATSAPP_SEND_ACCEPTED",
+        )
         return report
 
     # ------------------------------------------------------------------ #
     # Image mode (inline image; media upload or url)
     # ------------------------------------------------------------------ #
     def _deliver_image(
-        self, on_date: date, image_url: str | None, image_bytes: bytes | None
+        self, on_date: date, image_url: str | None, image_bytes: bytes | None, batch_size: int = 1
     ) -> DeliveryReport:
         report = DeliveryReport()
         caption = self._caption_template.format(date=on_date.isoformat())
@@ -215,6 +250,7 @@ class DeliveryService:
             self._log("DELIVERY_ABORTED", "", "no media_id and no image_url")
             return report
 
+        candidates = []
         for sub in self._subscribers.all():
             mobile = sub.mobile
             if self._sentlog.was_sent(on_date, mobile):
@@ -224,26 +260,14 @@ class DeliveryService:
                 report.skipped += 1
                 continue
 
-            reservation = self._sentlog.reserve(on_date, mobile, image_name)
-            if reservation is None:
-                report.skipped += 1
-                continue
-            if media_id:
-                result = self._retry(
-                    lambda: self._whatsapp.send_image_by_id(mobile, media_id, caption)
-                )
-            else:
-                result = self._retry(
-                    lambda: self._whatsapp.send_image(mobile, image_url, caption)
-                )
-            self._sentlog.complete(reservation, result)
-            if result.ok:
-                report.sent += 1
-                self._log("WHATSAPP_SEND_SUCCESS", mobile, result.message_id)
-            else:
-                report.failed += 1
-                report.failures.append(mobile)
-                self._log("WHATSAPP_SEND_FAILED", mobile, result.error)
+            candidates.append((sub, image_name))
+        self._send_batches(
+            on_date, candidates, report, batch_size,
+            (lambda sub: self._retry(lambda: self._whatsapp.send_image_by_id(sub.mobile, media_id, caption)))
+            if media_id else
+            (lambda sub: self._retry(lambda: self._whatsapp.send_image(sub.mobile, image_url, caption))),
+            "WHATSAPP_SEND_SUCCESS",
+        )
         return report
 
     def _log(self, event: str, mobile: str, details: str) -> None:
