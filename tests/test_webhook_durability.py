@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from adapters.repo_sync import RepoSync
+from adapters.github import BranchAdvancedError
 from application.ports.storage import GitHubRepositoryPort
 from repositories.state_lock import StateLockTimeout, state_lock
 
@@ -33,6 +34,22 @@ def test_retry_worker_yields_to_busy_customer_transaction(app_client):
         finally:
             release.set()
         task.result()
+
+
+def test_webhook_retries_a_branch_advance_before_returning_to_meta(app_client, monkeypatch):
+    """A Git compare-and-swap race is retried against a fresh snapshot."""
+    main, _ = app_client
+    calls = []
+
+    def collide_once(*_args, **_kwargs):
+        calls.append("attempt")
+        if len(calls) == 1:
+            raise BranchAdvancedError("main advanced")
+
+    monkeypatch.setattr(main, "_process_payload", collide_once)
+    monkeypatch.setattr(main.time, "sleep", lambda _delay: None)
+    main._process_payload_with_retries(main.container, {"entry": []}, 0.01)
+    assert calls == ["attempt", "attempt"]
 
 
 def test_early_delivery_receipt_reconciles_before_webhook_returns(app_client):

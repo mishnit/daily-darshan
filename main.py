@@ -26,6 +26,7 @@ from starlette.concurrency import run_in_threadpool
 from domain.enums import PaymentStatus
 from repositories.state_lock import state_lock
 from repositories.state_lock import StateLockTimeout
+from adapters.github import BranchAdvancedError
 
 app = FastAPI(title="Daily Darshan Webhook", version="2.0.0")
 log = logging.getLogger("daily_darshan.webhook")
@@ -152,7 +153,7 @@ async def retry_replies(request: Request) -> Response:
     if c.config.get("persistence", {}).get("mode") != "github_api":
         return _json({"status": "durable persistence required"}, 503)
     try:
-        await run_in_threadpool(_process_payload, c, {}, 5.0)
+        await run_in_threadpool(_process_payload_with_retries, c, {}, 0.0)
     except StateLockTimeout:
         # Normal backpressure: Meta will retry. Avoid an alarming traceback for
         # an expected overlap while another durable transaction is committing.
@@ -188,7 +189,10 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
 
     # Acknowledge only after synchronous durable processing.
     try:
-        await run_in_threadpool(_process_payload, c, payload, 10.0)
+        # Keep each lock attempt short on a small Render instance.  A bounded
+        # retry is much less disruptive than making a second Meta delivery
+        # wait behind a slow GitHub transaction for ten seconds.
+        await run_in_threadpool(_process_payload_with_retries, c, payload, 2.0)
     except StateLockTimeout:
         log.warning("Webhook state is busy; returning 503 for provider retry")
         return _json({"status": "retry"}, 503)
@@ -198,36 +202,28 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
     return _json({"status": "accepted"})
 
 def _process_payload_with_retries(c, payload: dict, lock_timeout: float | None = None) -> None:
+    """Retry contention-only webhook failures using a fresh durable snapshot.
+
+    This never retries a generic processing failure.  In particular, a Meta
+    response with an unknown outcome stays PENDING for reconciliation.  A
+    branch-advance race happens before a send (or leaves a durable PENDING
+    reservation), so repeating the transaction is safe and avoids pushing the
+    work back to Meta merely because an Actions job committed at the same time.
     """
-    Wraps _process_payload to handle internal retries 
-    since the webhook provider is no longer retrying for us.
-    """
-    max_retries = 3
-    
-    for attempt in range(max_retries):
+    attempts = 3
+    for attempt in range(attempts):
         try:
             _process_payload(c, payload, lock_timeout)
-            return  # Success, exit the loop
-            
-        except StateLockTimeout:
-            if attempt < max_retries - 1:
-                log.warning(f"Webhook state is busy. Retrying internally... (Attempt {attempt + 1}/{max_retries})")
-                time.sleep(2)
-            else:
-                log.error("Permanent failure: StateLockTimeout after max retries.")
-                break
-                
-        except RuntimeError as e:
-            if "need retry" in str(e) and attempt < max_retries - 1:
-                log.warning(f"Webhook processing failed. Retrying... (Attempt {attempt + 1}/{max_retries})")
-                time.sleep(2)
-            else:
-                log.exception("Webhook completely failed after max retries")
-                break
-                
-        except Exception:
-            log.exception("Unexpected error during webhook background processing")
-            break
+            return
+        except (StateLockTimeout, BranchAdvancedError) as exc:
+            if attempt == attempts - 1:
+                raise
+            delay = 0.15 * (2 ** attempt)
+            log.info(
+                "Webhook transaction contention (%s); retrying in %.2fs (%d/%d)",
+                type(exc).__name__, delay, attempt + 1, attempts,
+            )
+            time.sleep(delay)
 
 
 def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> None:
