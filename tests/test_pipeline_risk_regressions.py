@@ -76,7 +76,7 @@ def test_failed_or_non_default_image_run_fails_publication_gate():
     assert deploy.index("if: >-") < deploy.index("runs-on:")
 
 
-def test_delivery_has_a_serialized_recovery_schedule_and_manual_control():
+def test_delivery_can_run_manually_but_has_no_independent_schedule():
     delivery = _workflow("delivery.yml")
 
     assert "workflow_dispatch: {}" in delivery
