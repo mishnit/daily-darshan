@@ -4,6 +4,11 @@ on:
   workflow_run:
     workflows: ["Deploy Daily Darshan Pages"]
     types: [completed]
+  # Recovery only: GitHub schedules are best-effort, so this supplements the
+  # deployment-triggered run and the manual Run workflow control.  The
+  # sentlog's date+mobile reservation makes unchanged recipients a no-op.
+  schedule:
+    - cron: "17,47 * * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -22,7 +27,11 @@ jobs:
         run: python3 -m application.image_approval --published
   delivery:
     needs: approval
-    if: needs.approval.outputs.ready == 'true' && ((github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch) || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'))
+    if: >-
+      needs.approval.outputs.ready == 'true' &&
+      (github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch) ||
+       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:

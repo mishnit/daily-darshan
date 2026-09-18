@@ -730,7 +730,7 @@ template is attempted per subscriber per date.
 | `payment-utr-alert.yml` | Manual only | On demand | Alert admin about confirmed UTRs awaiting review and today's checkouts missing a UTR. Uses `daily_darshan_ops_alert`. |
 | `pages.yml` | Push to `csv/pipeline_requests.csv` on main; manual | After admin approval | Check today's approval, copy only approved bytes to canonical image, regenerate pages and record the approval stamp. |
 | `deploy-pages.yml` | Successful Daily Image or Regenerate Daily Pages; manual | After rendering | Deploy only if approval, canonical bytes and rendered stamp agree. Collection-only completion skips deployment. |
-| `delivery.yml` | Successful deployment; manual | After publication | Require today's approval and live public stamp, then run welcome, renewal and delivery with the shared daily contact limit. |
+| `delivery.yml` | Successful deployment; every 30 minutes; manual | After publication | Require today's approval and live public stamp, then run welcome, renewal and delivery with the shared daily contact limit. Scheduled recovery safely retries confirmed failures; ambiguous sends remain held for callback reconciliation. |
 
 With `admin.require_image_approval=true`, no previous-date fallback or manual source override
 can bypass today's admin decision. Jobs exit/skip while waiting; no runner sleeps waiting for

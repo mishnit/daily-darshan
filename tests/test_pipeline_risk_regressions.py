@@ -76,11 +76,12 @@ def test_failed_or_non_default_image_run_fails_publication_gate():
     assert deploy.index("if: >-") < deploy.index("runs-on:")
 
 
-def test_delivery_can_run_manually_but_has_no_independent_schedule():
+def test_delivery_has_a_serialized_recovery_schedule_and_manual_control():
     delivery = _workflow("delivery.yml")
 
     assert "workflow_dispatch: {}" in delivery
-    assert "\n  schedule:" not in delivery
+    assert 'cron: "17,47 * * * *"' in delivery
+    assert "github.event_name == 'schedule'" in delivery
     assert "github.event_name == 'workflow_dispatch'" in delivery
     assert "github.event.workflow_run.conclusion == 'success'" in delivery
 
