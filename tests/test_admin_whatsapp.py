@@ -94,8 +94,33 @@ def test_admin_rejection_does_not_activate(review):
     _, reject = open_payment(c, p)
     main._handle_message(c, ADMIN, "button", reject)
     assert c.payments.find(p.reference_id).status.value == "FAILED"
+    customer_notice = next(
+        item for item in reversed(c.whatsapp.sent)
+        if item.get("mobile") == CUSTOMER and item.get("type") == "text"
+    )
+    assert p.reference_id in customer_notice["message"]
+    assert "Request review" in customer_notice["message"]
+    assert "temporarily blocked" in customer_notice["message"]
+    assert "full calendar days" in customer_notice["message"]
     assert c.subscribers.find(CUSTOMER).status == SubscriberStatus.PENDING
     assert not c.pipeline_requests.all()
+
+
+def test_rejection_notification_and_payment_status_use_same_configured_copy(review):
+    c = review
+    c.config["messages"] = {
+        "payment_rejected": "Rejected {reference_id}. Retry after {release_date} ({release_days} days)."
+    }
+    p = confirmed(c)
+    _, reject = open_payment(c, p)
+    main._handle_message(c, ADMIN, "button", reject)
+    stored = c.payments.find(p.reference_id)
+    customer_notice = next(
+        item for item in reversed(c.whatsapp.sent)
+        if item.get("mobile") == CUSTOMER and item.get("type") == "text"
+    )
+    assert customer_notice["message"] == main._payment_status_text(c, stored)
+    assert customer_notice["message"].startswith(f"Rejected {p.reference_id}.")
 
 
 @pytest.mark.parametrize("remaining", [-3, 0, 10])

@@ -12,6 +12,9 @@
     "payee_name": "Daily Darshan",
     "currency": "INR"
   },
+  "messages": {
+    "payment_rejected": "Payment {reference_id} was rejected after verification. You can send MENU and select Request review now. Starting another renewal or upgrade is temporarily blocked. This rejected checkout becomes eligible for automatic release on {release_date}, after {release_days} full calendar days. Keep your payment proof and do not pay again until the payment is resolved."
+  },
   "image_sources": ["temple", "rss", "website"],
   "daily_image_rotation": {
     "monday": ["mahakal"],
@@ -74,6 +77,7 @@
     "caption": "Daily Darshan - {date}",
     "send_batch_size": 100,
     "max_send_retries": 3,
+    "failed_payment_release_days": 3,
     "log_retention_days": 30,
     "image_retention_days": 7,
     "fallback_image": "fallback.jpg",

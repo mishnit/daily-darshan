@@ -68,6 +68,7 @@ class Payment:
     verified_at: datetime | None = None
     activation_state: str = ""  # Blank legacy SUCCESS needs reconciliation before applying.
     utr_confirmed_at: datetime | None = None
+    rejected_at: datetime | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> "Payment":
@@ -82,6 +83,7 @@ class Payment:
             verified_at=_parse_dt(row.get("verified_at")),
             activation_state=str(row.get("activation_state", "")),
             utr_confirmed_at=_parse_dt(row.get("utr_confirmed_at")),
+            rejected_at=_parse_dt(row.get("rejected_at")),
         )
 
     def to_row(self) -> dict:
@@ -96,6 +98,7 @@ class Payment:
             "verified_at": self.verified_at.isoformat() if self.verified_at else "",
             "activation_state": self.activation_state,
             "utr_confirmed_at": self.utr_confirmed_at.isoformat() if self.utr_confirmed_at else "",
+            "rejected_at": self.rejected_at.isoformat() if self.rejected_at else "",
         }
 
     def upi_intent(self, payee_vpa: str, payee_name: str, currency: str = "INR") -> str:

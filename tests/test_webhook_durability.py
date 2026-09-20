@@ -89,12 +89,50 @@ def test_best_effort_routes_admin_and_utr_confirmation_to_critical_lane(app_clie
 
     monkeypatch.setenv("WEBHOOK_BEST_EFFORT_QUEUE", "true")
     monkeypatch.setattr(main, "_get_webhook_actor", lambda _container: Actor())
-    for value in ("ADM_IMAGES", "UTR_CONFIRM_token", "UTR_EDIT_token"):
+    for value in (
+        "ADM_IMAGES",
+        "UTR_CONFIRM_token",
+        "UTR_EDIT_token",
+        "CTA_PAYMENT_REVIEW",
+    ):
         response = client.post("/webhook", json=_tap_payload("9199", value, value))
         assert response.status_code == 200
     response = client.post("/webhook", json=_tap_payload("9199", "CTA_MENU", "normal"))
     assert response.status_code == 200
-    assert calls == [True, True, True, False]
+    assert calls == [True, True, True, True, False]
+
+
+def test_rejected_payment_review_commits_before_acknowledgement_reply(app_client, monkeypatch):
+    main, _ = app_client
+    c = main.container
+    events = []
+    from types import SimpleNamespace
+    import admin
+
+    c.subscriber_service.upsert_pending("9199", "monthly", "Nitin")
+    payment = c.payment_service.create_payment("9199", "monthly")
+    admin.cmd_reject(c, SimpleNamespace(reference_id=payment.reference_id, commit=False))
+    monkeypatch.setattr(main, "_refresh_remote_payments", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "_flush_critical_snapshot", lambda _container: events.append("commit"))
+    original = c.whatsapp.send_text
+
+    def send_text(*args, **kwargs):
+        events.append("send")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(c.whatsapp, "send_text", send_text)
+    main._process_best_effort_batch(
+        c,
+        [_tap_payload("9199", "CTA_PAYMENT_REVIEW", "critical-review")],
+        critical=True,
+    )
+
+    assert events[:2] == ["commit", "send"]
+    assert any(
+        row["event"] == "PAYMENT_REVIEW_REQUESTED"
+        and row["details"] == payment.reference_id
+        for row in c.logs.all()
+    )
 
 
 def test_critical_lane_commits_before_sending_admin_response(app_client, monkeypatch):

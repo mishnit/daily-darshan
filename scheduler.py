@@ -514,21 +514,33 @@ def run_expiry_sweep(container: Container, git: LocalGitRepository, on_date: dat
 
 
 def run_log_cleanup(container: Container, git: LocalGitRepository, on_date: date) -> int:
-    """Keep only the configured rolling window in operational delivery logs."""
+    """Release stale rejected checkouts and prune operational delivery logs."""
     retention_days = int(container.config.get("delivery", {}).get("log_retention_days", 30))
+    failed_release_days = int(
+        container.config.get("delivery", {}).get("failed_payment_release_days", 3)
+    )
     if retention_days < 1:
         raise ValueError("delivery.log_retention_days must be at least 1")
+    from application.payment_cleanup import release_stale_failed_payments
+    released = release_stale_failed_payments(
+        container, on_date, after_days=failed_release_days
+    )
     cutoff = on_date - timedelta(days=retention_days - 1)
     logs_removed = container.logs.prune_before(cutoff)
     sent_removed = container.sentlog.prune_before(cutoff)
     paths = container.config["paths"]
-    if logs_removed or sent_removed:
-        git.commit(
-            [paths["logs_csv"], paths["sentlog_csv"]],
-            f"Prune delivery logs before {cutoff.isoformat()}",
-        )
+    changed = []
+    if released:
+        changed.append(paths["payments_csv"])
+    if released or logs_removed:
+        changed.append(paths["logs_csv"])
+    if sent_removed:
+        changed.append(paths["sentlog_csv"])
+    if changed:
+        git.commit(changed, f"Release stale payments and prune logs {on_date.isoformat()}")
     print(
         f"[cleanup] cutoff={cutoff.isoformat()} "
+        f"failed_payments_released={len(released)} "
         f"logs_removed={logs_removed} sentlog_removed={sent_removed}"
     )
     return 0
