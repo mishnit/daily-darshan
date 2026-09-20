@@ -11,39 +11,38 @@ mean the transition ran, Meta accepted a reply, the customer received it, or Git
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant Meta
-    participant HTTP as POST webhook
-    participant Queue as Bounded queue
-    participant Actor as Single state writer
-    participant Memory as In-memory CSVs
-    participant Senders as Sender pool
-    participant Git as GitHub main
-    Meta->>HTTP: Signed event
-    HTTP->>HTTP: Verify HMAC and parse JSON
-    alt invalid signature
-        HTTP-->>Meta: 403 invalid signature
-    else valid event and capacity available
-        HTTP->>Queue: Enqueue ordinary or critical event
-        HTTP-->>Meta: 200 queued
-    else queue full or container unavailable
-        HTTP-->>Meta: 200 dropped
-        Note over HTTP,Meta: Best-effort policy prevents Meta retry
+    participant M as Meta
+    participant W as Webhook
+    participant Q as Ingress queue
+    participant A as State writer
+    participant C as CSV state
+    participant S as Sender pool
+    participant G as GitHub main
+    M->>W: Signed webhook event
+    W->>W: Verify signature and parse JSON
+    alt Signature is invalid
+        W-->>M: HTTP 403
+    else Event is accepted by queue
+        W->>Q: Enqueue event
+        W-->>M: HTTP 200 queued
+    else Event cannot be queued
+        W-->>M: HTTP 200 dropped
+        Note over W,M: Best effort mode prevents provider retry
     end
-    Queue->>Actor: Drain ordered batch
-    Actor->>Memory: Dedupe id and increment conversation version
-    Actor->>Memory: Apply transition and reserve reply
-    alt ADMIN or ADM button or UTR confirm or edit or rejected-payment review
-        Actor->>Git: Semantic merge and immediate push
-        Note over Actor,Git: Up to three branch-race attempts
+    Q->>A: Drain an ordered batch
+    A->>C: Dedupe message and update conversation
+    A->>C: Apply transition and reserve reply
+    opt Event requires immediate durability
+        A->>G: Merge state and push immediately
+        Note over A,G: Retry a branch advance up to three times
     end
-    Actor->>Senders: Immutable reply snapshot
-    Senders->>Meta: Send reply
-    Meta-->>Senders: Accepted failed or uncertain
-    Senders-->>Actor: Queue transport outcome
-    Actor->>Memory: Merge outcome and provider receipt
-    loop normally every 15 minutes
-        Actor->>Git: Semantic merge and batched push
+    A->>S: Submit immutable reply
+    S->>M: Send WhatsApp response
+    M-->>S: Return transport result
+    S-->>A: Queue reply outcome
+    A->>C: Merge outcome and delivery receipt
+    loop Periodic snapshot
+        A->>G: Merge state and push every 15 minutes
     end
 ```
 
