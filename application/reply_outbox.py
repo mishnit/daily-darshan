@@ -11,9 +11,10 @@ MAX_ATTEMPTS = 1 + MAX_RETRIES
 
 
 class QueuedReplies:
-    def __init__(self, repository, container=None):
+    def __init__(self, repository, container=None, on_enqueue=None):
         self.repository = repository
         self.container = container
+        self.on_enqueue = on_enqueue
 
     def __getattr__(self, method):
         if not method.startswith("send_"):
@@ -49,6 +50,8 @@ class QueuedReplies:
                     next_attempt="0",
                 )
             self.repository.upsert(key, row)
+            if self.on_enqueue:
+                self.on_enqueue(key)
             return WhatsAppResult(ok=True)
         return enqueue
 

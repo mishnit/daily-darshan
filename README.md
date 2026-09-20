@@ -21,6 +21,10 @@ snapshot duration every ten seconds while traffic is being processed.
 Ordinary payment refreshes are coalesced to at most once per 15 seconds; critical commands
 always refresh immediately. Best-effort message-ID dedupe is capped at 120,000 recent rows,
 and reconciled Meta status callbacks are consumed to bound memory under sustained traffic.
+Every user-initiated webhook contributes to 10-second processing and send-completion
+avg/p50/p95/p99 aggregates. Correlated per-invocation logs are sampled at 0.1% by default
+(`WEBHOOK_METRICS_SAMPLE_RATE=0.001`) to avoid making logging itself a throughput bottleneck;
+Meta status-only callbacks are excluded.
 
 The actor has two ordered lanes. Ordinary customer events remain memory-backed until the
 15-minute snapshot. Authorized `ADMIN`/`ADM_*` and `UTR_CONFIRM_*`/`UTR_EDIT_*` events use
