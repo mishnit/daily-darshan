@@ -25,7 +25,15 @@ services:
       - key: WEBHOOK_SINGLE_WRITER
         value: "true"
       - key: WEBHOOK_SENDER_WORKERS
-        value: "40"
+        value: "320"
+      - key: WEBHOOK_SENDER_CAPACITY
+        value: "5000"
+      - key: WEBHOOK_PAYMENT_REFRESH_SECONDS
+        value: "15"
+      - key: WEBHOOK_DEDUPE_MAX_ROWS
+        value: "120000"
+      - key: WEBHOOK_DEDUPE_PRUNE_INTERVAL
+        value: "10000"
 
       # Set each value in Render Dashboard; never commit secrets.
       - key: WHATSAPP_ACCESS_TOKEN

@@ -15,12 +15,15 @@ class BestEffortWebhookActor:
     over durability.
     """
 
-    def __init__(self, processor, flusher, *, critical_processor=None, capacity=5000, batch_size=100,
+    def __init__(self, processor, flusher, *, critical_processor=None, control_processor=None,
+                 capacity=5000, batch_size=100,
                  flush_seconds=900, batch_wait_seconds=0.025, logger=None):
         self._processor = processor
         self._critical_processor = critical_processor or processor
+        self._control_processor = control_processor or (lambda _items: None)
         self._flusher = flusher
         self._queue = queue.Queue(maxsize=max(1, int(capacity)))
+        self._controls = queue.SimpleQueue()
         self._sequence = 0
         self._sequence_lock = threading.Lock()
         self._batch_size = max(1, int(batch_size))
@@ -68,9 +71,25 @@ class BestEffortWebhookActor:
                             self.depth, self.dropped)
             return False
 
+    def enqueue_control(self, payload) -> None:
+        """Return immutable transport outcomes to the sole state writer."""
+        self.start()
+        self._controls.put(payload)
+
+    def _drain_controls(self) -> None:
+        controls = []
+        while len(controls) < self._batch_size:
+            try:
+                controls.append(self._controls.get_nowait())
+            except queue.Empty:
+                break
+        if controls:
+            self._control_processor(controls)
+
     def _run(self):
         next_flush = time.monotonic() + self._flush_seconds
         while True:
+            self._drain_controls()
             timeout = max(0.0, min(self._batch_wait, next_flush - time.monotonic()))
             try:
                 first = self._queue.get(timeout=timeout)
@@ -133,3 +152,4 @@ class BestEffortWebhookActor:
                         self.last_snapshot_ms, self.depth,
                     )
                 next_flush = time.monotonic() + self._flush_seconds
+            self._drain_controls()

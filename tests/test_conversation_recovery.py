@@ -235,6 +235,16 @@ def test_merge_never_downgrades_provider_reconciled_state(container):
     assert container.reply_outbox.find(ids[0])["status"] == "DELIVERED"
 
 
+def test_best_effort_reconciliation_consumes_matched_status_callback(container):
+    container.reply_outbox.upsert("reply", {
+        "id": "reply", "status": "SENT", "whatsapp_message_id": "wamid.consume",
+    })
+    container.message_statuses.record("wamid.consume", "delivered")
+    container.message_statuses.reconcile(container.reply_outbox, consume=True)
+    assert container.reply_outbox.find("reply")["status"] == "DELIVERED"
+    assert container.message_statuses._csv.all() == []
+
+
 def test_prepared_reply_is_reserved_before_provider_send(container):
     calls = prepare(container)
     QueuedReplies(container.reply_outbox, container).send_text("9199", "instructions")
