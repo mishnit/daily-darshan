@@ -41,3 +41,9 @@ class CSVProcessedMessageRepository:
         """Release a message that failed before its side effects completed."""
         if message_id:
             self._csv.delete(message_id)
+
+    def prune_to_recent(self, limit: int) -> int:
+        """Bound lossy-mode dedupe memory while retaining the newest IDs."""
+        rows = sorted(self._csv.all(), key=lambda row: row.get("received_at", ""), reverse=True)
+        keep = {row.get("message_id", "") for row in rows[:max(0, int(limit))]}
+        return self._csv.retain(lambda row: row.get("message_id", "") in keep)

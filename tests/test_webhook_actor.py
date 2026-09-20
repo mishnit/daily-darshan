@@ -95,3 +95,16 @@ def test_critical_lane_preserves_arrival_order_and_runs_separately():
     actor.start()
     actor._queue.join()
     assert order == [("normal", "normal"), ("critical", "admin")]
+
+
+def test_sender_outcomes_return_through_control_lane():
+    received = []
+    ready = threading.Event()
+    actor = BestEffortWebhookActor(
+        lambda _items: None, lambda: None,
+        control_processor=lambda items: (received.extend(items), ready.set()),
+        batch_wait_seconds=0.001,
+    )
+    actor.enqueue_control({"id": "reply-1", "status": "SENT"})
+    assert ready.wait(2)
+    assert received == [{"id": "reply-1", "status": "SENT"}]

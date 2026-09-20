@@ -18,7 +18,7 @@ import os
 import re
 import time
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -41,6 +41,11 @@ _container_error: str | None = None
 _webhook_actor = None
 _webhook_actor_lock = threading.Lock()
 _best_effort_initialized = False
+_best_effort_sender_pool = None
+_best_effort_sender_slots = None
+_best_effort_sender_lock = threading.Lock()
+_last_payment_refresh = 0.0
+_best_effort_since_prune = 0
 
 
 def _get_container():
@@ -128,6 +133,15 @@ def _refresh_remote_payments(c, *, strict: bool) -> None:
         log.error("Payment refresh kept local conflicting fields conflicts=%s", conflicts)
 
 
+def _maybe_refresh_remote_payments(c) -> None:
+    global _last_payment_refresh
+    interval = max(1.0, float(os.environ.get("WEBHOOK_PAYMENT_REFRESH_SECONDS", "15")))
+    now = time.monotonic()
+    if now - _last_payment_refresh >= interval:
+        _refresh_remote_payments(c, strict=False)
+        _last_payment_refresh = now
+
+
 def _refresh_shared_csvs(c, *, strict: bool) -> None:
     """Merge every CSV concurrently written by Render and GitHub Actions."""
     if not c.repo_sync.enabled:
@@ -188,8 +202,7 @@ def _process_best_effort_batch(c, payloads, *, critical: bool = False):
     """Single-writer state transition plus bounded parallel reply transport."""
     global _best_effort_initialized
     from application.reply_outbox import (
-        QueuedReplies, merge_reply_outcomes, prepare_replies,
-        send_reply_snapshots, snapshot_prepared_replies,
+        QueuedReplies, prepare_replies, snapshot_prepared_replies,
     )
     if not _best_effort_initialized and c.repo_sync.enabled:
         # Happens in the actor, never on the request path.
@@ -199,7 +212,10 @@ def _process_best_effort_batch(c, payloads, *, critical: bool = False):
         _best_effort_initialized = True
     # Refresh the remotely mutable payment ledger at the latest Git head for
     # every actor batch. Critical commands reject a same-field conflict.
-    _refresh_remote_payments(c, strict=critical)
+    if critical:
+        _refresh_remote_payments(c, strict=True)
+    else:
+        _maybe_refresh_remote_payments(c)
     client = c.whatsapp
     existing = {row["id"] for row in c.reply_outbox.all()}
     c.whatsapp = QueuedReplies(c.reply_outbox, c)
@@ -218,17 +234,15 @@ def _process_best_effort_batch(c, payloads, *, critical: bool = False):
     if critical:
         _flush_critical_snapshot(c)
 
-    outcomes = []
-    sender_limit = max(1, int(os.environ.get("WEBHOOK_SENDER_WORKERS", "40")))
-    workers = min(sender_limit, max(1, len(snapshots)))
-    if snapshots:
-        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="whatsapp-sender") as pool:
-            futures = [pool.submit(send_reply_snapshots, client, [snapshot]) for snapshot in snapshots]
-            for future in as_completed(futures):
-                batch_outcomes, _ = future.result()
-                outcomes.extend(batch_outcomes)
+    _submit_best_effort_replies(c, client, snapshots)
+    _prune_best_effort_dedupe(c, len(payloads))
+
+
+def _merge_best_effort_outcomes(c, outcome_batches):
+    from application.reply_outbox import merge_reply_outcomes
+    outcomes = [outcome for batch in outcome_batches for outcome in batch]
     merge_reply_outcomes(c.reply_outbox, outcomes)
-    c.message_statuses.reconcile(c.reply_outbox)
+    c.message_statuses.reconcile(c.reply_outbox, consume=True)
     # This mode explicitly has no reply retry. Keeping full serialized reply
     # arguments for every successful transport until the 15-minute snapshot
     # can exhaust a free-tier instance under a sustained burst.
@@ -238,6 +252,56 @@ def _process_best_effort_batch(c, payloads, *, critical: bool = False):
     }
     if completed_ids:
         c.reply_outbox.retain(lambda row: row.get("id") not in completed_ids)
+
+
+def _prune_best_effort_dedupe(c, count):
+    global _best_effort_since_prune
+    _best_effort_since_prune += count
+    interval = max(100, int(os.environ.get("WEBHOOK_DEDUPE_PRUNE_INTERVAL", "10000")))
+    if _best_effort_since_prune < interval:
+        return
+    _best_effort_since_prune = 0
+    limit = max(interval, int(os.environ.get("WEBHOOK_DEDUPE_MAX_ROWS", "120000")))
+    removed = c.processed.prune_to_recent(limit)
+    log.info("Best-effort dedupe compaction removed=%d retained_limit=%d", removed, limit)
+
+
+def _get_sender_pool():
+    global _best_effort_sender_pool, _best_effort_sender_slots
+    if _best_effort_sender_pool is None:
+        with _best_effort_sender_lock:
+            if _best_effort_sender_pool is None:
+                workers = max(1, int(os.environ.get("WEBHOOK_SENDER_WORKERS", "320")))
+                capacity = max(workers, int(os.environ.get("WEBHOOK_SENDER_CAPACITY", "5000")))
+                _best_effort_sender_pool = ThreadPoolExecutor(
+                    max_workers=workers, thread_name_prefix="whatsapp-sender",
+                )
+                _best_effort_sender_slots = threading.BoundedSemaphore(capacity)
+    return _best_effort_sender_pool, _best_effort_sender_slots
+
+
+def _submit_best_effort_replies(c, client, snapshots):
+    from application.reply_outbox import send_reply_snapshots
+    pool, slots = _get_sender_pool()
+    for snapshot in snapshots:
+        if not slots.acquire(blocking=False):
+            cancelled = dict(snapshot, status="CANCELLED", error="sender_overloaded")
+            _get_webhook_actor(c).enqueue_control([cancelled])
+            continue
+        started = time.monotonic()
+        future = pool.submit(send_reply_snapshots, client, [snapshot])
+
+        def completed(task, *, submitted_at=started):
+            try:
+                outcomes, _failed = task.result()
+                _get_webhook_actor(c).enqueue_control(outcomes)
+                log.debug("WhatsApp transport completed send_ms=%.1f", (time.monotonic() - submitted_at) * 1000)
+            except Exception:
+                log.exception("Unexpected asynchronous WhatsApp sender failure")
+            finally:
+                slots.release()
+
+        future.add_done_callback(completed)
 
 
 def _flush_best_effort_snapshot(c, *, strict=False, message="Batch webhook snapshot"):
@@ -302,6 +366,7 @@ def _get_webhook_actor(c):
                     lambda payloads: _process_best_effort_batch(c, payloads),
                     lambda: _flush_best_effort_snapshot(c),
                     critical_processor=lambda payloads: _process_critical_webhook(c, payloads),
+                    control_processor=lambda outcomes: _merge_best_effort_outcomes(c, outcomes),
                     capacity=int(os.environ.get("WEBHOOK_QUEUE_CAPACITY", "5000")),
                     batch_size=int(os.environ.get("WEBHOOK_BATCH_SIZE", "100")),
                     flush_seconds=float(os.environ.get("WEBHOOK_GIT_FLUSH_SECONDS", "900")),
@@ -587,7 +652,10 @@ def _process_messages(c, payload: dict, restore_on_error: bool = True) -> bool:
         if not message_id:
             continue
         c.message_statuses.record(message_id, status.get("status"))
-    c.message_statuses.reconcile(c.sentlog, c.renewals, c.welcomes, c.reply_outbox)
+    c.message_statuses.reconcile(
+        c.sentlog, c.renewals, c.welcomes, c.reply_outbox,
+        consume=not restore_on_error,
+    )
 
     return failed
 

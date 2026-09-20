@@ -4,8 +4,10 @@
 
 Render enables an explicitly best-effort webhook queue. Signature-verified payloads
 are put into a bounded in-memory queue and acknowledged immediately; overload is also
-acknowledged and dropped. One actor mutates indexed in-memory repository state in batches,
-a 40-thread bounded sender pool calls WhatsApp, and the memory state is serialized to CSV
+acknowledged and dropped. One actor mutates indexed in-memory repository state in batches
+and submits immutable replies without waiting for transport. A persistent 320-thread,
+5,000-job bounded sender pool calls WhatsApp and returns outcomes through a control queue
+to the same state writer. Memory state is serialized to CSV
 before Git snapshots are attempted every 15 minutes. The actor resumes queued work after
 each snapshot. No RepoSync,
 CSV lock, state lock, Git operation or Meta request runs in the HTTP request path.
@@ -16,6 +18,9 @@ selected by `WEBHOOK_BEST_EFFORT_QUEUE=true` and `WEBHOOK_SINGLE_WRITER=true` in
 `render.yaml`. Without those flags the legacy synchronous durable mode remains available.
 Render logs emit queue depth, drops, failures, batch latency, oldest-event latency, and
 snapshot duration every ten seconds while traffic is being processed.
+Ordinary payment refreshes are coalesced to at most once per 15 seconds; critical commands
+always refresh immediately. Best-effort message-ID dedupe is capped at 120,000 recent rows,
+and reconciled Meta status callbacks are consumed to bound memory under sustained traffic.
 
 The actor has two ordered lanes. Ordinary customer events remain memory-backed until the
 15-minute snapshot. Authorized `ADMIN`/`ADM_*` and `UTR_CONFIRM_*`/`UTR_EDIT_*` events use
