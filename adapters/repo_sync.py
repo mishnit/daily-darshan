@@ -146,12 +146,28 @@ class RepoSync:
             self._dirty.update(pushed)
             if strict:
                 raise
+            # Retain local dirty files, but discard the failed Git transaction
+            # so the next payment refresh can start from a fresh branch head.
+            if hasattr(self._github, "discard_pending"):
+                self._github.discard_pending()
             return []
         self._dirty.difference_update(pushed)
         for rel in pushed:
             with open(self._abs(rel), "rb") as source:
                 self._baseline[rel] = source.read()
         return pushed
+
+    def read_latest(self, rel: str) -> tuple[bytes | None, bytes | None]:
+        """Return the previous baseline and this file at the latest head."""
+        if not self.enabled:
+            return None, None
+        previous = self._baseline.get(rel)
+        if hasattr(self._github, "begin_snapshot"):
+            self._github.begin_snapshot()
+        remote = self._github.read_file(rel)
+        self._baseline[rel] = remote
+        self._snapshot_ready = True
+        return previous, remote
 
     def abort(self):
         """Caller restored its snapshot; discard the abandoned transaction."""

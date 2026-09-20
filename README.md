@@ -4,14 +4,26 @@
 
 Render enables an explicitly best-effort webhook queue. Signature-verified payloads
 are put into a bounded in-memory queue and acknowledged immediately; overload is also
-acknowledged and dropped. One actor mutates local CSV state in batches, a bounded sender
-pool calls WhatsApp, and Git snapshots are attempted every 15 minutes. No RepoSync,
+acknowledged and dropped. One actor mutates indexed in-memory repository state in batches,
+a 40-thread bounded sender pool calls WhatsApp, and the memory state is serialized to CSV
+before Git snapshots are attempted every 15 minutes. The actor resumes queued work after
+each snapshot. No RepoSync,
 CSV lock, state lock, Git operation or Meta request runs in the HTTP request path.
 
 This mode deliberately sacrifices durability: queued and locally processed events can
 be lost on restart, spin-down, deployment, queue overflow or failed Git export. It is
 selected by `WEBHOOK_BEST_EFFORT_QUEUE=true` and `WEBHOOK_SINGLE_WRITER=true` in
 `render.yaml`. Without those flags the legacy synchronous durable mode remains available.
+Render logs emit queue depth, drops, failures, batch latency, oldest-event latency, and
+snapshot duration every ten seconds while traffic is being processed.
+
+The actor has two ordered lanes. Ordinary customer events remain memory-backed until the
+15-minute snapshot. Authorized `ADMIN`/`ADM_*` and `UTR_CONFIRM_*`/`UTR_EDIT_*` events use
+a critical durability lane: the latest remote payment ledger is merged by `reference_id`, the command
+is applied and committed immediately, and only then is its WhatsApp response sent. A
+same-field payment conflict blocks the critical command; ordinary refreshes treat the
+committed remote payment value as authoritative. Both lanes share one state writer, so an
+immediate critical commit and a scheduled snapshot cannot overlap.
 
 A minimal, near-zero-infrastructure platform that delivers a daily "darshan" image to
 WhatsApp subscribers. It uses **GitHub** as source control + persistence + image storage,

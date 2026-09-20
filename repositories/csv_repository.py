@@ -10,6 +10,8 @@ from __future__ import annotations
 import csv
 import os
 import tempfile
+import threading
+import weakref
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -29,6 +31,9 @@ class DuplicateKeyError(Exception):
 
 
 class CSVRepository:
+    _instances = weakref.WeakSet()
+    _instances_lock = threading.Lock()
+
     def __init__(self, path: str, fieldnames: list[str], key_field: str, *, timestamp_new: bool = False):
         self.path = path
         self.timestamp_new = timestamp_new
@@ -38,6 +43,15 @@ class CSVRepository:
         self.key_field = key_field
         self._lock_path = f"{self.path}.lock"
         self._ensure_file()
+        self._memory_mode = os.environ.get("WEBHOOK_SINGLE_WRITER", "").lower() in {
+            "1", "true", "yes",
+        }
+        self._memory_rows = self._read_disk() if self._memory_mode else None
+        self._memory_index = self._build_memory_index() if self._memory_mode else None
+        self._dirty = False
+        if self._memory_mode:
+            with self._instances_lock:
+                self._instances.add(self)
 
     def _ensure_file(self) -> None:
         directory = os.path.dirname(self.path)
@@ -53,7 +67,7 @@ class CSVRepository:
         except FileExistsError:
             pass
 
-    def all(self) -> list[dict]:
+    def _read_disk(self) -> list[dict]:
         # Tolerate a transient empty/headerless read that can occur if another
         # process is mid os.replace(); DictReader yields fieldnames=None then.
         try:
@@ -65,6 +79,53 @@ class CSVRepository:
         except FileNotFoundError:
             return []
 
+    def all(self) -> list[dict]:
+        if self._memory_mode:
+            return [dict(row) for row in self._memory_rows]
+        return self._read_disk()
+
+    def _build_memory_index(self) -> dict[str, int]:
+        return {
+            str(row.get(self.key_field, "")): index
+            for index, row in enumerate(self._memory_rows)
+        }
+
+    @classmethod
+    def flush_all_memory(cls) -> int:
+        """Persist dirty single-writer caches immediately before a Git snapshot."""
+        with cls._instances_lock:
+            instances = list(cls._instances)
+        return sum(repository.flush_memory() for repository in instances)
+
+    @classmethod
+    def reload_all_memory(cls) -> None:
+        """Reload caches after the actor's one-time remote repository pull."""
+        with cls._instances_lock:
+            instances = list(cls._instances)
+        for repository in instances:
+            repository.reload_memory()
+
+    def flush_memory(self) -> int:
+        if not self._memory_mode or not self._dirty:
+            return 0
+        self._write_disk(self._memory_rows)
+        self._dirty = False
+        return 1
+
+    def reload_memory(self) -> None:
+        if self._memory_mode:
+            self._memory_rows = self._read_disk()
+            self._memory_index = self._build_memory_index()
+            self._dirty = False
+
+    def replace_memory_rows(self, rows: list[dict], *, dirty: bool) -> None:
+        """Install a reconciled remote/local view in single-writer mode."""
+        if not self._memory_mode:
+            raise RuntimeError("Memory reconciliation requires WEBHOOK_SINGLE_WRITER")
+        self._memory_rows = [self._row(row) for row in rows]
+        self._memory_index = self._build_memory_index()
+        self._dirty = bool(dirty)
+
     def all_locked(self) -> list[dict]:
         """all() taken under the exclusive lock (consistent snapshot vs writers)."""
         with self._exclusive_lock():
@@ -72,6 +133,9 @@ class CSVRepository:
 
     def find(self, key) -> dict | None:
         key = str(key)
+        if self._memory_mode:
+            index = self._memory_index.get(key)
+            return None if index is None else dict(self._memory_rows[index])
         for row in self.all():
             if row.get(self.key_field) == key:
                 return row
@@ -85,6 +149,11 @@ class CSVRepository:
         if self.timestamp_new:
             record = dict(record, timestamp=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="microseconds"))
         row = self._row(record)
+        if self._memory_mode:
+            self._memory_rows.append(row)
+            self._memory_index[str(row.get(self.key_field, ""))] = len(self._memory_rows) - 1
+            self._dirty = True
+            return
         with open(self.path, newline="", encoding="utf-8") as source:
             existing = next(csv.reader(source), [])
         if existing != self.fieldnames:
@@ -145,6 +214,11 @@ class CSVRepository:
         """
         key = str(key)
         with self._exclusive_lock():
+            if self._memory_mode:
+                if key in self._memory_index:
+                    raise DuplicateKeyError(key)
+                self._append_unlocked(record)
+                return
             for row in self.all():
                 if row.get(self.key_field) == key:
                     raise DuplicateKeyError(key)
@@ -157,6 +231,20 @@ class CSVRepository:
 
     def _update_unlocked(self, key, record: dict) -> bool:
         key = str(key)
+        if self._memory_mode:
+            index = self._memory_index.get(key)
+            if index is None:
+                return False
+            if self.timestamp_new:
+                record = dict(record, timestamp=self._memory_rows[index].get("timestamp", ""))
+            row = self._row(record)
+            self._memory_rows[index] = row
+            new_key = str(row.get(self.key_field, ""))
+            if new_key != key:
+                self._memory_index.pop(key, None)
+            self._memory_index[new_key] = index
+            self._dirty = True
+            return True
         rows = self.all()
         updated = False
         for i, row in enumerate(rows):
@@ -213,6 +301,14 @@ class CSVRepository:
             return updated
 
     def _write_all(self, rows: list[dict]) -> None:
+        if self._memory_mode:
+            self._memory_rows = [self._row(row) for row in rows]
+            self._memory_index = self._build_memory_index()
+            self._dirty = True
+            return
+        self._write_disk(rows)
+
+    def _write_disk(self, rows: list[dict]) -> None:
         directory = os.path.dirname(self.path) or "."
         fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
         try:

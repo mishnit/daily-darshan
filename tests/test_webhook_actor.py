@@ -1,4 +1,5 @@
 import threading
+import time
 
 from application.webhook_actor import BestEffortWebhookActor
 
@@ -49,3 +50,48 @@ def test_failed_batch_does_not_cascade_to_later_batches():
     assert completed.wait(2)
     actor._queue.join()
     assert seen == ["good"]
+    assert actor.failed == 1
+
+
+def test_actor_resumes_pending_work_after_snapshot():
+    seen = []
+    snapshot_started = threading.Event()
+    release_snapshot = threading.Event()
+
+    def flush():
+        snapshot_started.set()
+        assert release_snapshot.wait(2)
+
+    actor = BestEffortWebhookActor(
+        lambda items: seen.extend(items), flush,
+        capacity=20, batch_size=1, flush_seconds=0.01, batch_wait_seconds=0.001,
+    )
+    assert actor.enqueue("before")
+    assert snapshot_started.wait(2)
+    assert actor.enqueue("during-1")
+    assert actor.enqueue("during-2")
+    assert actor.depth == 2
+    release_snapshot.set()
+    actor._queue.join()
+    deadline = time.monotonic() + 2
+    while actor.processed != 3 and time.monotonic() < deadline:
+        time.sleep(0.001)
+    assert seen == ["before", "during-1", "during-2"]
+    assert actor.processed == 3
+    assert actor.last_snapshot_ms > 0
+
+
+def test_critical_lane_preserves_arrival_order_and_runs_separately():
+    order = []
+    actor = BestEffortWebhookActor(
+        lambda items: order.extend(("normal", item) for item in items),
+        lambda: None,
+        critical_processor=lambda items: order.extend(("critical", item) for item in items),
+        capacity=10,
+    )
+    now = time.monotonic()
+    actor._queue.put_nowait((False, 0, now, "normal"))
+    actor._queue.put_nowait((True, 1, now, "admin"))
+    actor.start()
+    actor._queue.join()
+    assert order == [("normal", "normal"), ("critical", "admin")]
