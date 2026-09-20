@@ -8,7 +8,7 @@
     "yearly": { "amount": 999, "days": 365 }
   },
   "upi": {
-    "payee_vpa": "dailydarshan@upi",
+    "payee_vpa": "geekymishnit@upi",
     "payee_name": "Daily Darshan",
     "currency": "INR"
   },
