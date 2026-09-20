@@ -192,13 +192,16 @@ def _refresh_shared_csvs(c, *, strict: bool) -> None:
 
 
 def _is_critical_webhook(payload: dict) -> bool:
-    """Admin and final UTR decisions require an immediate durable commit."""
+    """Financial/admin decisions and rejected-payment reviews commit immediately."""
     for message, _ctx in _iter_messages(payload):
         kind, value = _extract_input(message)
         value = (value or "").strip()
         if kind == "text" and value.upper() == "ADMIN":
             return True
-        if kind == "button" and value.startswith(("ADM_", "UTR_CONFIRM_", "UTR_EDIT_")):
+        if kind == "button" and (
+            value == "CTA_PAYMENT_REVIEW"
+            or value.startswith(("ADM_", "UTR_CONFIRM_", "UTR_EDIT_"))
+        ):
             return True
     return False
 
@@ -342,7 +345,7 @@ def _flush_critical_snapshot(c):
     for attempt in range(3):
         try:
             _flush_best_effort_snapshot(
-                c, strict=True, message="Persist critical admin or UTR webhook",
+                c, strict=True, message="Persist critical financial or admin webhook",
             )
             return
         except BranchAdvancedError:
@@ -1415,8 +1418,8 @@ def _default_plan(c) -> str:
 def _payment_status_text(c, payment):
     ref = payment.reference_id
     if payment.status.value == "FAILED":
-        return (f"Payment {ref} was rejected. Send MENU and select Request review to ask the administrator to recheck it. "
-                "Keep your payment proof and do not pay again until the payment is resolved.")
+        from application.payment_messages import payment_rejection_text
+        return payment_rejection_text(c.config, payment)
     if payment.status.value == "SUCCESS":
         if payment.activation_state != "APPLIED":
             return f"Payment {ref} is approved. Subscription activation is being completed; please do not pay again."

@@ -134,6 +134,30 @@ class PaymentService:
         self._log("PAYMENT_VERIFIED", payment.mobile, reference_id)
         return payment
 
+    def supersede_other_unresolved(self, mobile: str, keep_reference_id: str) -> list[Payment]:
+        """Release every competing checkout after one entitlement is applied.
+
+        UTR evidence is retained and SUPERSEDED rows remain available to the
+        admin review queue. They are not marked FAILED because that status
+        deliberately blocks customer checkout until resolution or cleanup.
+        """
+        released = []
+        for payment in self._payments.all():
+            if (
+                payment.mobile == mobile
+                and payment.reference_id != keep_reference_id
+                and payment.status in {PaymentStatus.PENDING, PaymentStatus.FAILED}
+            ):
+                payment.status = PaymentStatus.SUPERSEDED
+                self._payments.update(payment)
+                self._log(
+                    "PAYMENT_REVIEW_SUPERSEDED_AFTER_APPROVAL",
+                    mobile,
+                    f"approved={keep_reference_id};released={payment.reference_id}",
+                )
+                released.append(payment)
+        return released
+
     def plan_days(self, plan: str) -> int:
         return int(self._plans[plan]["days"])
 

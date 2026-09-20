@@ -31,7 +31,8 @@ operational webhook errors. `WEBHOOK_LOGGING_ENABLED=false` disables the complet
 sampled invocation logs; both settings are read at process startup.
 
 The actor has two ordered lanes. Ordinary customer events remain memory-backed until the
-15-minute snapshot. Authorized `ADMIN`/`ADM_*` and `UTR_CONFIRM_*`/`UTR_EDIT_*` events use
+15-minute snapshot. Authorized `ADMIN`/`ADM_*`, `UTR_CONFIRM_*`/`UTR_EDIT_*`, and rejected-payment
+`CTA_PAYMENT_REVIEW` events use
 a critical durability lane: the latest remote payment ledger is merged by `reference_id`, the command
 is applied and committed immediately, and only then is its WhatsApp response sent. A
 same-field payment conflict blocks the critical command; ordinary refreshes treat the
@@ -551,10 +552,24 @@ Details:
 - An active opted-out user always has Resume messages, even during payment review. Its
   separate consent action changes consent only, not checkout, UTR or entitlement.
 - Rejected users can select Request review. This records `PAYMENT_REVIEW_REQUESTED` in the
-  operational log and acknowledges the request; it does not automatically notify an admin or
+  operational log through the immediate critical Git lane and acknowledges the request only after
+  that commit; it does not automatically notify an admin or
   approve payment. Administrators inspect `list-rejected` and logs. A new checkout is unlocked
   only after `reopen-payment <reference> --no-payment-confirmed --commit`, or the original
   payment is verified after proof review. The explicit flag must never be used if payment occurred.
+- A WhatsApp admin rejection immediately sends the customer the configured
+  `messages.payment_rejected` response. `{reference_id}`, `{release_days}`, and `{release_date}`
+  are supported placeholders. Payment status reuses exactly the same text so the proactive notice
+  and later menu response cannot disagree.
+- Delivery cleanup changes a payment from `FAILED` to `SUPERSEDED` after three full calendar days
+  from `rejected_at`, controlled by `delivery.failed_payment_release_days`. This releases the menu
+  so the customer can renew or upgrade again without deleting the old reference, UTR, timestamp, or
+  audit history. Legacy rows use their `PAYMENT_REJECTED` log timestamp and remain blocked when no
+  trustworthy rejection timestamp exists.
+- As soon as one approved payment is applied, every other `PENDING` or `FAILED` checkout for that
+  customer becomes `SUPERSEDED`. This immediately removes competing reviews from the customer menu
+  without deleting their UTR evidence. Those rows remain in the admin review queue and can still be
+  verified later when bank evidence proves that a second payment also occurred.
 - A newly verified purchase can reactivate a CANCELLED subscriber once, starting a fresh term
   from the UTR-confirmation IST date without silently restoring consent. Old cancelled/paused/expired
   activation welcomes are cancelled rather than announcing an active subscription.
@@ -791,7 +806,7 @@ token does not trigger another push workflow. No new Meta template is needed: th
 reviews and image previews. The template's URL button remains a workflow-run link.
 
 New operational schemas (existing headers migrate on write):
-- `payments.csv`: adds `utr_confirmed_at`.
+- `payments.csv`: adds `utr_confirmed_at` and `rejected_at`.
 - `conversations.csv`: adds draft and admin decision fields; only opaque, sender-bound buttons
   for the current snapshot can approve.
 - `image_reviews.csv`: `id,date,generation,source,path,sha256,status,approved_by,approved_at`.

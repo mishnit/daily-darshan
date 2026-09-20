@@ -127,6 +127,83 @@ def test_multiple_approved_plans_keep_larger_plan_and_apply_all_paid_days(contai
     }
 
 
+def test_approval_supersedes_other_unresolved_reviews_without_losing_utr(container):
+    from domain.payment import Payment
+
+    approved = container.payment_service.create_payment(
+        "919999999999", "monthly", date(2026, 8, 19)
+    )
+    approved.record_utr("111111111111")
+    container.payments.update(approved)
+    competing = Payment(
+        reference_id="DD2608190002",
+        mobile=approved.mobile,
+        plan="monthly",
+        amount=49,
+        status=PaymentStatus.PENDING,
+        utr="222222222222",
+        created_at=approved.created_at,
+    )
+    container.payments.append(competing)
+
+    args = SimpleNamespace(
+        reference_id=approved.reference_id,
+        activate=True,
+        renew=False,
+        commit=False,
+    )
+    assert admin.cmd_verify(container, args) == 0
+
+    released = container.payments.find(competing.reference_id)
+    assert released.status == PaymentStatus.SUPERSEDED
+    assert released.utr == "222222222222"
+    assert any(
+        row["event"] == "PAYMENT_REVIEW_SUPERSEDED_AFTER_APPROVAL"
+        and competing.reference_id in row["details"]
+        for row in container.logs.all()
+    )
+
+
+def test_approval_releases_competing_failed_checkout_immediately(container):
+    approved = container.payment_service.create_payment(
+        "919999999999", "monthly", date(2026, 8, 19)
+    )
+    rejected = container.payment_service.create_payment(
+        "919999999999", "monthly", date(2026, 8, 20)
+    )
+    rejected.status = PaymentStatus.FAILED
+    rejected.utr = "222222222222"
+    container.payments.update(rejected)
+
+    args = SimpleNamespace(
+        reference_id=approved.reference_id,
+        activate=True,
+        renew=False,
+        commit=False,
+    )
+    assert admin.cmd_verify(container, args) == 0
+    assert container.payments.find(rejected.reference_id).status == PaymentStatus.SUPERSEDED
+
+
+def test_repeated_old_approval_does_not_supersede_a_new_checkout(container):
+    approved = container.payment_service.create_payment(
+        "919999999999", "monthly", date(2026, 8, 19)
+    )
+    args = SimpleNamespace(
+        reference_id=approved.reference_id,
+        activate=True,
+        renew=False,
+        commit=False,
+    )
+    assert admin.cmd_verify(container, args) == 0
+    newer = container.payment_service.create_payment(
+        "919999999999", "monthly", date(2026, 8, 20)
+    )
+
+    assert admin.cmd_verify(container, args) == 0
+    assert container.payments.find(newer.reference_id).status == PaymentStatus.PENDING
+
+
 def test_reject_sets_failed(container):
     p = container.payment_service.create_payment("919999999999", "monthly", date(2026, 8, 19))
     args = SimpleNamespace(reference_id=p.reference_id, commit=False)

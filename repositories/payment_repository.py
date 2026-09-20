@@ -14,6 +14,7 @@ FIELDNAMES = [
     "reference_id", "mobile", "plan", "amount",
     "status", "utr", "created_at", "verified_at",
     "activation_state", "utr_confirmed_at",
+    "rejected_at",
 ]
 
 

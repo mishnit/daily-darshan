@@ -109,6 +109,15 @@ def handle_admin(c, mobile, value):
             result = f"Approved {p.reference_id}. Subscription updated; page publication and welcome are queued."
         else:
             cmd_reject(c, args)
+            rejected = c.payments.find(p.reference_id)
+            from application.payment_messages import payment_rejection_text
+            _require_send(
+                c.whatsapp.send_text(
+                    rejected.mobile,
+                    payment_rejection_text(c.config, rejected),
+                ),
+                "customer payment rejection notification",
+            )
             result = f"Rejected {p.reference_id}. No entitlement was added."
     elif state.get("admin_kind") == "image":
         row = c.image_reviews.find(state["admin_reference"])

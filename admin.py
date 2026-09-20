@@ -24,11 +24,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 
 from adapters.github import LocalGitRepository
 from application.payment_service import PaymentError
 from application.subscriber_service import SubscriberError
-from domain.clock import today_ist
+from domain.clock import today_ist, INDIA_TZ
 from config import Container
 from domain.enums import PaymentStatus
 
@@ -104,6 +105,7 @@ def _verify_locked(container: Container, args) -> int:
             from domain.subscriber import Subscriber
             sub = existing or Subscriber(mobile=payment.mobile, plan=payment.plan, opt_in=False)
             applied = set(filter(None, sub.applied_payment_refs.split(";")))
+            newly_applied = reference_id not in applied
             if reference_id not in applied and payment.activation_state != "PENDING":
                 raise SubscriberError(
                     "Legacy verified payment has no activation marker. Reconcile its entitlement "
@@ -144,6 +146,14 @@ def _verify_locked(container: Container, args) -> int:
             payment.activation_state = "APPLIED"
             container.payments.update(payment)
             container.logs.log("PAYMENT_ENTITLEMENT_APPLIED", payment.mobile, reference_id)
+            # Applying one payment must release every competing checkout from
+            # the customer menu. Preserve their UTR evidence as SUPERSEDED so
+            # an administrator can still reconcile and apply a second real
+            # payment later without blocking renewal or upgrade in the meantime.
+            if newly_applied:
+                container.payment_service.supersede_other_unresolved(
+                    payment.mobile, reference_id
+                )
             # Persist the notification intent with the entitlement. A separate
             # worker sends only after the personalized page is published.
             if not container.welcomes.find(reference_id):
@@ -191,6 +201,7 @@ def cmd_reject(container: Container, args) -> int:
         print(f"ERROR: Payment not found: {reference_id}", file=sys.stderr)
         return 1
     payment.status = PaymentStatus.FAILED
+    payment.rejected_at = datetime.now(INDIA_TZ)
     container.payments.update(payment)
     container.logs.log("PAYMENT_REJECTED", payment.mobile, reference_id)
     print(f"Rejected payment {reference_id}: status=FAILED")
