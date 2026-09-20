@@ -230,6 +230,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `schedule` | Image cron hint (documentation; the actual cron lives in `image.yml`). Pages publication and delivery are event-driven. |
 | `renewal.reminder_days` | Days-before-expiry to send reminders, e.g. `[3, 2, 1]`. Does not change the fixed three-day renewal eligibility or page CTA window. |
 | `renewal.whatsapp_number` | Digits-only WhatsApp destination used by the near-expiry page CTA. |
+| `delivery.karma_api_url` | Public Render endpoint used after a successful native share handoff to award one daily Karma point. |
 | `persistence` | Webhook durability. `mode`: `github_api` (snapshot reads and atomic Git Data API commits — needs `GITHUB_TOKEN`+`GITHUB_REPO`) or `local` (no sync; dev only). `branch`: repo branch to sync against. |
 | `delivery` | Delivery mode + message settings. `mode`: `utility_template` (send a parameterized utility template linking to a per-subscriber page) or `image` (send the image inline). Also controls template language, page/image URLs, retries, 30-day operational-log retention, image retention and page-retention grace. |
 
@@ -639,6 +640,10 @@ Details:
   Subscriber pages encourage sharing through “Share Darshan with family & friends on whatsapp”.
   On supported HTTPS browsers the native share sheet receives the actual image file and
   a VIP Seva referral caption, never the subscriber page URL. Users select WhatsApp.
+- A completed native share handoff can award one Karma point per subscription per IST date through
+  `delivery.karma_api_url`. The static page displays the persisted total and updates it optimistically
+  after the API accepts a new daily event. This proves the browser handed content to a share target,
+  not that a recipient opened or read it.
   Download-image, copy-caption and explicitly labelled link-only fallbacks remain available.
   WhatsApp/browser versions may omit the caption when sharing a file; it can be copied manually.
   This does not prevent someone copying their personal URL from the address bar. After changing

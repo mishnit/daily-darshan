@@ -64,6 +64,7 @@ _TEMPLATE = """<!DOCTYPE html>
     .share button {{ border: 0; border-radius: 7px; padding: 10px 16px;
                      color: white; font: inherit; font-weight: 650; cursor: pointer; }}
     .privacy-note {{ margin: 3px 8px; font-size: .72rem; color: #53483c; }}
+    .karma {{ margin: 5px 8px; font-size: .86rem; font-weight: 700; color: #7a4b00; }}
     .share textarea {{ box-sizing: border-box; width: 100%; min-height: 90px; }}
     body {{ overflow-y: auto; }}
     .renewal + .image-frame img {{ border-radius: 0; }}
@@ -80,7 +81,8 @@ _TEMPLATE = """<!DOCTYPE html>
            onerror="this.onerror=null; this.src='{fallback_url}';">
     </div>
     <div class="share">
-      <p class="privacy-note">Share today's Darshan on WhatsApp with your referral link.</p>
+      <p class="privacy-note">Share Darshan on WhatsApp and earn 1 Karma point daily.</p>
+      <p class="karma">Karma points: <span id="karma-points">{karma_points}</span></p>
       <button id="share-darshan" type="button" data-image-url="{image_url}" data-share-text="{share_text}">Share Darshan on WhatsApp</button>
       <p id="share-status" role="status" aria-live="polite"></p>
     </div>
@@ -98,6 +100,9 @@ _SHARE_SCRIPT = r"""
   let file;
   const imageUrl = button.dataset.imageUrl;
   const text = button.dataset.shareText;
+  const karmaApi = __KARMA_API__;
+  const subscriptionId = __SUBSCRIPTION_ID__;
+  const points = document.getElementById('karma-points');
   fetch(imageUrl).then(r => { if (!r.ok) throw new Error('image unavailable'); return r.blob(); })
     .then(blob => { file = new File([blob], 'daily-darshan.jpg', {type: blob.type || 'image/jpeg'}); })
     .catch(() => { status.textContent = 'Image sharing is unavailable on this browser.'; });
@@ -106,7 +111,22 @@ _SHARE_SCRIPT = r"""
       status.textContent = 'Please use a mobile browser with WhatsApp sharing enabled.';
       return;
     }
-    try { await navigator.share({files: [file], text}); }
+    try {
+      await navigator.share({files: [file], text});
+      if (!karmaApi) { status.textContent = 'Darshan shared.'; return; }
+      try {
+        const response = await fetch(karmaApi, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({subscription_id: subscriptionId})
+        });
+        if (!response.ok) throw new Error('reward unavailable');
+        const reward = await response.json();
+        if (reward.awarded && points) points.textContent = String(Number(points.textContent || '0') + 1);
+        status.textContent = reward.awarded ? 'Darshan shared. You earned 1 Karma point.' : 'Darshan shared. Today’s Karma point was already earned.';
+      } catch (rewardError) {
+        status.textContent = 'Darshan shared, but the Karma point could not be recorded.';
+      }
+    }
     catch (error) { if (error.name !== 'AbortError') status.textContent = 'Sharing could not be opened.'; }
   });
 })();
@@ -116,7 +136,8 @@ _SHARE_SCRIPT = r"""
 class PageRenderer:
     def __init__(self, pages_dir: str = "docs", image_public_base: str = "",
                  image_url_path: str = "images", renewal_whatsapp_number: str = "",
-                 renewal_window_days: int = 3):
+                 renewal_window_days: int = 3, karma_api_url: str = "",
+                 karma_repository=None):
         """pages_dir: local dir committed to the repo (GitHub Pages source).
         image_public_base: absolute base URL where images are publicly served,
         e.g. https://vipseva.com . Used for the <img> src and og:image so the
@@ -134,6 +155,21 @@ class PageRenderer:
             char for char in renewal_whatsapp_number if char.isdigit()
         )
         self._renewal_window_days = max(0, int(renewal_window_days))
+        self._karma_api_url = karma_api_url.strip()
+        self._karma_repository = karma_repository
+
+    def karma_points(self, subscription_id: str) -> int:
+        if not self._karma_repository or not subscription_id:
+            return 0
+        total = 0
+        for row in self._karma_repository.all():
+            if row.get("subscription_id") != subscription_id:
+                continue
+            try:
+                total += max(0, int(row.get("points") or 0))
+            except (TypeError, ValueError):
+                continue
+        return total
 
     def image_url(self, on_date: date, images_dir: str | None = None,
                   image_name: str | None = None) -> str:
@@ -181,7 +217,11 @@ class PageRenderer:
             f"Visit VIP Seva for daily darshan:\nhttps://vipseva.com/?ref={subscriber.mobile}"
         )
         return _TEMPLATE.format(
-            share_script=_SHARE_SCRIPT,
+            share_script=_SHARE_SCRIPT.replace(
+                "__KARMA_API__", __import__("json").dumps(self._karma_api_url)
+            ).replace(
+                "__SUBSCRIPTION_ID__", __import__("json").dumps(subscriber.subscription_id)
+            ),
             date=html.escape(on_date.isoformat()),
             status_text=html.escape(f"{status_text} — {on_date.isoformat()}"),
             greeting=html.escape(greeting),
@@ -192,6 +232,7 @@ class PageRenderer:
             fallback_url=html.escape(self.fallback_url(images_dir)),
             renewal_reminder=renewal_reminder,
             share_text=html.escape(share_text, quote=True),
+            karma_points=self.karma_points(subscriber.subscription_id),
         )
 
     def _renewal_reminder(self, subscriber: Subscriber, on_date: date) -> str:

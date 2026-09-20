@@ -90,6 +90,11 @@ class Container:
             ["message_id", "visitor_mobile", "referrer_mobile", "recorded_at"],
             "message_id",
         )
+        self.karma_events = CSVRepository(
+            p(paths.get("karma_events_csv", "csv/karma_events.csv")),
+            ["id", "subscription_id", "date", "points", "recorded_at"],
+            "id",
+        )
 
         # WhatsApp app secret for webhook signature verification (fix #2).
         self.whatsapp_app_secret = os.environ.get("WHATSAPP_APP_SECRET", "")
@@ -155,6 +160,8 @@ class Container:
             image_url_path=delivery_cfg.get("image_url_path", "images"),
             renewal_whatsapp_number=renewal_cfg.get("whatsapp_number", ""),
             renewal_window_days=3,
+            karma_api_url=delivery_cfg.get("karma_api_url", ""),
+            karma_repository=self.karma_events,
         )
 
         # Durable webhook persistence (P0 fix #6): back local CSVs with the
@@ -191,6 +198,7 @@ class Container:
             paths["renewals_csv"],
             paths.get("message_statuses_csv", "csv/message_statuses.csv"),
             paths.get("referrals_csv", "csv/referrals.csv"),
+            paths.get("karma_events_csv", "csv/karma_events.csv"),
         ]
         return RepoSync(github, self.root, tracked, enabled)
 
