@@ -12,6 +12,7 @@ from adapters.payment_gateway import PaymentGatewayError, RazorpayPaymentGateway
 from application.ports.payment_gateway import GatewayCheckout, GatewayEvent
 from application.payment_service import PaymentService
 from domain.enums import PaymentStatus
+from domain.clock import today_ist
 from config import Container
 from tests.conftest import FakeWhatsApp
 
@@ -98,9 +99,14 @@ def test_gateway_payment_instruction_uses_hosted_link_without_requesting_utr(con
     assert "Amount: ₹100" in message
 
 
-def test_paid_gateway_webhook_automatically_activates_and_is_idempotent(container):
+def test_paid_gateway_webhook_automatically_activates_and_is_idempotent(container, monkeypatch):
     gateway = FakeGateway("SUCCESS")
     enable_gateway(container, gateway)
+    commits = []
+    monkeypatch.setattr(
+        main, "_flush_critical_snapshot",
+        lambda c, message="": commits.append(message),
+    )
     payment = container.payment_service.create_payment("9199", "monthly", date(2026, 9, 20))
     payment = container.payment_service.ensure_gateway_checkout(payment)
     body = json.dumps({"event": "payment_link.paid", "reference_id": payment.reference_id}).encode()
@@ -109,9 +115,27 @@ def test_paid_gateway_webhook_automatically_activates_and_is_idempotent(containe
     first_expiry = container.subscribers.find("9199").end_date
     assert container.payments.find(payment.reference_id).status == PaymentStatus.SUCCESS
     assert container.payments.find(payment.reference_id).activation_state == "APPLIED"
+    approval_messages = [
+        item for item in container.whatsapp.sent
+        if item.get("mobile") == "9199" and item.get("type") == "text"
+    ]
+    assert len(approval_messages) == 1
+    assert "approved and applied" in approval_messages[0]["message"]
+    assert "earn 1 Karma point daily" in approval_messages[0]["message"]
+    assert container.welcomes.find(payment.reference_id)["status"] == "SENT"
+    assert container.sentlog.was_sent(today_ist(), "9199")
+    assert commits == [f"Persist critical gateway event for {payment.reference_id}"]
 
     main._process_payment_gateway_webhook(container, body, "test")
     assert container.subscribers.find("9199").end_date == first_expiry
+    assert len([
+        item for item in container.whatsapp.sent
+        if item.get("mobile") == "9199" and item.get("type") == "text"
+    ]) == 1
+    assert commits == [
+        f"Persist critical gateway event for {payment.reference_id}",
+        f"Persist critical gateway event for {payment.reference_id}",
+    ]
 
 
 def test_terminal_gateway_rejection_fails_pending_but_cannot_revoke_success(container):

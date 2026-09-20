@@ -315,7 +315,9 @@ To let the gateway approve or reject checkout automatically, set:
 Then set the three Razorpay secrets on Render and create a Razorpay webhook pointing to
 `https://<render-service>/payments/webhook/razorpay`. Subscribe to `payment_link.paid`,
 `payment.captured`, `payment_link.cancelled`, and `payment_link.expired`. Paid/captured events
-atomically mark the payment successful and apply the subscription; cancellation/expiry fails an
+atomically mark the payment successful, apply the subscription and send the configured free-text
+payment approval once. That approval consumes the shared daily contact slot and completes the
+payment-keyed welcome row, preventing a second activation welcome. Cancellation/expiry fails an
 unpaid checkout. A transient `payment.failed` attempt is intentionally ignored because the same
 hosted link can still be retried. Success is monotonic, so a late expiry event cannot revoke an
 already-applied entitlement. Signed callbacks are persisted immediately rather than waiting for

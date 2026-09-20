@@ -534,8 +534,10 @@ still comes exclusively from the signed server-to-server webhook.
 2. In Razorpay test mode, start a new plan checkout and confirm WhatsApp returns one hosted
    `rzp.io` payment link and does not request a UTR.
 3. Complete a test payment and confirm the payment becomes `SUCCESS`, `activation_state` becomes
-   `APPLIED`, the subscriber entitlement changes once, and the welcome/publication request is
-   queued.
+   `APPLIED`, the subscriber entitlement changes once, and the publication request is queued.
+   Confirm the customer immediately receives the configured free-text payment approval containing
+   the purchased plan, expiry date and daily Karma-sharing guidance. Its payment-keyed welcome row
+   becomes `SENT`, suppressing a second activation welcome.
 4. Redeliver the same webhook and confirm dates are not extended again and no duplicate rejection
    notification is sent.
 5. Test an expired/cancelled unpaid link and confirm it becomes `FAILED`. Confirm a cancellation
