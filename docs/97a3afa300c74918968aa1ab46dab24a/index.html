@@ -42,6 +42,7 @@
     .share button { border: 0; border-radius: 7px; padding: 10px 16px;
                      color: white; font: inherit; font-weight: 650; cursor: pointer; }
     .privacy-note { margin: 3px 8px; font-size: .72rem; color: #53483c; }
+    .karma { margin: 5px 8px; font-size: .86rem; font-weight: 700; color: #7a4b00; }
     .share textarea { box-sizing: border-box; width: 100%; min-height: 90px; }
     body { overflow-y: auto; }
     .renewal + .image-frame img { border-radius: 0; }
@@ -58,7 +59,8 @@
            onerror="this.onerror=null; this.src='https://vipseva.com/images/fallback.jpg';">
     </div>
     <div class="share">
-      <p class="privacy-note">Share today's Darshan on WhatsApp with your referral link.</p>
+      <p class="privacy-note">Share Darshan on WhatsApp and earn 1 Karma point daily.</p>
+      <p class="karma">Karma points: <span id="karma-points">0</span></p>
       <button id="share-darshan" type="button" data-image-url="https://vipseva.com/images/8e7e073a-bd1f-5d4d-88bb-14a80cdecedb_2026-09-20.jpg" data-share-text="Radhe Radhe 🙏
 
 Today&#x27;s HD Daily Darshan.
@@ -76,6 +78,9 @@ https://vipseva.com/?ref=919108711599">Share Darshan on WhatsApp</button>
   let file;
   const imageUrl = button.dataset.imageUrl;
   const text = button.dataset.shareText;
+  const karmaApi = "https://daily-darshan-webhook.onrender.com/karma/share";
+  const subscriptionId = "97a3afa300c74918968aa1ab46dab24a";
+  const points = document.getElementById('karma-points');
   fetch(imageUrl).then(r => { if (!r.ok) throw new Error('image unavailable'); return r.blob(); })
     .then(blob => { file = new File([blob], 'daily-darshan.jpg', {type: blob.type || 'image/jpeg'}); })
     .catch(() => { status.textContent = 'Image sharing is unavailable on this browser.'; });
@@ -84,7 +89,22 @@ https://vipseva.com/?ref=919108711599">Share Darshan on WhatsApp</button>
       status.textContent = 'Please use a mobile browser with WhatsApp sharing enabled.';
       return;
     }
-    try { await navigator.share({files: [file], text}); }
+    try {
+      await navigator.share({files: [file], text});
+      if (!karmaApi) { status.textContent = 'Darshan shared.'; return; }
+      try {
+        const response = await fetch(karmaApi, {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({subscription_id: subscriptionId})
+        });
+        if (!response.ok) throw new Error('reward unavailable');
+        const reward = await response.json();
+        if (reward.awarded && points) points.textContent = String(Number(points.textContent || '0') + 1);
+        status.textContent = reward.awarded ? 'Darshan shared. You earned 1 Karma point.' : 'Darshan shared. Today’s Karma point was already earned.';
+      } catch (rewardError) {
+        status.textContent = 'Darshan shared, but the Karma point could not be recorded.';
+      }
+    }
     catch (error) { if (error.name !== 'AbortError') status.textContent = 'Sharing could not be opened.'; }
   });
 })();
