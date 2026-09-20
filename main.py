@@ -24,6 +24,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Query, Request, Response, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from domain.enums import PaymentStatus
 from repositories.state_lock import state_lock
@@ -32,6 +33,12 @@ from adapters.github import BranchAdvancedError
 from application.webhook_metrics import WebhookMetrics
 
 app = FastAPI(title="Daily Darshan Webhook", version="2.0.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://vipseva.com"],
+    allow_methods=["POST", "OPTIONS"],
+    allow_headers=["content-type"],
+)
 log = logging.getLogger("daily_darshan.webhook")
 log.disabled = os.environ.get("WEBHOOK_LOGGING_ENABLED", "true").strip().lower() not in {
     "1", "true", "yes", "on",
@@ -51,6 +58,7 @@ _best_effort_sender_lock = threading.Lock()
 _last_payment_refresh = 0.0
 _best_effort_since_prune = 0
 _webhook_metrics = WebhookMetrics(log)
+_pending_karma_awards: set[str] = set()
 
 
 def _get_container():
@@ -168,6 +176,8 @@ def _refresh_shared_csvs(c, *, strict: bool) -> None:
               status_ranks={"PENDING": 0, "SUPERSEDED": 1, "APPROVED": 2})),
         (paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv"), c.pipeline_requests,
          dict(key_fields=("id",))),
+        (paths.get("karma_events_csv", "csv/karma_events.csv"), c.karma_events,
+         dict(key_fields=("id",))),
     ]
     for path, repository, policy in specifications:
         baseline, remote = c.repo_sync.read_latest(path)
@@ -260,7 +270,13 @@ def _process_best_effort_batch(c, payloads, *, critical: bool = False):
 
 def _merge_best_effort_outcomes(c, outcome_batches):
     from application.reply_outbox import merge_reply_outcomes
-    outcomes = [outcome for batch in outcome_batches for outcome in batch]
+    controls = [outcome for batch in outcome_batches for outcome in batch]
+    karma = [item for item in controls if item.get("type") == "karma_share"]
+    outcomes = [item for item in controls if item.get("type") != "karma_share"]
+    for item in karma:
+        if not c.karma_events.find(item["id"]):
+            c.karma_events.upsert(item["id"], item)
+        _pending_karma_awards.discard(item["id"])
     merge_reply_outcomes(c.reply_outbox, outcomes)
     c.message_statuses.reconcile(c.reply_outbox, consume=True)
     # This mode explicitly has no reply retry. Keeping full serialized reply
@@ -396,6 +412,41 @@ def _get_webhook_actor(c):
                     logger=log,
                 )
     return _webhook_actor
+
+
+@app.post("/karma/share")
+async def record_karma_share(request: Request) -> Response:
+    """Queue one idempotent daily point after a subscription-page share handoff."""
+    from domain.clock import today_ist, INDIA_TZ
+    c = _get_container()
+    if c is None:
+        return _json({"status": "unavailable"}, 503)
+    try:
+        payload = await request.json()
+        subscription_id = str(payload.get("subscription_id", "")).strip()
+    except (ValueError, TypeError, AttributeError):
+        return _json({"status": "invalid"}, 400)
+    subscriber = next(
+        (row for row in c.subscribers.all() if row.subscription_id == subscription_id),
+        None,
+    )
+    if subscriber is None:
+        return _json({"status": "not_found"}, 404)
+    day = today_ist().isoformat()
+    key = f"{subscription_id}:{day}"
+    already = c.karma_events.find(key) is not None or key in _pending_karma_awards
+    if not already:
+        from datetime import datetime
+        _pending_karma_awards.add(key)
+        _get_webhook_actor(c).enqueue_control([{
+            "type": "karma_share",
+            "id": key,
+            "subscription_id": subscription_id,
+            "date": day,
+            "points": "1",
+            "recorded_at": datetime.now(INDIA_TZ).isoformat(),
+        }])
+    return _json({"status": "recorded", "awarded": not already, "date": day})
 
 
 @app.get("/webhook")
@@ -716,6 +767,7 @@ def _webhook_paths(c) -> list[str]:
         paths.get("reply_outbox_csv", "csv/reply_outbox.csv"),
         paths.get("conversations_csv", "csv/conversations.csv"),
         paths.get("referrals_csv", "csv/referrals.csv"),
+        paths.get("karma_events_csv", "csv/karma_events.csv"),
     ]
 
 

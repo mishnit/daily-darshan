@@ -33,3 +33,33 @@ def test_referral_recorded_once_per_processed_message(tmp_path):
     repo.upsert("m1", row)
     repo.upsert("m1", row)
     assert len(repo.all()) == 1
+
+
+def test_subscription_page_shows_karma_total_and_daily_reward_copy(tmp_path):
+    from repositories.csv_repository import CSVRepository
+    repo = CSVRepository(
+        str(tmp_path / "karma.csv"),
+        ["id", "subscription_id", "date", "points", "recorded_at"],
+        "id",
+    )
+    repo.upsert("opaque:2026-09-11", {
+        "id": "opaque:2026-09-11", "subscription_id": "opaque",
+        "date": "2026-09-11", "points": "1", "recorded_at": "now",
+    })
+    repo.upsert("opaque:2026-09-12", {
+        "id": "opaque:2026-09-12", "subscription_id": "opaque",
+        "date": "2026-09-12", "points": "1", "recorded_at": "now",
+    })
+    page = PageRenderer(
+        image_public_base="https://vipseva.com",
+        karma_api_url="https://api.example/karma/share",
+        karma_repository=repo,
+    ).render_html(
+        Subscriber("919535507255", "monthly", subscription_id="opaque"),
+        date(2026, 9, 12), delivered=True,
+    )
+
+    assert "Share Darshan on WhatsApp and earn 1 Karma point daily." in page
+    assert 'id="karma-points">2</span>' in page
+    assert 'const karmaApi = "https://api.example/karma/share"' in page
+    assert 'const subscriptionId = "opaque"' in page

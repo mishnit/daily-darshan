@@ -78,6 +78,43 @@ def test_best_effort_overload_is_acknowledged_and_dropped(app_client, monkeypatc
     assert response.json() == {"status": "dropped"}
 
 
+def test_karma_share_is_daily_idempotent_and_persisted_by_state_actor(app_client, monkeypatch):
+    main, client = app_client
+    from domain.subscriber import Subscriber
+
+    c = main.container
+    c.subscribers.append(Subscriber(
+        mobile="9199", plan="monthly", subscription_id="karma-page"
+    ))
+    controls = []
+    actor = SimpleNamespace(enqueue_control=lambda payload: controls.append(payload))
+    monkeypatch.setattr(main, "_get_webhook_actor", lambda _container: actor)
+    main._pending_karma_awards.clear()
+
+    first = client.post(
+        "/karma/share",
+        json={"subscription_id": "karma-page"},
+        headers={"Origin": "https://vipseva.com"},
+    )
+    duplicate = client.post("/karma/share", json={"subscription_id": "karma-page"})
+
+    assert first.status_code == 200
+    assert first.json()["awarded"] is True
+    assert first.headers["access-control-allow-origin"] == "https://vipseva.com"
+    assert duplicate.json()["awarded"] is False
+    assert len(controls) == 1
+    main._merge_best_effort_outcomes(c, controls)
+    row = c.karma_events.all()[0]
+    assert row["subscription_id"] == "karma-page"
+    assert row["points"] == "1"
+
+
+def test_karma_share_rejects_unknown_subscription(app_client):
+    _main, client = app_client
+    response = client.post("/karma/share", json={"subscription_id": "unknown"})
+    assert response.status_code == 404
+
+
 def test_best_effort_routes_admin_and_utr_confirmation_to_critical_lane(app_client, monkeypatch):
     main, client = app_client
     calls = []
