@@ -38,6 +38,10 @@ services:
         value: "10"
       - key: WEBHOOK_METRICS_SAMPLE_RATE
         value: "0.001"
+      - key: WEBHOOK_METRICS_ENABLED
+        value: "true"
+      - key: WEBHOOK_LOGGING_ENABLED
+        value: "true"
 
       # Set each value in Render Dashboard; never commit secrets.
       - key: WHATSAPP_ACCESS_TOKEN

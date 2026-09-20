@@ -33,6 +33,9 @@ from application.webhook_metrics import WebhookMetrics
 
 app = FastAPI(title="Daily Darshan Webhook", version="2.0.0")
 log = logging.getLogger("daily_darshan.webhook")
+log.disabled = os.environ.get("WEBHOOK_LOGGING_ENABLED", "true").strip().lower() not in {
+    "1", "true", "yes", "on",
+}
 
 # Composition root, guarded (P1a fix #1): a bad config / dependency must NOT
 # crash import — otherwise the whole app (including /health) fails to start.

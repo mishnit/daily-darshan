@@ -25,6 +25,10 @@ Every user-initiated webhook contributes to 10-second processing and send-comple
 avg/p50/p95/p99 aggregates. Correlated per-invocation logs are sampled at 0.1% by default
 (`WEBHOOK_METRICS_SAMPLE_RATE=0.001`) to avoid making logging itself a throughput bottleneck;
 Meta status-only callbacks are excluded.
+`WEBHOOK_METRICS_ENABLED=false` disables metric collection and correlation while preserving
+operational webhook errors. `WEBHOOK_LOGGING_ENABLED=false` disables the complete
+`daily_darshan.webhook` logger, including errors, queue/snapshot diagnostics, metrics, and
+sampled invocation logs; both settings are read at process startup.
 
 The actor has two ordered lanes. Ordinary customer events remain memory-backed until the
 15-minute snapshot. Authorized `ADMIN`/`ADM_*` and `UTR_CONFIRM_*`/`UTR_EDIT_*` events use
