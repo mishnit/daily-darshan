@@ -220,6 +220,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 |-----|---------|
 | `plans` | Plan catalog: `{ "<plan>": { "amount": <int>, "days": <int> } }`. Drives pricing, UPI amount, and subscription length. |
 | `upi` | `payee_vpa`, `payee_name`, `currency` used to build the UPI intent string. |
+| `payments` | Selects `manual_utr` or `payment_gateway`. Gateway mode currently supports hosted Razorpay Payment Links. |
 | `daily_image_rotation` | Weekday-to-source mapping. Store all valid candidates and ask the admin to preview and approve one source. |
 | `admin.require_image_approval` | Enabled in production. Blocks pages, deployment and customer messages until today's image is approved. |
 | `admin.image_preview_base` | HTTPS repository content base used for WhatsApp image previews before Pages deployment. Must be publicly reachable by Meta. |
@@ -237,6 +238,9 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 ### Common config changes
 
 - **Change a price or plan length** — edit `plans.<plan>.amount` / `.days`. No code change.
+- **Choose payment verification** — set `payments.mode` to `manual_utr` for administrator
+  UTR review or `payment_gateway` for automatic Razorpay confirmation. Restart Render after
+  changing this setting; existing payment rows retain their original provider.
 - **Add a new plan** — add a `plans` entry; it becomes selectable in the webhook automatically.
 - **Change the weekday rotation** — edit `daily_image_rotation.<weekday>`. When a weekday
   lists multiple sources, the job stores every valid candidate for admin selection.
@@ -279,10 +283,43 @@ environment variables (Tech Doc §19).
 | `GPG_PRIVATE_KEY` | GitHub Actions scheduler | **Required GitHub Actions secret** containing the ASCII-armored private key used to sign scheduler commits. Workflows fail rather than create unsigned commits if it is unavailable. Add the matching public key to the GitHub account so commits are marked Verified. |
 | `GPG_PASSPHRASE` | GitHub Actions scheduler | **Required GitHub Actions secret** that unlocks `GPG_PRIVATE_KEY` through non-interactive loopback/preset pinentry. The workflow performs a signing check before scheduled work. |
 | `DAILY_DARSHAN_CONFIG` | `config.py` | Optional path override for `config.json`. |
+| `RAZORPAY_KEY_ID` | Razorpay checkout adapter | Render secret used to create hosted Payment Links. Required only in `payment_gateway` mode. |
+| `RAZORPAY_KEY_SECRET` | Razorpay checkout adapter | Render secret paired with the key ID. Never expose it in pages or WhatsApp messages. |
+| `RAZORPAY_WEBHOOK_SECRET` | `POST /payments/webhook/razorpay` | A separate secret chosen while creating the Razorpay webhook; verifies `X-Razorpay-Signature`. |
 
 - **GitHub Actions:** add secrets under *Settings → Secrets and variables → Actions*.
 - **Serverless host:** set them as environment variables in the platform dashboard.
 - Locally, export them in your shell or use a `.env` (already git-ignored) — do **not** commit it.
+
+### Configurable payment verification
+
+The default remains manual and backward-compatible:
+
+```json
+"payments": { "mode": "manual_utr" }
+```
+
+To let the gateway approve or reject checkout automatically, set:
+
+```json
+"payments": {
+  "mode": "payment_gateway",
+  "gateway": {
+    "provider": "razorpay",
+    "base_url": "https://api.razorpay.com/v1",
+    "callback_url": "https://vipseva.com"
+  }
+}
+```
+
+Then set the three Razorpay secrets on Render and create a Razorpay webhook pointing to
+`https://<render-service>/payments/webhook/razorpay`. Subscribe to `payment_link.paid`,
+`payment.captured`, `payment_link.cancelled`, and `payment_link.expired`. Paid/captured events
+atomically mark the payment successful and apply the subscription; cancellation/expiry fails an
+unpaid checkout. A transient `payment.failed` attempt is intentionally ignored because the same
+hosted link can still be retried. Success is monotonic, so a late expiry event cannot revoke an
+already-applied entitlement. Signed callbacks are persisted immediately rather than waiting for
+the ordinary 15-minute webhook snapshot.
 
 ---
 
@@ -562,6 +599,11 @@ Details:
   `messages.payment_rejected` response. `{reference_id}`, `{release_days}`, and `{release_date}`
   are supported placeholders. Payment status reuses exactly the same text so the proactive notice
   and later menu response cannot disagree.
+- A WhatsApp admin approval immediately sends `messages.payment_approved` after entitlement is
+  applied. `{reference_id}`, `{purchased_plan}`, `{active_plan}`, and `{expiry_date}` are supported.
+  This covers first activation, upgrade, renewal, and extension, and Payment status reuses the same
+  approved-and-applied wording. The configured copy also points customers to their personalised
+  page to earn one daily Karma point by sharing the Darshan image with close friends and family.
 - Delivery cleanup changes a payment from `FAILED` to `SUPERSEDED` after three full calendar days
   from `rejected_at`, controlled by `delivery.failed_payment_release_days`. This releases the menu
   so the customer can renew or upgrade again without deleting the old reference, UTR, timestamp, or

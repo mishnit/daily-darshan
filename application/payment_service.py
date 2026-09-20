@@ -28,11 +28,15 @@ class PaymentService:
         plans: dict,
         upi_config: dict,
         logs: LogRepositoryPort | None = None,
+        gateway=None,
+        payment_mode: str = "manual_utr",
     ):
         self._payments = payments
         self._plans = plans
         self._upi = upi_config
         self._logs = logs
+        self._gateway = gateway
+        self.payment_mode = payment_mode
 
     def generate_reference_id(self, on_date: date | None = None) -> str:
         on_date = on_date or today_ist()
@@ -92,6 +96,22 @@ class PaymentService:
             f"Could not allocate a unique reference id for {on_date.isoformat()} "
             f"after {_MAX_REFERENCE_ATTEMPTS} attempts"
         ) from last_error
+
+    def ensure_gateway_checkout(self, payment: Payment) -> Payment:
+        if self.payment_mode != "payment_gateway" or self._gateway is None:
+            raise PaymentError("Payment gateway mode is not configured")
+        if payment.checkout_url:
+            return payment
+        try:
+            checkout = self._gateway.create_checkout(payment)
+        except Exception as exc:
+            raise PaymentError(str(exc)) from exc
+        payment.payment_provider = checkout.provider
+        payment.gateway_checkout_id = checkout.external_id
+        payment.checkout_url = checkout.url
+        self._payments.update(payment)
+        self._log("PAYMENT_GATEWAY_CHECKOUT_CREATED", payment.mobile, payment.reference_id)
+        return payment
 
     def generate_upi_intent(self, payment: Payment) -> str:
         return payment.upi_intent(

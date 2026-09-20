@@ -105,8 +105,18 @@ class Container:
         plans = self.config["plans"]
 
         # Services
+        payment_cfg = self.config.get("payments", {})
+        payment_mode = payment_cfg.get("mode", "manual_utr")
+        self.payment_gateway = None
+        if payment_mode == "payment_gateway":
+            provider = payment_cfg.get("gateway", {}).get("provider", "razorpay")
+            if provider != "razorpay":
+                raise ValueError(f"Unsupported payment gateway: {provider}")
+            from adapters.payment_gateway import RazorpayPaymentGateway
+            self.payment_gateway = RazorpayPaymentGateway(payment_cfg.get("gateway", {}))
         self.payment_service = PaymentService(
-            self.payments, plans, self.config["upi"], self.logs
+            self.payments, plans, self.config["upi"], self.logs,
+            gateway=self.payment_gateway, payment_mode=payment_mode,
         )
         self.subscriber_service = SubscriberService(
             self.subscribers, self.payments, plans, self.sentlog, self.logs

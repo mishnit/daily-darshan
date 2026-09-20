@@ -69,6 +69,10 @@ class Payment:
     activation_state: str = ""  # Blank legacy SUCCESS needs reconciliation before applying.
     utr_confirmed_at: datetime | None = None
     rejected_at: datetime | None = None
+    payment_provider: str = "manual_utr"
+    gateway_checkout_id: str = ""
+    gateway_payment_id: str = ""
+    checkout_url: str = ""
 
     @classmethod
     def from_row(cls, row: dict) -> "Payment":
@@ -84,6 +88,10 @@ class Payment:
             activation_state=str(row.get("activation_state", "")),
             utr_confirmed_at=_parse_dt(row.get("utr_confirmed_at")),
             rejected_at=_parse_dt(row.get("rejected_at")),
+            payment_provider=str(row.get("payment_provider", "manual_utr") or "manual_utr"),
+            gateway_checkout_id=str(row.get("gateway_checkout_id", "")),
+            gateway_payment_id=str(row.get("gateway_payment_id", "")),
+            checkout_url=str(row.get("checkout_url", "")),
         )
 
     def to_row(self) -> dict:
@@ -99,6 +107,10 @@ class Payment:
             "activation_state": self.activation_state,
             "utr_confirmed_at": self.utr_confirmed_at.isoformat() if self.utr_confirmed_at else "",
             "rejected_at": self.rejected_at.isoformat() if self.rejected_at else "",
+            "payment_provider": self.payment_provider,
+            "gateway_checkout_id": self.gateway_checkout_id,
+            "gateway_payment_id": self.gateway_payment_id,
+            "checkout_url": self.checkout_url,
         }
 
     def upi_intent(self, payee_vpa: str, payee_name: str, currency: str = "INR") -> str:

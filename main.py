@@ -31,6 +31,7 @@ from repositories.state_lock import state_lock
 from repositories.state_lock import StateLockTimeout
 from adapters.github import BranchAdvancedError
 from application.webhook_metrics import WebhookMetrics
+from adapters.payment_gateway import PaymentGatewayError
 
 app = FastAPI(title="Daily Darshan Webhook", version="2.0.0")
 app.add_middleware(
@@ -113,6 +114,11 @@ def health() -> Response:
     checks["signature_verification"] = "enabled" if signed else "disabled"
     checks["whatsapp_delivery"] = "configured" if whatsapp else "missing credentials"
     checks["webhook_verification"] = "configured" if verified else "missing token"
+    payment_gateway = getattr(c, "payment_gateway", None)
+    if c.payment_service.payment_mode == "payment_gateway":
+        gateway_ready = bool(payment_gateway and payment_gateway.is_configured)
+        checks["payment_gateway"] = "configured" if gateway_ready else "missing credentials"
+        ok = ok and gateway_ready
     # Local development intentionally supports CSV-only/no-secret operation.
     # A github_api deployment is production: accepting unsigned events or
     # acknowledging writes that cannot be persisted would lose user actions.
@@ -512,6 +518,79 @@ async def retry_replies(request: Request) -> Response:
         log.exception("Reply retry requires attention")
         return _json({"status": "retry or reconciliation required"}, 503)
     return _json({"status": "processed"})
+
+
+def _process_payment_gateway_webhook(c, raw_body: bytes, signature: str) -> dict:
+    """Apply one signed, idempotent gateway decision and persist it immediately."""
+    gateway = getattr(c, "payment_gateway", None)
+    if c.payment_service.payment_mode != "payment_gateway" or gateway is None:
+        raise PaymentGatewayError("Payment gateway mode is disabled")
+    event = gateway.parse_webhook(raw_body, signature)
+    if not event.reference_id or not event.terminal_status:
+        return {"status": "ignored", "event": event.event_type}
+    payment = c.payments.find(event.reference_id)
+    if payment is None or payment.payment_provider != gateway.name:
+        return {"status": "ignored", "event": event.event_type}
+
+    # SUCCESS is monotonic: a late cancellation/expiry can never revoke an
+    # entitlement already granted for a captured payment.
+    if event.terminal_status == "SUCCESS":
+        if event.external_payment_id:
+            payment.gateway_payment_id = event.external_payment_id
+            c.payments.update(payment)
+        from admin import _verify_locked
+        from types import SimpleNamespace
+        result = _verify_locked(c, SimpleNamespace(
+            reference_id=payment.reference_id,
+            activate=True,
+            renew=False,
+            commit=False,
+            skip_render=True,
+        ))
+        if result:
+            raise RuntimeError(f"Automatic activation failed for {payment.reference_id}")
+        c.logs.log("PAYMENT_GATEWAY_APPROVED", payment.mobile,
+                   f"{payment.reference_id}:{event.event_type}")
+    elif payment.status in {PaymentStatus.PENDING, PaymentStatus.SUPERSEDED}:
+        payment.status = PaymentStatus.FAILED
+        payment.rejected_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+        if event.external_payment_id:
+            payment.gateway_payment_id = event.external_payment_id
+        c.payments.update(payment)
+        c.logs.log("PAYMENT_GATEWAY_REJECTED", payment.mobile,
+                   f"{payment.reference_id}:{event.event_type}")
+        from application.payment_messages import payment_rejection_text
+        _require_send(c.whatsapp.send_text(
+            payment.mobile, payment_rejection_text(c.config, payment)
+        ), "gateway rejection notification")
+
+    if c.repo_sync.enabled:
+        c.repo_sync.push(f"Persist gateway event for {payment.reference_id}", strict=True)
+    return {"status": "processed", "event": event.event_type,
+            "reference_id": payment.reference_id}
+
+
+@app.post("/payments/webhook/razorpay")
+async def receive_razorpay_webhook(request: Request) -> Response:
+    """Receive Razorpay callbacks independently of Meta webhook signatures."""
+    c = _get_container()
+    if c is None:
+        return _json({"status": "unavailable"}, 503)
+    raw_body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature", "")
+    try:
+        outcome = await run_in_threadpool(
+            _process_payment_gateway_webhook, c, raw_body, signature
+        )
+    except PaymentGatewayError as exc:
+        log.warning("Rejected Razorpay webhook: %s", exc)
+        return _json({"status": "rejected"}, 403)
+    except Exception:
+        # A non-2xx response asks Razorpay to redeliver; automatic approval
+        # must not be acknowledged until the CSV/Git transaction completes.
+        log.exception("Razorpay webhook processing failed")
+        return _json({"status": "retry"}, 503)
+    return _json(outcome)
 
 
 @app.post("/webhook")
@@ -1268,6 +1347,12 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
 
     # (b) UTR submission.
     if _UTR_RE.match(text) or referenced_utr:
+        if c.payment_service.payment_mode == "payment_gateway":
+            _require_send(c.whatsapp.send_text(
+                mobile,
+                "UTR submission is not required for this checkout. Send MENU and open Payment instructions; the gateway confirms payment automatically.",
+            ), "gateway payment guidance")
+            return
         payment = _latest_pending_payment(c, mobile)
         if referenced_utr:
             reference, text = referenced_utr.groups()
@@ -1401,11 +1486,30 @@ def _send_payment_instructions(c, mobile, payment, returning=False):
     sub = c.subscribers.find(mobile)
     greeting = f"Radhe Radhe {sub.name} Ji! " if sub and sub.name else ""
     plan = payment.plan
-    intent = c.payment_service.generate_upi_intent(payment)
     if returning:
         header = f"{greeting}Renewing your {plan} plan.\nAmount: ₹{payment.amount:g}\n"
     else:
         header = f"{greeting}Plan: {plan}\nAmount: ₹{payment.amount:g}\n"
+    if c.payment_service.payment_mode == "payment_gateway":
+        try:
+            payment = c.payment_service.ensure_gateway_checkout(payment)
+        except Exception:
+            log.exception("Payment gateway checkout creation failed for %s", payment.reference_id)
+            _require_send(wa.send_text(
+                mobile,
+                "Payment checkout is temporarily unavailable. Please send MENU and try again shortly; no payment was taken.",
+            ), "payment gateway unavailable")
+            return
+        action = "Renew" if returning else "Pay"
+        _require_send(wa.send_text(
+            mobile,
+            f"{header}{action} securely using this payment link:\n{payment.checkout_url}\n\n"
+            f"Reference: {payment.reference_id}\n"
+            "Your subscription will be updated automatically after the gateway confirms payment. "
+            "You do not need to send a UTR.",
+        ), "payment gateway instruction")
+        return
+    intent = c.payment_service.generate_upi_intent(payment)
     result = wa.send_text(
         mobile,
         f"{header}"
@@ -1475,7 +1579,8 @@ def _payment_status_text(c, payment):
     if payment.status.value == "SUCCESS":
         if payment.activation_state != "APPLIED":
             return f"Payment {ref} is approved. Subscription activation is being completed; please do not pay again."
-        return f"Payment {ref} is approved. Your Darshan page is being prepared; publication is awaiting confirmation."
+        from application.payment_messages import payment_approval_text
+        return payment_approval_text(c.config, payment, c.subscribers.find(payment.mobile))
     if payment.utr:
         active = _has_active_subscription(c, payment.mobile)
         if active:

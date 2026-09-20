@@ -64,9 +64,41 @@ def test_authorized_approval_applies_once_and_queues_publication(review):
     assert sub.end_date == sub.start_date + timedelta(days=30)
     assert c.welcomes.find(p.reference_id)["status"] == "QUEUED"
     assert c.pipeline_requests.find(f"payment-{p.reference_id}")
+    customer_notice = next(
+        item for item in reversed(c.whatsapp.sent)
+        if item.get("mobile") == CUSTOMER and item.get("type") == "text"
+    )
+    assert p.reference_id in customer_notice["message"]
+    assert "approved and applied" in customer_notice["message"]
+    assert sub.end_date.strftime("%d %B %Y").lstrip("0") in customer_notice["message"]
+    assert "earn 1 Karma point daily" in customer_notice["message"]
+    assert "close friends and family" in customer_notice["message"]
     assert not list(Path(c.root).glob("docs/*/index.html"))
     main._handle_message(c, ADMIN, "button", approve)
     assert c.subscribers.find(CUSTOMER).to_row() == sub.to_row()
+
+
+def test_renewal_approval_notifies_customer_with_extended_expiry(review):
+    c = review
+    original = c.subscribers.find(CUSTOMER)
+    original.status = SubscriberStatus.ACTIVE
+    original.start_date = today_ist() - timedelta(days=20)
+    original.end_date = today_ist() + timedelta(days=2)
+    c.subscribers.update(original)
+    p = confirmed(c)
+    before = original.end_date
+    approve, _ = open_payment(c, p)
+
+    main._handle_message(c, ADMIN, "button", approve)
+
+    renewed = c.subscribers.find(CUSTOMER)
+    notice = next(
+        item for item in reversed(c.whatsapp.sent)
+        if item.get("mobile") == CUSTOMER and item.get("type") == "text"
+    )
+    assert renewed.end_date == before + timedelta(days=30)
+    assert renewed.end_date.strftime("%d %B %Y").lstrip("0") in notice["message"]
+    assert notice["message"] == main._payment_status_text(c, c.payments.find(p.reference_id))
 
 
 def test_customer_cannot_use_admin_buttons(review):

@@ -106,6 +106,16 @@ def handle_admin(c, mobile, value):
             if _verify_locked(c, args):
                 raise RuntimeError("Admin activation failed; webhook transaction must roll back")
             queue_request(c, f"payment-{p.reference_id}", "Payment approved; regenerate, deploy then welcome")
+            approved = c.payments.find(p.reference_id)
+            subscriber = c.subscribers.find(p.mobile)
+            from application.payment_messages import payment_approval_text
+            _require_send(
+                c.whatsapp.send_text(
+                    approved.mobile,
+                    payment_approval_text(c.config, approved, subscriber),
+                ),
+                "customer payment approval notification",
+            )
             result = f"Approved {p.reference_id}. Subscription updated; page publication and welcome are queued."
         else:
             cmd_reject(c, args)

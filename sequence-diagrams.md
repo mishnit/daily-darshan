@@ -367,6 +367,7 @@ sequenceDiagram
         Webhook->>Payments: activation_state APPLIED
         Webhook->>Payments: Supersede every other PENDING or FAILED checkout for customer
         Note over Payments: Preserve competing UTRs for later admin reconciliation
+        Webhook-->>Customer: Immediate approval notice with plan and updated expiry
         Webhook->>Welcomes: Reference-keyed QUEUED welcome
         Webhook->>Requests: Payment publication request
         Webhook->>Requests: Immediate critical Git push
