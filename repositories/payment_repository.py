@@ -1,6 +1,8 @@
 """CSV payment repository with daily reference-id sequence support."""
 from __future__ import annotations
 
+import csv
+import io
 from datetime import date
 
 from domain.payment import Payment
@@ -13,6 +15,10 @@ FIELDNAMES = [
     "status", "utr", "created_at", "verified_at",
     "activation_state", "utr_confirmed_at",
 ]
+
+
+class PaymentMergeConflict(RuntimeError):
+    """The same payment field changed differently in memory and GitHub."""
 
 
 class CSVPaymentRepository(PaymentRepositoryPort):
@@ -57,3 +63,64 @@ class CSVPaymentRepository(PaymentRepositoryPort):
         same_day = [r for r in self._csv.all_locked()
                     if str(r.get("reference_id", "")).startswith(prefix)]
         return len(same_day) + 1
+
+    @staticmethod
+    def _decode(content: bytes | None) -> list[dict]:
+        if not content:
+            return []
+        return list(csv.DictReader(io.StringIO(content.decode("utf-8")), escapechar="\\"))
+
+    def merge_remote(self, baseline: bytes | None, remote: bytes | None, *, strict: bool) -> list[str]:
+        """Three-way merge GitHub payments into memory by ``reference_id``.
+
+        Independent field updates are combined. In strict mode a same-field
+        conflict blocks an admin/UTR durability barrier. Ordinary refreshes
+        preserve the local field and report the conflict for observability.
+        """
+        base = {row["reference_id"]: row for row in self._decode(baseline)}
+        local = {row["reference_id"]: row for row in self._csv.all()}
+        incoming = {row["reference_id"]: row for row in self._decode(remote)}
+        merged = {}
+        conflicts = []
+        for reference in sorted(set(base) | set(local) | set(incoming)):
+            before, ours, theirs = base.get(reference), local.get(reference), incoming.get(reference)
+            if before is None:
+                if ours is not None and theirs is not None and ours != theirs:
+                    conflicts.append(f"{reference}:new-row")
+                    merged[reference] = ours if strict else theirs
+                else:
+                    merged[reference] = ours or theirs
+                continue
+            if ours is None or theirs is None:
+                survivor = theirs if ours is None else ours
+                changed = survivor != before
+                if changed:
+                    conflicts.append(f"{reference}:deleted-row")
+                    # A committed deletion/update wins in the ordinary lane;
+                    # strict critical processing stops below instead.
+                    merged[reference] = survivor if strict else theirs
+                continue
+            row = {}
+            for field in FIELDNAMES:
+                old = before.get(field, "")
+                local_value = ours.get(field, "")
+                remote_value = theirs.get(field, "")
+                local_changed = local_value != old
+                remote_changed = remote_value != old
+                if local_changed and remote_changed and local_value != remote_value:
+                    conflicts.append(f"{reference}:{field}")
+                    # Ordinary refreshes treat the committed Git ledger as
+                    # authoritative. Critical commands use strict=True and
+                    # stop instead of choosing either side.
+                    row[field] = local_value if strict else remote_value
+                elif remote_changed:
+                    row[field] = remote_value
+                else:
+                    row[field] = local_value
+            merged[reference] = row
+        if strict and conflicts:
+            raise PaymentMergeConflict("Payment merge conflict: " + ", ".join(conflicts))
+        rows = [merged[key] for key in sorted(merged) if merged[key] is not None]
+        remote_rows = [incoming[key] for key in sorted(incoming)]
+        self._csv.replace_memory_rows(rows, dirty=rows != remote_rows)
+        return conflicts

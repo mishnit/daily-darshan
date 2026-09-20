@@ -24,6 +24,8 @@ services:
         value: "true"
       - key: WEBHOOK_SINGLE_WRITER
         value: "true"
+      - key: WEBHOOK_SENDER_WORKERS
+        value: "40"
 
       # Set each value in Render Dashboard; never commit secrets.
       - key: WHATSAPP_ACCESS_TOKEN

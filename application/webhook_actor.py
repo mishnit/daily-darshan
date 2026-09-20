@@ -15,11 +15,14 @@ class BestEffortWebhookActor:
     over durability.
     """
 
-    def __init__(self, processor, flusher, *, capacity=5000, batch_size=100,
+    def __init__(self, processor, flusher, *, critical_processor=None, capacity=5000, batch_size=100,
                  flush_seconds=900, batch_wait_seconds=0.025, logger=None):
         self._processor = processor
+        self._critical_processor = critical_processor or processor
         self._flusher = flusher
         self._queue = queue.Queue(maxsize=max(1, int(capacity)))
+        self._sequence = 0
+        self._sequence_lock = threading.Lock()
         self._batch_size = max(1, int(batch_size))
         self._flush_seconds = max(1.0, float(flush_seconds))
         self._batch_wait = max(0.0, float(batch_wait_seconds))
@@ -28,7 +31,13 @@ class BestEffortWebhookActor:
         self._start_lock = threading.Lock()
         self._thread = None
         self.dropped = 0
+        self.accepted = 0
         self.processed = 0
+        self.failed = 0
+        self.last_batch_ms = 0.0
+        self.oldest_queue_ms = 0.0
+        self.last_snapshot_ms = 0.0
+        self._last_metrics_at = time.monotonic()
 
     @property
     def depth(self):
@@ -44,10 +53,14 @@ class BestEffortWebhookActor:
             self._started = True
             self._thread.start()
 
-    def enqueue(self, payload) -> bool:
+    def enqueue(self, payload, *, critical=False) -> bool:
         self.start()
         try:
-            self._queue.put_nowait(payload)
+            with self._sequence_lock:
+                sequence = self._sequence
+                self._sequence += 1
+            self._queue.put_nowait((bool(critical), sequence, time.monotonic(), payload))
+            self.accepted += 1
             return True
         except queue.Full:
             self.dropped += 1
@@ -71,19 +84,52 @@ class BestEffortWebhookActor:
                 except queue.Empty:
                     break
             if batch:
+                started = time.monotonic()
+                oldest = min(queued_at for _priority, _sequence, queued_at, _payload in batch)
                 try:
-                    self._processor(batch)
+                    normal = []
+                    for is_critical, _sequence, _queued_at, payload in batch:
+                        if is_critical:
+                            # Preserve arrival order: a UTR confirmation must
+                            # never overtake the message that created its draft.
+                            if normal:
+                                self._processor(normal)
+                                normal = []
+                            self._critical_processor([payload])
+                        else:
+                            normal.append(payload)
+                    if normal:
+                        self._processor(normal)
                     self.processed += len(batch)
                 except Exception:
                     # Best-effort mode acknowledges before processing; failures
                     # are observable but intentionally do not trigger Meta retry.
                     self._log.exception("Best-effort webhook batch failed size=%d", len(batch))
+                    self.failed += len(batch)
                 finally:
+                    finished = time.monotonic()
+                    self.last_batch_ms = (finished - started) * 1000
+                    self.oldest_queue_ms = (finished - oldest) * 1000
                     for _ in batch:
                         self._queue.task_done()
+                if finished - self._last_metrics_at >= 10:
+                    self._log.info(
+                        "Webhook queue metrics accepted=%d processed=%d failed=%d "
+                        "dropped=%d depth=%d batch=%d batch_ms=%.1f oldest_ms=%.1f",
+                        self.accepted, self.processed, self.failed, self.dropped,
+                        self.depth, len(batch), self.last_batch_ms, self.oldest_queue_ms,
+                    )
+                    self._last_metrics_at = finished
             if time.monotonic() >= next_flush:
+                snapshot_started = time.monotonic()
                 try:
                     self._flusher()
                 except Exception:
                     self._log.exception("Best-effort 15-minute Git snapshot failed")
+                finally:
+                    self.last_snapshot_ms = (time.monotonic() - snapshot_started) * 1000
+                    self._log.info(
+                        "Webhook snapshot complete snapshot_ms=%.1f resume_depth=%d",
+                        self.last_snapshot_ms, self.depth,
+                    )
                 next_flush = time.monotonic() + self._flush_seconds

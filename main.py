@@ -117,7 +117,29 @@ def _best_effort_enabled() -> bool:
     }
 
 
-def _process_best_effort_batch(c, payloads):
+def _refresh_remote_payments(c, *, strict: bool) -> None:
+    if not c.repo_sync.enabled:
+        return
+    payment_path = c.config["paths"]["payments_csv"]
+    baseline, remote = c.repo_sync.read_latest(payment_path)
+    conflicts = c.payments.merge_remote(baseline, remote, strict=strict)
+    if conflicts:
+        log.error("Payment refresh kept local conflicting fields conflicts=%s", conflicts)
+
+
+def _is_critical_webhook(payload: dict) -> bool:
+    """Admin and final UTR decisions require an immediate durable commit."""
+    for message, _ctx in _iter_messages(payload):
+        kind, value = _extract_input(message)
+        value = (value or "").strip()
+        if kind == "text" and value.upper() == "ADMIN":
+            return True
+        if kind == "button" and value.startswith(("ADM_", "UTR_CONFIRM_", "UTR_EDIT_")):
+            return True
+    return False
+
+
+def _process_best_effort_batch(c, payloads, *, critical: bool = False):
     """Single-writer state transition plus bounded parallel reply transport."""
     global _best_effort_initialized
     from application.reply_outbox import (
@@ -127,13 +149,18 @@ def _process_best_effort_batch(c, payloads):
     if not _best_effort_initialized and c.repo_sync.enabled:
         # Happens in the actor, never on the request path.
         c.repo_sync.pull(strict=False)
+        from repositories.csv_repository import CSVRepository
+        CSVRepository.reload_all_memory()
         _best_effort_initialized = True
+    # Refresh the remotely mutable payment ledger at the latest Git head for
+    # every actor batch. Critical commands reject a same-field conflict.
+    _refresh_remote_payments(c, strict=critical)
     client = c.whatsapp
     existing = {row["id"] for row in c.reply_outbox.all()}
     c.whatsapp = QueuedReplies(c.reply_outbox, c)
     try:
         for payload in payloads:
-            if _process_messages(c, payload):
+            if _process_messages(c, payload, restore_on_error=False):
                 log.error("Best-effort message processing had isolated failures")
         reply_ids = {row["id"] for row in c.reply_outbox.all()} - existing
         prepared, _ = prepare_replies(
@@ -143,8 +170,12 @@ def _process_best_effort_batch(c, payloads):
     finally:
         c.whatsapp = client
 
+    if critical:
+        _flush_critical_snapshot(c)
+
     outcomes = []
-    workers = min(10, max(1, len(snapshots)))
+    sender_limit = max(1, int(os.environ.get("WEBHOOK_SENDER_WORKERS", "40")))
+    workers = min(sender_limit, max(1, len(snapshots)))
     if snapshots:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="whatsapp-sender") as pool:
             futures = [pool.submit(send_reply_snapshots, client, [snapshot]) for snapshot in snapshots]
@@ -153,12 +184,64 @@ def _process_best_effort_batch(c, payloads):
                 outcomes.extend(batch_outcomes)
     merge_reply_outcomes(c.reply_outbox, outcomes)
     c.message_statuses.reconcile(c.reply_outbox)
+    # This mode explicitly has no reply retry. Keeping full serialized reply
+    # arguments for every successful transport until the 15-minute snapshot
+    # can exhaust a free-tier instance under a sustained burst.
+    completed_ids = {
+        outcome["id"] for outcome in outcomes
+        if outcome.get("status") in {"SENT", "DELIVERED", "CANCELLED"}
+    }
+    if completed_ids:
+        c.reply_outbox.retain(lambda row: row.get("id") not in completed_ids)
 
 
-def _flush_best_effort_snapshot(c):
+def _flush_best_effort_snapshot(c, *, strict=False, message="Batch webhook snapshot"):
+    from repositories.csv_repository import CSVRepository
+    dirty_files = CSVRepository.flush_all_memory()
     if c.repo_sync.enabled:
-        pushed = c.repo_sync.push("Batch webhook snapshot", strict=False)
-        log.info("Best-effort Git snapshot files=%d", len(pushed))
+        pushed = c.repo_sync.push(message, strict=strict)
+        log.info("Best-effort Git snapshot dirty=%d files=%d", dirty_files, len(pushed))
+    else:
+        log.info("Best-effort local snapshot dirty=%d", dirty_files)
+
+
+def _flush_critical_snapshot(c):
+    """Immediate admin/UTR durability barrier, serialized by the actor."""
+    for attempt in range(3):
+        try:
+            _flush_best_effort_snapshot(
+                c, strict=True, message="Persist critical admin or UTR webhook",
+            )
+            return
+        except BranchAdvancedError:
+            c.repo_sync.abort()
+            if attempt == 2:
+                raise
+            _refresh_remote_payments(c, strict=True)
+            log.info("Critical webhook lost Git CAS race; retrying against latest head")
+
+
+def _process_critical_webhook(c, payloads):
+    try:
+        _process_best_effort_batch(c, payloads, critical=True)
+    except Exception:
+        log.exception("Critical admin/UTR command was not durably committed")
+        mobiles = {
+            str(message.get("from", ""))
+            for payload in payloads
+            for message, _ctx in _iter_messages(payload)
+            if message.get("from")
+        }
+        for mobile in mobiles:
+            try:
+                c.whatsapp.send_text(
+                    mobile,
+                    "This action could not be saved safely because repository state changed. "
+                    "Please retry the command.",
+                )
+            except Exception:
+                log.exception("Could not send critical-command failure response to %s", mobile)
+        raise
 
 
 def _get_webhook_actor(c):
@@ -170,6 +253,7 @@ def _get_webhook_actor(c):
                 _webhook_actor = BestEffortWebhookActor(
                     lambda payloads: _process_best_effort_batch(c, payloads),
                     lambda: _flush_best_effort_snapshot(c),
+                    critical_processor=lambda payloads: _process_critical_webhook(c, payloads),
                     capacity=int(os.environ.get("WEBHOOK_QUEUE_CAPACITY", "5000")),
                     batch_size=int(os.environ.get("WEBHOOK_BATCH_SIZE", "100")),
                     flush_seconds=float(os.environ.get("WEBHOOK_GIT_FLUSH_SECONDS", "900")),
@@ -268,7 +352,9 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
         return _json({"status": "ignored"})
 
     if _best_effort_enabled():
-        accepted = _get_webhook_actor(c).enqueue(payload)
+        actor = _get_webhook_actor(c)
+        critical = _is_critical_webhook(payload)
+        accepted = actor.enqueue(payload, critical=True) if critical else actor.enqueue(payload)
         return _json({"status": "queued" if accepted else "dropped"})
 
     # Acknowledge only after synchronous durable processing.
@@ -395,7 +481,7 @@ def _process_payload(c, payload: dict, lock_timeout: float | None = None) -> Non
         raise RuntimeError(f"One or more webhook responses need retry (Failures in: {', '.join(failed_phases)})")
 
 
-def _process_messages(c, payload: dict) -> bool:
+def _process_messages(c, payload: dict, restore_on_error: bool = True) -> bool:
     """Handle a batch under the caller's state lock; report retriable failures."""
     failed = False
     for message, ctx in _iter_messages(payload):
@@ -404,7 +490,7 @@ def _process_messages(c, payload: dict) -> bool:
         snapshot = {}
         # Isolate each message: a failure must not abort the batch.
         try:
-            snapshot = _snapshot_webhook_state(c)
+            snapshot = _snapshot_webhook_state(c) if restore_on_error else {}
             # Dedupe on WhatsApp message id: skip a re-delivered message.
             if not c.processed.mark_if_new(message_id, mobile):
                 continue
@@ -443,7 +529,8 @@ def _process_messages(c, payload: dict) -> bool:
         except Exception:  # noqa: BLE001 - log + continue
             # The id is claimed first to prevent concurrent duplicate sends.
             # Release it after a failure so Meta can retry the user action.
-            _restore_webhook_state(snapshot)
+            if restore_on_error:
+                _restore_webhook_state(snapshot)
             failed = True
             log.exception("Failed handling message id=%s from=%s", message_id, mobile)
 
