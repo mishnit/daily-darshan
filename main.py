@@ -17,6 +17,8 @@ import logging
 import os
 import re
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from uuid import uuid4
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -36,6 +38,9 @@ log = logging.getLogger("daily_darshan.webhook")
 # We build the container lazily and record any failure so /health can report it.
 container = None
 _container_error: str | None = None
+_webhook_actor = None
+_webhook_actor_lock = threading.Lock()
+_best_effort_initialized = False
 
 
 def _get_container():
@@ -93,13 +98,84 @@ def health() -> Response:
     # Local development intentionally supports CSV-only/no-secret operation.
     # A github_api deployment is production: accepting unsigned events or
     # acknowledging writes that cannot be persisted would lose user actions.
-    if production and not all((durable, signed, whatsapp, verified)):
+    best_effort = _best_effort_enabled()
+    checks["webhook_mode"] = "best-effort-queue" if best_effort else "durable-synchronous"
+    if production and not best_effort and not all((durable, signed, whatsapp, verified)):
+        ok = False
+    if production and best_effort and not all((signed, whatsapp, verified)):
         ok = False
     return _json({"status": "ok" if ok else "degraded", "checks": checks}, 200 if ok else 503)
 
 
 def _json(payload: dict, status: int = 200) -> Response:
     return Response(content=json.dumps(payload), media_type="application/json", status_code=status)
+
+
+def _best_effort_enabled() -> bool:
+    return os.environ.get("WEBHOOK_BEST_EFFORT_QUEUE", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _process_best_effort_batch(c, payloads):
+    """Single-writer state transition plus bounded parallel reply transport."""
+    global _best_effort_initialized
+    from application.reply_outbox import (
+        QueuedReplies, merge_reply_outcomes, prepare_replies,
+        send_reply_snapshots, snapshot_prepared_replies,
+    )
+    if not _best_effort_initialized and c.repo_sync.enabled:
+        # Happens in the actor, never on the request path.
+        c.repo_sync.pull(strict=False)
+        _best_effort_initialized = True
+    client = c.whatsapp
+    existing = {row["id"] for row in c.reply_outbox.all()}
+    c.whatsapp = QueuedReplies(c.reply_outbox, c)
+    try:
+        for payload in payloads:
+            if _process_messages(c, payload):
+                log.error("Best-effort message processing had isolated failures")
+        reply_ids = {row["id"] for row in c.reply_outbox.all()} - existing
+        prepared, _ = prepare_replies(
+            c.reply_outbox, c, reply_ids=reply_ids, limit=max(1, len(reply_ids))
+        )
+        snapshots = snapshot_prepared_replies(c.reply_outbox, prepared)
+    finally:
+        c.whatsapp = client
+
+    outcomes = []
+    workers = min(10, max(1, len(snapshots)))
+    if snapshots:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="whatsapp-sender") as pool:
+            futures = [pool.submit(send_reply_snapshots, client, [snapshot]) for snapshot in snapshots]
+            for future in as_completed(futures):
+                batch_outcomes, _ = future.result()
+                outcomes.extend(batch_outcomes)
+    merge_reply_outcomes(c.reply_outbox, outcomes)
+    c.message_statuses.reconcile(c.reply_outbox)
+
+
+def _flush_best_effort_snapshot(c):
+    if c.repo_sync.enabled:
+        pushed = c.repo_sync.push("Batch webhook snapshot", strict=False)
+        log.info("Best-effort Git snapshot files=%d", len(pushed))
+
+
+def _get_webhook_actor(c):
+    global _webhook_actor
+    if _webhook_actor is None:
+        with _webhook_actor_lock:
+            if _webhook_actor is None:
+                from application.webhook_actor import BestEffortWebhookActor
+                _webhook_actor = BestEffortWebhookActor(
+                    lambda payloads: _process_best_effort_batch(c, payloads),
+                    lambda: _flush_best_effort_snapshot(c),
+                    capacity=int(os.environ.get("WEBHOOK_QUEUE_CAPACITY", "5000")),
+                    batch_size=int(os.environ.get("WEBHOOK_BATCH_SIZE", "100")),
+                    flush_seconds=float(os.environ.get("WEBHOOK_GIT_FLUSH_SECONDS", "900")),
+                    logger=log,
+                )
+    return _webhook_actor
 
 
 @app.get("/webhook")
@@ -139,6 +215,8 @@ def _signature_valid(raw_body: bytes, header: str | None) -> bool:
 async def retry_replies(request: Request) -> Response:
     """Authenticated scheduler wakeup; all writes share the webhook state lock."""
     c = _get_container()
+    if _best_effort_enabled():
+        return _json({"status": "disabled", "reason": "best-effort queue has no retry worker"})
     if c is None or not c.whatsapp_app_secret:
         return _json({"status": "unavailable"}, 503)
     raw = await request.body()
@@ -175,7 +253,9 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
 
     c = _get_container()
     if c is None:
-        # Do not acknowledge an event that cannot be processed.
+        if _best_effort_enabled():
+            log.error("Dropping acknowledged webhook because container is unavailable: %s", _container_error)
+            return _json({"status": "dropped"})
         log.error("Webhook received but container is unavailable: %s", _container_error)
         return _json({"status": "unavailable"}, 503)
 
@@ -186,6 +266,10 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
         return _json({"status": "ignored"})
     if not isinstance(payload, dict):
         return _json({"status": "ignored"})
+
+    if _best_effort_enabled():
+        accepted = _get_webhook_actor(c).enqueue(payload)
+        return _json({"status": "queued" if accepted else "dropped"})
 
     # Acknowledge only after synchronous durable processing.
     try:

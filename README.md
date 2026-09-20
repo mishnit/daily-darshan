@@ -2,20 +2,16 @@
 
 ## CSV consistency and webhook latency
 
-Git main remains authoritative. Each webhook refresh uses one immutable commit;
-an unchanged head reuses the committed local baseline. Changed heads download only
-changed CSV blobs. Failed refreshes must succeed before cached state can be reused.
-Reply reservations are committed before contacting WhatsApp; provider acceptance
-does not mean delivery. Customer requests process only that customer's queued replies,
-while the retry endpoint processes a bounded batch (five). PENDING/UNKNOWN attempts
-are not blindly retried and survive sent-log retention for reconciliation.
-The state lock covers only the GitHub read/commit phases. WhatsApp network calls use a
-detached copy of the durable reservation outside the lock, then a fresh snapshot merges
-only the provider-outcome fields. Concurrent callbacks and customer requests therefore
-do not wait behind Meta latency or overwrite each other's CSV changes.
+Render enables an explicitly best-effort webhook queue. Signature-verified payloads
+are put into a bounded in-memory queue and acknowledged immediately; overload is also
+acknowledged and dropped. One actor mutates local CSV state in batches, a bounded sender
+pool calls WhatsApp, and Git snapshots are attempted every 15 minutes. No RepoSync,
+CSV lock, state lock, Git operation or Meta request runs in the HTTP request path.
 
-These safeguards do not make Git a highly available database or provide exactly-once
-WhatsApp delivery. See [deployment limits and follow-up work](DEPLOYMENT.md#consistency-limits-and-follow-up-work).
+This mode deliberately sacrifices durability: queued and locally processed events can
+be lost on restart, spin-down, deployment, queue overflow or failed Git export. It is
+selected by `WEBHOOK_BEST_EFFORT_QUEUE=true` and `WEBHOOK_SINGLE_WRITER=true` in
+`render.yaml`. Without those flags the legacy synchronous durable mode remains available.
 
 A minimal, near-zero-infrastructure platform that delivers a daily "darshan" image to
 WhatsApp subscribers. It uses **GitHub** as source control + persistence + image storage,
@@ -306,38 +302,23 @@ Endpoints:
 Configure the endpoint URL + `WEBHOOK_VERIFY_TOKEN` in the Meta app dashboard, and set the
 WhatsApp secrets as environment variables on the host.
 
-> **Webhook durability & shared state (important).** The webhook runs on an ephemeral,
-> single-instance host and writes CSVs to local disk. To make those writes **durable and
-> visible to the scheduler/admin**, it reads CSVs at one immutable Git commit and uses the
-> Git Data API to publish an atomic multi-file commit. It **pulls** before handling and **pushes**
-> after. This is enabled only when `persistence.mode = "github_api"` (in `config.json`) **and**
-> both `GITHUB_TOKEN` and `GITHUB_REPO` are set in the environment. If not configured, the
-> webhook writes local-only (fine for dev, **but on an ephemeral host those writes are lost on
-> restart and never reach the scheduler** — so set the token + repo in production). The
-> scheduler itself commits via `git` directly, so it does not need this sync.
+> **Webhook persistence mode (important).** Render uses a bounded best-effort in-memory queue
+> and attempts one batched Git snapshot every 15 minutes. It does not pull/push per request.
+> Acknowledgement means queued (or intentionally dropped at overload), not durably processed.
+> The scheduler continues to commit through git directly.
 >
 > **`/health` is a real readiness probe.** It returns **200** `{"status":"ok"}` when the app
 > initialized and the store is readable; **503** `{"status":"unhealthy"}` (with a reason) if
 > the container failed to build, or `{"status":"degraded"}` if the store is unreadable. It also
-> reports whether durable persistence and signature verification are enabled. A bad config no
-> longer crashes the process — the app starts and `/health` reports the failure so the platform
-> can react. Processing, persistence and reply failures return **503** to request redelivery;
-> successful messages within a partially failed batch remain deduplicated. Invalid signatures
+> reports the selected webhook mode and signature verification. A bad config no longer crashes
+> the process. In best-effort mode valid webhook payloads receive HTTP 200 even when dropped;
+> failures are logged instead of requesting Meta redelivery. Invalid signatures
 > return **403**; malformed JSON is acknowledged and ignored without executing actions.
 >
-> **Persist before acknowledgement.** Processing runs in a worker thread under a cross-process
-> local state lock during each Git transaction, but HTTP **200** is returned only after both
-> the initial GitHub commit and any provider-outcome commit succeed. A process
-> failure before commit leaves the request unacknowledged. Tracked CSVs are fetched concurrently
-> from one immutable commit; an unchanged snapshot is reused after a one-request branch check.
-> The inbound transition and outbound PENDING reservation share one atomic commit, followed by
-> one batched provider-outcome commit. The lock is released during the Meta request and
-> reacquired for a fresh-read/field-level outcome merge. Meta is never contacted before PENDING is durable. A
-> bounded lock wait returns 503 instead of leaving webhook/retry callers hanging indefinitely.
-> Interactive replies are not exactly-once. A transactional database-backed queue remains the
-> recommended upgrade for higher throughput. Production fails
-> closed when persistence is unavailable or a repository conflict prevents a durable commit;
-> it returns 503 so Meta can retry.
+> **Best-effort acknowledgement.** HTTP 200 is returned before conversation processing,
+> reply sending or Git persistence. One actor owns state mutation, so Render does not use CSV
+> or state locks in this mode. This is not exactly-once or lossless; a durable queue remains the
+> required upgrade when losing consent, payment or conversation events is unacceptable.
 
 Steps:
   1. Push the repo to GitHub.

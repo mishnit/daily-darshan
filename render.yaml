@@ -20,6 +20,10 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11"
+      - key: WEBHOOK_BEST_EFFORT_QUEUE
+        value: "true"
+      - key: WEBHOOK_SINGLE_WRITER
+        value: "true"
 
       # Set each value in Render Dashboard; never commit secrets.
       - key: WHATSAPP_ACCESS_TOKEN
