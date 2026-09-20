@@ -39,3 +39,14 @@ def test_metrics_wait_for_all_replies_before_recording_response(monkeypatch):
     assert metrics._responses == []
     metrics.response("two", "SENT")
     assert len(metrics._responses) == 1
+
+
+def test_metrics_can_be_disabled_without_retaining_correlation(monkeypatch):
+    monkeypatch.setenv("WEBHOOK_METRICS_ENABLED", "false")
+    metrics = WebhookMetrics()
+    metrics.processing("inbound", 1.0)
+    metrics.reply("reply", "inbound", time.monotonic())
+    metrics.response("reply", "SENT")
+    assert metrics._processing == []
+    assert metrics._responses == []
+    assert metrics._pending == {}

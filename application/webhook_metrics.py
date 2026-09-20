@@ -18,6 +18,9 @@ def _percentile(values, fraction):
 class WebhookMetrics:
     def __init__(self, logger=None):
         self._log = logger or logging.getLogger(__name__)
+        self._enabled = os.environ.get("WEBHOOK_METRICS_ENABLED", "true").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
         self._lock = threading.Lock()
         self._processing = []
         self._responses = []
@@ -36,7 +39,7 @@ class WebhookMetrics:
         return None, received
 
     def processing(self, invocation_id, milliseconds):
-        if not invocation_id:
+        if not self._enabled or not invocation_id:
             return
         with self._lock:
             self._processing.append(milliseconds)
@@ -44,7 +47,7 @@ class WebhookMetrics:
             self._report_if_due()
 
     def reply(self, reply_id, invocation_id, received):
-        if not invocation_id:
+        if not self._enabled or not invocation_id:
             return
         with self._lock:
             state = self._pending.setdefault(invocation_id, {"received": received, "replies": set()})
@@ -52,6 +55,8 @@ class WebhookMetrics:
             self._reply_to_invocation[reply_id] = invocation_id
 
     def response(self, reply_id, status=""):
+        if not self._enabled:
+            return
         now = time.monotonic()
         with self._lock:
             invocation_id = self._reply_to_invocation.pop(reply_id, None)
