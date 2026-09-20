@@ -165,9 +165,12 @@ class RepoSync:
         if hasattr(self._github, "begin_snapshot"):
             self._github.begin_snapshot()
         remote = self._github.read_file(rel)
-        self._baseline[rel] = remote
         self._snapshot_ready = True
         return previous, remote
+
+    def accept_remote(self, rel: str, content: bytes | None) -> None:
+        """Advance one baseline only after its semantic merge succeeded."""
+        self._baseline[rel] = content
 
     def abort(self):
         """Caller restored its snapshot; discard the abandoned transaction."""

@@ -25,6 +25,14 @@ same-field payment conflict blocks the critical command; ordinary refreshes trea
 committed remote payment value as authoritative. Both lanes share one state writer, so an
 immediate critical commit and a scheduled snapshot cannot overlap.
 
+Before either kind of commit, shared business CSVs are three-way merged by their domain
+keys: subscriber mobile; delivery date/mobile; renewal mobile/type/expiry; welcome payment
+reference; and image/request IDs. Delivery states merge monotonically (`QUEUED/PENDING` →
+`SENT` → `DELIVERED/READ`), payment references are unioned, and operational logs are an
+append-only idempotent union. Conflicting mutable fields block critical commits; the
+ordinary snapshot accepts the already committed remote value. A Git baseline advances
+only after its semantic merge succeeds.
+
 A minimal, near-zero-infrastructure platform that delivers a daily "darshan" image to
 WhatsApp subscribers. It uses **GitHub** as source control + persistence + image storage,
 **CSV** files as the datastore, **GitHub Actions** as the scheduler, and a small

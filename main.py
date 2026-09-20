@@ -123,8 +123,53 @@ def _refresh_remote_payments(c, *, strict: bool) -> None:
     payment_path = c.config["paths"]["payments_csv"]
     baseline, remote = c.repo_sync.read_latest(payment_path)
     conflicts = c.payments.merge_remote(baseline, remote, strict=strict)
+    c.repo_sync.accept_remote(payment_path, remote)
     if conflicts:
         log.error("Payment refresh kept local conflicting fields conflicts=%s", conflicts)
+
+
+def _refresh_shared_csvs(c, *, strict: bool) -> None:
+    """Merge every CSV concurrently written by Render and GitHub Actions."""
+    if not c.repo_sync.enabled:
+        return
+    from application.semantic_csv_merge import merge_append_only, merge_keyed
+
+    paths = c.config["paths"]
+    specifications = [
+        (paths["subscribers_csv"], c.subscribers._csv,
+         dict(key_fields=("mobile",), union_fields=("applied_payment_refs",))),
+        (paths["sentlog_csv"], c.sentlog._csv,
+         dict(key_fields=("date", "mobile"), status_field="status")),
+        (paths["renewals_csv"], c.renewals._csv,
+         dict(key_fields=("mobile", "reminder_type", "expiry_date"), status_field="status")),
+        (paths.get("welcomes_csv", "csv/welcomes.csv"), c.welcomes,
+         dict(key_fields=("reference_id",), status_field="status")),
+        (paths.get("image_reviews_csv", "csv/image_reviews.csv"), c.image_reviews,
+         dict(key_fields=("id",), status_field="status",
+              status_ranks={"PENDING": 0, "SUPERSEDED": 1, "APPROVED": 2})),
+        (paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv"), c.pipeline_requests,
+         dict(key_fields=("id",))),
+    ]
+    for path, repository, policy in specifications:
+        baseline, remote = c.repo_sync.read_latest(path)
+        conflicts = merge_keyed(repository, baseline, remote, strict=strict, **policy)
+        c.repo_sync.accept_remote(path, remote)
+        if conflicts:
+            log.error("Semantic CSV merge used remote conflict values path=%s conflicts=%s", path, conflicts)
+
+    log_path = paths["logs_csv"]
+    baseline, remote = c.repo_sync.read_latest(log_path)
+    merge_append_only(c.logs._csv, baseline, remote)
+    c.repo_sync.accept_remote(log_path, remote)
+
+    approved = {}
+    for row in c.image_reviews.all():
+        if row.get("status") == "APPROVED":
+            approved.setdefault(row.get("date", ""), []).append(row.get("id", ""))
+    duplicates = {day: ids for day, ids in approved.items() if day and len(ids) > 1}
+    if duplicates:
+        from application.semantic_csv_merge import SemanticMergeConflict
+        raise SemanticMergeConflict(f"Multiple approved images after merge: {duplicates}")
 
 
 def _is_critical_webhook(payload: dict) -> bool:
@@ -197,6 +242,9 @@ def _process_best_effort_batch(c, payloads, *, critical: bool = False):
 
 def _flush_best_effort_snapshot(c, *, strict=False, message="Batch webhook snapshot"):
     from repositories.csv_repository import CSVRepository
+    # Rebase every shared business CSV semantically before serializing memory.
+    _refresh_remote_payments(c, strict=strict)
+    _refresh_shared_csvs(c, strict=strict)
     dirty_files = CSVRepository.flush_all_memory()
     if c.repo_sync.enabled:
         pushed = c.repo_sync.push(message, strict=strict)
