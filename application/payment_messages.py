@@ -13,6 +13,16 @@ DEFAULT_REJECTION_MESSAGE = (
     "until the payment is resolved."
 )
 
+DEFAULT_APPROVAL_MESSAGE = (
+    "Payment {reference_id} for the {purchased_plan} plan was approved and applied. "
+    "Your Daily Darshan subscription is active through {expiry_date}. "
+    "Your updated personalised page and confirmation message are being prepared, and page "
+    "publication is awaiting confirmation. "
+    "You can earn 1 Karma point daily by sharing your Daily Darshan image with close friends "
+    "and family from your personalised page. "
+    "Please do not pay again for this reference."
+)
+
 
 def payment_rejection_text(config: dict, payment) -> str:
     """Render one source of truth for proactive and on-demand rejection copy."""
@@ -31,5 +41,22 @@ def payment_rejection_text(config: dict, payment) -> str:
             release_on.strftime("%d %B %Y").lstrip("0")
             if release_on
             else f"after {release_days} full calendar days"
+        ),
+    )
+
+
+def payment_approval_text(config: dict, payment, subscriber) -> str:
+    """Render the immediate post-approval and subsequent status copy."""
+    template = config.get("messages", {}).get(
+        "payment_approved", DEFAULT_APPROVAL_MESSAGE
+    )
+    return template.format(
+        reference_id=payment.reference_id,
+        purchased_plan=payment.plan.capitalize(),
+        active_plan=subscriber.plan.capitalize(),
+        expiry_date=(
+            subscriber.end_date.strftime("%d %B %Y").lstrip("0")
+            if subscriber and subscriber.end_date
+            else "pending confirmation"
         ),
     )

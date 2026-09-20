@@ -12,8 +12,17 @@
     "payee_name": "Daily Darshan",
     "currency": "INR"
   },
+  "payments": {
+    "mode": "manual_utr",
+    "gateway": {
+      "provider": "razorpay",
+      "base_url": "https://api.razorpay.com/v1",
+      "callback_url": "https://vipseva.com"
+    }
+  },
   "messages": {
-    "payment_rejected": "Payment {reference_id} was rejected after verification. You can send MENU and select Request review now. Starting another renewal or upgrade is temporarily blocked. This rejected checkout becomes eligible for automatic release on {release_date}, after {release_days} full calendar days. Keep your payment proof and do not pay again until the payment is resolved."
+    "payment_rejected": "Payment {reference_id} was rejected after verification. You can send MENU and select Request review now. Starting another renewal or upgrade is temporarily blocked. This rejected checkout becomes eligible for automatic release on {release_date}, after {release_days} full calendar days. Keep your payment proof and do not pay again until the payment is resolved.",
+    "payment_approved": "Payment {reference_id} for the {purchased_plan} plan was approved and applied. Your Daily Darshan subscription is active through {expiry_date}. Your updated personalised page and confirmation message are being prepared, and page publication is awaiting confirmation. You can earn 1 Karma point daily by sharing your Daily Darshan image with close friends and family from your personalised page. Please do not pay again for this reference."
   },
   "image_sources": ["temple", "rss", "website"],
   "daily_image_rotation": {

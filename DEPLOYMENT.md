@@ -43,7 +43,8 @@ GitHub side and admin operations.
    - [D. Confirm the workflows are registered](#d-confirm-the-workflows-are-registered)
    - [E. Test without waiting for the cron](#e-test-without-waiting-for-the-cron-manual-run)
 2. [Part 1b — Utility-Template Delivery Mode](#part-1b--utility-template-delivery-mode-optional-cost-optimization)
-3. [Part 2 — Admin Payment Verification in CSV](#part-2--admin-payment-verification-in-csv)
+3. [Part 1c — Razorpay Payment-Gateway Mode](#part-1c--razorpay-payment-gateway-mode)
+4. [Part 2 — Admin Payment Verification in CSV](#part-2--admin-payment-verification-in-csv)
    - [The payments.csv row](#the-paymentscsv-row)
    - [Step-by-step approval](#step-by-step-approval)
    - [Concurrency caution](#concurrency-caution)
@@ -135,7 +136,8 @@ whose push starts page regeneration. Confirm the repository allows Actions from 
 The image preview base in `config.json` uses publicly accessible raw repository images; a private
 repository requires a separate HTTPS preview host accessible to Meta before enabling this flow.
 
-Schema changes are backward-compatible: `payments.csv` adds `utr_confirmed_at` and `rejected_at`; conversation
+Schema changes are backward-compatible: `payments.csv` adds `utr_confirmed_at`, `rejected_at`,
+`payment_provider`, `gateway_checkout_id`, `gateway_payment_id`, and `checkout_url`; conversation
 rows add draft/admin decision fields. New `image_reviews.csv` and `pipeline_requests.csv` are
 created automatically and included in atomic webhook persistence. Do not manually reset their
 rows to force retries. Reopen ADMIN to review a fresh snapshot after corrections.
@@ -458,20 +460,121 @@ To revert to inline images at any time: set `delivery.mode = "image"` in `config
 
 ---
 
+## Part 1c — Razorpay Payment-Gateway Mode
+
+Manual UTR confirmation remains the safe default. An administrator can switch the deployed
+webhook to hosted Razorpay Payment Links so that signed gateway callbacks approve or reject
+payments automatically. Do not enable gateway mode until all secrets and webhook subscriptions
+below are configured.
+
+### 1. Configure Render secrets
+
+In Render, open the webhook service → **Environment** and add these secret environment variables:
+
+```text
+RAZORPAY_KEY_ID
+RAZORPAY_KEY_SECRET
+RAZORPAY_WEBHOOK_SECRET
+```
+
+- Obtain `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` from the intended Razorpay account and mode
+  (test or live). Never commit either value.
+- Choose `RAZORPAY_WEBHOOK_SECRET` while creating the Razorpay webhook. This is separate from the
+  API key secret and must match exactly in Razorpay and Render.
+- Keep test credentials with test-mode webhooks and live credentials with live-mode webhooks.
+  Never mix modes.
+
+### 2. Configure the Razorpay webhook
+
+In the Razorpay Dashboard, create a webhook pointing to:
+
+```text
+https://<your-render-service>/payments/webhook/razorpay
+```
+
+Replace `<your-render-service>` with the public Render hostname. Subscribe to all four events:
+
+```text
+payment_link.paid
+payment.captured
+payment_link.cancelled
+payment_link.expired
+```
+
+Use the same webhook secret stored in `RAZORPAY_WEBHOOK_SECRET`. The endpoint rejects callbacks
+without a valid `X-Razorpay-Signature`. `payment_link.paid` and `payment.captured` approve and
+apply the subscription idempotently. `payment_link.cancelled` and `payment_link.expired` reject
+only an unresolved checkout. A late cancellation/expiry cannot revoke an already successful
+payment. A transient `payment.failed` attempt is deliberately not subscribed because the customer
+can still retry the hosted payment link.
+
+### 3. Switch `config.json` to gateway mode
+
+Set the payment block to:
+
+```json
+"payments": {
+  "mode": "payment_gateway",
+  "gateway": {
+    "provider": "razorpay",
+    "base_url": "https://api.razorpay.com/v1",
+    "callback_url": "https://vipseva.com"
+  }
+}
+```
+
+Commit and deploy the configuration change. Render must restart/redeploy because the webhook
+loads `config.json` and constructs the gateway adapter at process startup. The configured
+`callback_url` is where Razorpay returns the customer's browser after checkout; payment approval
+still comes exclusively from the signed server-to-server webhook.
+
+### 4. Verify before accepting live payments
+
+1. Open `https://<your-render-service>/health` and confirm `payment_gateway` is `configured`.
+2. In Razorpay test mode, start a new plan checkout and confirm WhatsApp returns one hosted
+   `rzp.io` payment link and does not request a UTR.
+3. Complete a test payment and confirm the payment becomes `SUCCESS`, `activation_state` becomes
+   `APPLIED`, the subscriber entitlement changes once, and the welcome/publication request is
+   queued.
+4. Redeliver the same webhook and confirm dates are not extended again and no duplicate rejection
+   notification is sent.
+5. Test an expired/cancelled unpaid link and confirm it becomes `FAILED`. Confirm a cancellation
+   delivered after success does not downgrade the successful payment.
+6. Confirm the gateway callback changes are pushed immediately through repository persistence;
+   they must not wait for the normal 15-minute webhook snapshot.
+7. Only after these checks pass, replace test credentials/webhook with their live-mode equivalents.
+
+### Roll back to manual UTR confirmation
+
+To stop creating new gateway checkouts, change only:
+
+```json
+"payments": { "mode": "manual_utr" }
+```
+
+Commit and redeploy/restart Render. Do not delete Razorpay secrets or old `payments.csv` gateway
+fields until every existing hosted link and callback has been reconciled. Existing rows retain
+their provider IDs and audit history. Confirm unresolved live payment links directly in Razorpay
+before manually approving, rejecting, or superseding them.
+
+---
+
 ## Part 2 — Admin Payment Verification in CSV
 
-**Key rule (Tech Doc §6):** a user-submitted UTR is **only a signal that the user claims
+**Manual-UTR key rule (Tech Doc §6):** when `payments.mode` is `manual_utr`, a
+user-submitted UTR is **only a signal that the user claims
 they paid** — it is **not** proof of payment. The **`reference_id`** is the value the admin
 verifies against; the UTR is stored as supporting evidence only. Nothing activates
-automatically. An admin must:
+automatically in manual mode. An admin must:
 
 1. Confirm the real UPI transaction,
 2. Mark the payment `SUCCESS` in `payments.csv`, and
 3. Ensure the subscriber is **activated** (a separate step — see below).
 
-> **Verification and activation are decoupled.** Setting a payment to `SUCCESS` records
+> **Manual verification and activation are decoupled.** Setting a payment to `SUCCESS` records
 > that money was received; it does **not** by itself flip the subscriber to `ACTIVE` with
-> start/end dates. Both must be done for the subscriber to receive deliveries.
+> start/end dates. Both must be done for the subscriber to receive deliveries. In
+> `payment_gateway` mode, a valid paid/captured callback performs both steps idempotently.
 
 ### The `payments.csv` row
 
