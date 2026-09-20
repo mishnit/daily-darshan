@@ -34,6 +34,10 @@ services:
         value: "120000"
       - key: WEBHOOK_DEDUPE_PRUNE_INTERVAL
         value: "10000"
+      - key: WEBHOOK_METRICS_LOG_SECONDS
+        value: "10"
+      - key: WEBHOOK_METRICS_SAMPLE_RATE
+        value: "0.001"
 
       # Set each value in Render Dashboard; never commit secrets.
       - key: WHATSAPP_ACCESS_TOKEN

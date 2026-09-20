@@ -29,6 +29,7 @@ from domain.enums import PaymentStatus
 from repositories.state_lock import state_lock
 from repositories.state_lock import StateLockTimeout
 from adapters.github import BranchAdvancedError
+from application.webhook_metrics import WebhookMetrics
 
 app = FastAPI(title="Daily Darshan Webhook", version="2.0.0")
 log = logging.getLogger("daily_darshan.webhook")
@@ -46,6 +47,7 @@ _best_effort_sender_slots = None
 _best_effort_sender_lock = threading.Lock()
 _last_payment_refresh = 0.0
 _best_effort_since_prune = 0
+_webhook_metrics = WebhookMetrics(log)
 
 
 def _get_container():
@@ -218,11 +220,23 @@ def _process_best_effort_batch(c, payloads, *, critical: bool = False):
         _maybe_refresh_remote_payments(c)
     client = c.whatsapp
     existing = {row["id"] for row in c.reply_outbox.all()}
-    c.whatsapp = QueuedReplies(c.reply_outbox, c)
+    current_metric = {"id": None, "received": 0.0}
+    c.whatsapp = QueuedReplies(
+        c.reply_outbox, c,
+        on_enqueue=lambda reply_id: _webhook_metrics.reply(
+            reply_id, current_metric["id"], current_metric["received"],
+        ),
+    )
     try:
         for payload in payloads:
+            invocation_id, received = _webhook_metrics.invocation(payload)
+            current_metric.update(id=invocation_id, received=received)
+            processing_started = time.monotonic()
             if _process_messages(c, payload, restore_on_error=False):
                 log.error("Best-effort message processing had isolated failures")
+            _webhook_metrics.processing(
+                invocation_id, (time.monotonic() - processing_started) * 1000,
+            )
         reply_ids = {row["id"] for row in c.reply_outbox.all()} - existing
         prepared, _ = prepare_replies(
             c.reply_outbox, c, reply_ids=reply_ids, limit=max(1, len(reply_ids))
@@ -286,6 +300,7 @@ def _submit_best_effort_replies(c, client, snapshots):
     for snapshot in snapshots:
         if not slots.acquire(blocking=False):
             cancelled = dict(snapshot, status="CANCELLED", error="sender_overloaded")
+            _webhook_metrics.response(snapshot["id"], "CANCELLED")
             _get_webhook_actor(c).enqueue_control([cancelled])
             continue
         started = time.monotonic()
@@ -294,6 +309,8 @@ def _submit_best_effort_replies(c, client, snapshots):
         def completed(task, *, submitted_at=started):
             try:
                 outcomes, _failed = task.result()
+                for outcome in outcomes:
+                    _webhook_metrics.response(outcome["id"], outcome.get("status", ""))
                 _get_webhook_actor(c).enqueue_control(outcomes)
                 log.debug("WhatsApp transport completed send_ms=%.1f", (time.monotonic() - submitted_at) * 1000)
             except Exception:
@@ -463,6 +480,7 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
         return _json({"status": "ignored"})
     if not isinstance(payload, dict):
         return _json({"status": "ignored"})
+    payload["_webhook_received_monotonic"] = time.monotonic()
 
     if _best_effort_enabled():
         actor = _get_webhook_actor(c)
