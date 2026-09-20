@@ -2,18 +2,14 @@
 
 ## Consistency limits and follow-up work
 
-The webhook requires a successful Git main refresh and reservation commit before
-sending. Do not enable stale-cache replies as a Git outage workaround. Snapshot
-reads are pinned to one commit and unchanged blobs are reused; this reduces API
-traffic, not a guaranteed number of seconds of latency. Measure refresh, reservation
-commit, Meta request and result-commit durations separately before promising an SLA.
+Render is configured for best-effort asynchronous webhook processing. Valid payloads
+are acknowledged after a nonblocking enqueue, and a full queue is acknowledged and
+dropped. One actor processes batches; sender threads use immutable reply snapshots.
+Local CSV/state locking is disabled and Git export is attempted every 15 minutes.
 
-Keep one webhook instance while file locks are used. A file lock is not a distributed
-lock across Render instances and Actions; non-forced Git updates reject competing
-writes, but cannot atomically transact with Meta. An accepted send followed by a
-failed result commit requires reconciliation, not an automatic resend. Preserve old
-PENDING/UNKNOWN sentlog rows until resolved. Retry batches process at most five
-eligible replies; a backlog requires subsequent invocations.
+This configuration accepts data loss during restart, spin-down, deployment, overflow
+or failed export. Keep exactly one Uvicorn process and one Render instance: the queue
+and actor are process-local. `/internal/retry-replies` is disabled in this mode.
 
 Remaining infrastructure decisions are not implemented by these code fixes:
 

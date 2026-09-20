@@ -52,6 +52,32 @@ def test_webhook_retries_a_branch_advance_before_returning_to_meta(app_client, m
     assert calls == ["attempt", "attempt"]
 
 
+def test_best_effort_webhook_acknowledges_1000_invocations_without_503(app_client, monkeypatch):
+    main, client = app_client
+    queued = []
+    actor = SimpleNamespace(enqueue=lambda payload: queued.append(payload) or True)
+    monkeypatch.setenv("WEBHOOK_BEST_EFFORT_QUEUE", "true")
+    monkeypatch.setattr(main, "_get_webhook_actor", lambda _container: actor)
+
+    for index in range(1000):
+        response = client.post("/webhook", json={"entry": [], "sequence": index})
+        assert response.status_code == 200
+        assert response.json()["status"] == "queued"
+    assert len(queued) == 1000
+
+
+def test_best_effort_overload_is_acknowledged_and_dropped(app_client, monkeypatch):
+    main, client = app_client
+    monkeypatch.setenv("WEBHOOK_BEST_EFFORT_QUEUE", "true")
+    monkeypatch.setattr(
+        main, "_get_webhook_actor", lambda _container: SimpleNamespace(enqueue=lambda _payload: False)
+    )
+
+    response = client.post("/webhook", json={"entry": []})
+    assert response.status_code == 200
+    assert response.json() == {"status": "dropped"}
+
+
 def test_early_delivery_receipt_reconciles_before_webhook_returns(app_client):
     main, _ = app_client
     c = main.container
@@ -361,9 +387,10 @@ def test_production_health_requires_all_webhook_secrets(tmp_path, monkeypatch):
         "subscribers_csv": "ok",
         "durable_persistence": "local-only",
         "signature_verification": "disabled",
-        "whatsapp_delivery": "missing credentials",
-        "webhook_verification": "missing token",
-    }
+            "whatsapp_delivery": "missing credentials",
+            "webhook_verification": "missing token",
+            "webhook_mode": "durable-synchronous",
+        }
 
 
 def test_production_webhook_rejects_unsigned_payload(tmp_path, monkeypatch):

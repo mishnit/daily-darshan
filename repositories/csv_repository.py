@@ -114,6 +114,12 @@ class CSVRepository:
         open/replace lifecycle. Falls back to a no-op only if no locking
         primitive is available on the platform.
         """
+        # Render best-effort mode has exactly one state-writer actor. Sender
+        # threads operate on immutable snapshots, so local CSV locking only
+        # adds filesystem contention there.
+        if os.environ.get("WEBHOOK_SINGLE_WRITER", "").lower() in {"1", "true", "yes"}:
+            yield
+            return
         lock_file = open(self._lock_path, "w")
         try:
             if _HAVE_FCNTL:
