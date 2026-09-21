@@ -1,8 +1,38 @@
 https://daily-darshan-webhook.onrender.com/health for uptimemonitor
 https://dashboard.render.com/web/srv-da3e36bbc2fs738sds6g
-
 https://api.vipseva.com points to https://daily-darshan-webhook.onrender.com in spaceship
-https://api.vipseva.com/health and https://api.vipseva.com/webhook point similarly 
+https://api.vipseva.com/health and https://api.vipseva.com/webhook work as well
+---------------------------------
+custom upi link to be updated or go with rzaorpay integration
+udyam application
+------------------------
+focus on image source selection and image quality everyday
+focus on verfied upi payment flow or pg integration  
+-----------------------------------
+for rzorpay pg mode switch:
 
-----------------------------
-upi link need to be updated and verified + pg integration
+add these Render secrets:
+RAZORPAY_KEY_ID
+RAZORPAY_KEY_SECRET
+RAZORPAY_WEBHOOK_SECRET
+
+Configure the Razorpay webhook URL n config.json:
+https://<your-render-service>/payments/webhook/razorpay
+
+Subscribe to:
+payment_link.paid
+payment.captured
+payment_link.cancelled
+payment_link.expired
+
+change config.json payment mode to:
+"payments": {
+  "mode": "payment_gateway",
+  "gateway": {
+    "provider": "razorpay",
+    "base_url": "https://api.razorpay.com/v1",
+    "callback_url": "https://vipseva.com"
+  }
+}
+--------------------
+helathi, mfine, mediassist, insuarmnce, notice peiord
