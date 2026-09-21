@@ -12,6 +12,11 @@ on:
           - "1"
           - "2"
           - "7"
+      force_recollect:
+        description: "Supersede existing approvals and queue fresh candidates (manual runs only)"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -77,11 +82,16 @@ jobs:
         env:
           GITHUB_REPO: ${{ github.repository }}
           BACKFILL_DAYS: ${{ inputs.backfill_days || '1' }}
+          FORCE_RECOLLECT: ${{ inputs.force_recollect || 'false' }}
         run: |
           # Scheduled runs always fetch today only. Backfill is deliberately
           # available only from an explicit manual dispatch.
+          force_args=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "$FORCE_RECOLLECT" = "true" ]; then
+            force_args="--force-recollect"
+          fi
           if [ "${{ github.event_name }}" != "workflow_dispatch" ] || [ "$BACKFILL_DAYS" = "1" ]; then
-            python scheduler.py image
+            python scheduler.py image $force_args
             exit 0
           fi
 
@@ -90,12 +100,12 @@ jobs:
           for offset in $(seq $((BACKFILL_DAYS - 1)) -1 1); do
             image_date="$(TZ=Asia/Kolkata date -d "today - ${offset} days" +%F)"
             echo "Fetching image for ${image_date}"
-            if ! python scheduler.py image-only --date "$image_date"; then
+            if ! python scheduler.py image-only --date "$image_date" $force_args; then
               echo "::warning title=Historical image unavailable::Could not store an image for ${image_date}; continuing to today's required image"
             fi
           done
           # Today's normal job stores the image and refreshes subscriber pages.
-          python scheduler.py image
+          python scheduler.py image $force_args
 
       - name: Invite admin to select the image on WhatsApp
         env:

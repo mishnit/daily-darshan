@@ -88,9 +88,20 @@ def test_delivery_can_run_manually_but_has_no_independent_schedule():
 def test_image_requires_today_but_historical_backfill_misses_are_nonfatal():
     image = _workflow("image.yml")
 
-    assert 'if ! python scheduler.py image-only --date "$image_date"; then' in image
+    assert 'if ! python scheduler.py image-only --date "$image_date" $force_args; then' in image
     assert "continuing to today's required image" in image
-    assert "python scheduler.py image\n" in image
+    assert "python scheduler.py image $force_args" in image
+
+
+def test_manual_image_recollect_requires_an_explicit_opt_in():
+    image = _workflow("image.yml")
+
+    assert "force_recollect:" in image
+    assert "type: boolean" in image
+    assert "default: false" in image
+    assert 'force_args="--force-recollect"' in image
+    assert "python scheduler.py image $force_args" in image
+    assert "python scheduler.py image-only --date \"$image_date\" $force_args" in image
 
 
 def test_expiry_and_page_pruning_complete_before_publication_can_start():
