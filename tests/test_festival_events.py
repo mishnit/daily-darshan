@@ -83,3 +83,34 @@ def test_subscription_page_shows_matching_event_only():
     assert "Pratipada · Orange" in festival_page
     assert "ॐ देवी शैलपुत्र्यै नमः।" in festival_page
     assert "Maa Shailaputri" not in ordinary_page
+
+
+def test_normal_daily_page_shows_selected_source_shloka():
+    renderer = PageRenderer(
+        image_public_base="https://vipseva.com",
+        daily_shlokas={"mahakal": "ॐ नमः शिवाय।", "default": "Neutral"},
+    )
+
+    page = renderer.render_html(
+        Subscriber("9199", "monthly", subscription_id="opaque"),
+        date(2026, 10, 12), delivered=True, source="mahakal",
+    )
+
+    assert "Mahakal · Today's Shloka" in page
+    assert "ॐ नमः शिवाय।" in page
+
+
+def test_event_shloka_has_priority_over_selected_source_shloka():
+    renderer = PageRenderer(
+        image_public_base="https://vipseva.com", events=EVENTS,
+        daily_shlokas={"mahakal": "ॐ नमः शिवाय।", "default": "Neutral"},
+    )
+
+    page = renderer.render_html(
+        Subscriber("9199", "monthly", subscription_id="opaque"),
+        date(2026, 10, 11), delivered=True, source="mahakal",
+    )
+
+    assert "Maa Shailaputri" in page
+    assert "ॐ देवी शैलपुत्र्यै नमः।" in page
+    assert "ॐ नमः शिवाय।" not in page

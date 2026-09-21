@@ -367,7 +367,8 @@ def run_pages(container: Container, git: LocalGitRepository, on_date: date,
 
     pages = _render_pages(
         container, on_date,
-        source="" if image_label == "canonical" else image_label,
+        source=(decision.get("source", "") if approved_path else
+                ("" if image_label == "canonical" else image_label)),
         image_path=image_path,
     )
     container.logs.log(

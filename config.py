@@ -175,6 +175,7 @@ class Container:
             karma_api_url=delivery_cfg.get("karma_api_url", ""),
             karma_repository=self.karma_events,
             events=self.config.get("events", []),
+            daily_shlokas=self.config.get("daily_shlokas", {}),
         )
 
         # Durable webhook persistence (P0 fix #6): back local CSVs with the
