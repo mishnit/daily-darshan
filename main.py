@@ -362,12 +362,12 @@ def _flush_best_effort_snapshot(c, *, strict=False, message="Batch webhook snaps
         log.info("Best-effort local snapshot dirty=%d", dirty_files)
 
 
-def _flush_critical_snapshot(c):
+def _flush_critical_snapshot(c, message="Persist critical financial or admin webhook"):
     """Immediate admin/UTR durability barrier, serialized by the actor."""
     for attempt in range(3):
         try:
             _flush_best_effort_snapshot(
-                c, strict=True, message="Persist critical financial or admin webhook",
+                c, strict=True, message=message,
             )
             return
         except BranchAdvancedError:
@@ -549,6 +549,45 @@ def _process_payment_gateway_webhook(c, raw_body: bytes, signature: str) -> dict
         ))
         if result:
             raise RuntimeError(f"Automatic activation failed for {payment.reference_id}")
+        # The signed gateway callback is the customer's authoritative payment
+        # confirmation. Reuse the welcome ledger as the idempotency record so
+        # duplicate paid/captured callbacks cannot send the approval twice,
+        # and so the later welcome worker does not send a second activation
+        # notification for the same payment.
+        welcome = c.welcomes.find(payment.reference_id) or {}
+        if welcome.get("status") in {"QUEUED", "FAILED", "CANCELLED", ""}:
+            from domain.clock import today_ist
+            from application.payment_messages import payment_approval_text
+            subscriber = c.subscribers.find(payment.mobile)
+            reservation = c.sentlog.reserve(
+                today_ist(), payment.mobile, f"gateway-approval:{payment.reference_id}"
+            )
+            welcome.update({
+                "reference_id": payment.reference_id,
+                "mobile": payment.mobile,
+                "status": "PENDING",
+                "whatsapp_message_id": "",
+                "error": "Automatic gateway approval notification pending",
+            })
+            c.welcomes.upsert(payment.reference_id, welcome)
+            try:
+                notification = c.whatsapp.send_text(
+                    payment.mobile,
+                    payment_approval_text(c.config, c.payments.find(payment.reference_id), subscriber),
+                )
+            except Exception:
+                welcome.update(status="UNKNOWN", error="Approval notification transport raised")
+                c.welcomes.upsert(payment.reference_id, welcome)
+                raise
+            welcome.update(
+                status="SENT" if notification.ok else "UNKNOWN" if notification.unknown else "FAILED",
+                whatsapp_message_id=notification.message_id or "",
+                error=notification.error or "Automatic gateway approval; welcome suppressed",
+            )
+            c.welcomes.upsert(payment.reference_id, welcome)
+            if reservation is not None:
+                c.sentlog.complete(reservation, notification)
+            _require_send(notification, "automatic gateway payment approval notification")
         c.logs.log("PAYMENT_GATEWAY_APPROVED", payment.mobile,
                    f"{payment.reference_id}:{event.event_type}")
     elif payment.status in {PaymentStatus.PENDING, PaymentStatus.SUPERSEDED}:
@@ -564,8 +603,9 @@ def _process_payment_gateway_webhook(c, raw_body: bytes, signature: str) -> dict
             payment.mobile, payment_rejection_text(c.config, payment)
         ), "gateway rejection notification")
 
-    if c.repo_sync.enabled:
-        c.repo_sync.push(f"Persist gateway event for {payment.reference_id}", strict=True)
+    _flush_critical_snapshot(
+        c, message=f"Persist critical gateway event for {payment.reference_id}"
+    )
     return {"status": "processed", "event": event.event_type,
             "reference_id": payment.reference_id}
 
