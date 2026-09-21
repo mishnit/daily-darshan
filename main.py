@@ -1155,22 +1155,14 @@ def _send_menu(c, mobile: str) -> None:
     if _has_active_subscription(c, mobile) and not sub.opt_in and not any(r[0] == "CTA_RESUME_MESSAGES" for r in rows):
         rows.append(("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
     if festival:
-        page_base = c.config.get("delivery", {}).get("page_base_url", "").rstrip("/")
-        personalised_url = ""
-        if sub and sub.subscription_id and active and page_base:
-            personalised_url = f"{page_base}/{sub.subscription_id}"
-        body = f"{event_message(festival, personalised_url)}\n\n{body}"
+        body = f"{event_message(festival)}\n\n{body}"
     elif daily_menu_shloka_available(c.config.get("daily_shloka_menu")):
         # At 06:00 IST every normal day starts with the neutral fallback. Once
         # today's approval lands, this switches to the actual selected source.
         approved_source = _approved_source_for_today(c) or "fallback"
         if approved_source:
-            page_base = c.config.get("delivery", {}).get("page_base_url", "").rstrip("/")
-            personalised_url = ""
-            if sub and sub.subscription_id and active and page_base:
-                personalised_url = f"{page_base}/{sub.subscription_id}"
             source_content = source_shloka_message(
-                approved_source, c.config.get("daily_shlokas", {}), personalised_url
+                approved_source, c.config.get("daily_shlokas", {})
             )
             if source_content:
                 body = f"{source_content}\n\n{body}"
