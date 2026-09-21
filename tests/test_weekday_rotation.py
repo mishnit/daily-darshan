@@ -24,7 +24,7 @@ from adapters.image_sources.temples import (
 from application.image_service import ImageCollector, ImageService
 from application.image_service import AllSourcesFailed
 from domain.image import Image
-from scheduler import _canonical_jpeg, _watermark_details, run_image, run_pages
+from scheduler import _canonical_jpeg, _watermark_details, _watermark_lines, run_image, run_pages
 from config import Container
 from tests.conftest import FakeSource
 
@@ -72,6 +72,9 @@ def test_canonical_image_replaces_bottom_24_percent_with_delivery_footer():
 def test_watermark_details_use_friendly_source_name():
     assert _watermark_details(date(2026, 9, 11), "iskcon_hyderabad") == (
         "Date: 2026-09-11 · Source: ISKCON Hyderabad"
+    )
+    assert _watermark_lines(date(2026, 9, 11), "iskcon_hyderabad") == (
+        "Date: 2026-09-11", "Source: ISKCON Hyderabad"
     )
 
 

@@ -88,6 +88,11 @@ def _watermark_details(on_date: date, source: str) -> str:
     )
 
 
+def _watermark_lines(on_date: date, source: str) -> tuple[str, str]:
+    return (f"Date: {on_date.isoformat()}",
+            f"Source: {_source_display_name(source) or 'Unknown'}")
+
+
 def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str = "",
                     *, append_footer: bool = False) -> bytes:
     """Brand candidates; custom event artwork gets an appended footer."""
@@ -127,27 +132,47 @@ def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str =
                 box = draw.textbbox((0, 0), text, font=text_font)
                 draw.text(((width - (box[2] - box[0])) // 2, y), text, fill="white", font=text_font)
 
-            title_font = font(max(12, round(height * 0.06)), bold=True)
-            site_font = font(max(10, round(height * 0.035)))
-            details_font = font(max(9, round(height * 0.022)))
+            date_line, source_line = _watermark_lines(on_date, source_name) if on_date else ("", "")
+            # Date, source and VIP Seva intentionally share one prominent
+            # size. Choose the largest size that accommodates the longest line.
+            shared_font = font(10, bold=True)
+            for size in range(max(14, round(height * 0.040)), 9, -1):
+                candidate = font(size, bold=True)
+                if all(
+                    draw.textbbox((0, 0), text, font=candidate)[2]
+                    - draw.textbbox((0, 0), text, font=candidate)[0]
+                    <= width - max(16, width // 20)
+                    for text in (date_line, source_line, "VIP Seva") if text
+                ):
+                    shared_font = candidate
+                    break
+
+            date_font = shared_font
+            source_font = shared_font
+            title_font = shared_font
+            site_font = font(max(8, round(height * 0.019)))
+            date_box = draw.textbbox((0, 0), date_line, font=date_font)
+            source_box = draw.textbbox((0, 0), source_line, font=source_font)
             title_box = draw.textbbox((0, 0), "VIP Seva", font=title_font)
             site_box = draw.textbbox((0, 0), "www.vipseva.com", font=site_font)
-            details = _watermark_details(on_date, source_name) if on_date else ""
-            details_box = draw.textbbox((0, 0), details, font=details_font)
             gap = max(4, height // 100)
             content_height = (
-                (title_box[3] - title_box[1])
+                (date_box[3] - date_box[1] if date_line else 0)
+                + (source_box[3] - source_box[1] if source_line else 0)
+                + (title_box[3] - title_box[1])
                 + (site_box[3] - site_box[1])
-                + (details_box[3] - details_box[1] if details else 0)
-                + gap * (2 if details else 1)
+                + gap * 3
             )
             first_y = footer_top + max(0, (footer_height - content_height) // 2)
-            centered("VIP Seva", first_y, title_font)
-            site_y = first_y + (title_box[3] - title_box[1]) + gap
+            if date_line:
+                centered(date_line, first_y, date_font)
+            source_y = first_y + (date_box[3] - date_box[1] if date_line else 0) + gap
+            if source_line:
+                centered(source_line, source_y, source_font)
+            title_y = source_y + (source_box[3] - source_box[1] if source_line else 0) + gap
+            centered("VIP Seva", title_y, title_font)
+            site_y = title_y + (title_box[3] - title_box[1]) + gap
             centered("www.vipseva.com", site_y, site_font)
-            if details:
-                details_y = site_y + (site_box[3] - site_box[1]) + gap
-                centered(details, details_y, details_font)
 
             out = io.BytesIO()
             image.save(out, format="JPEG", quality=90, optimize=True)
