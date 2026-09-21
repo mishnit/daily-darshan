@@ -20,7 +20,7 @@ import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Query, Request, Response, BackgroundTasks
@@ -32,7 +32,8 @@ from repositories.state_lock import StateLockTimeout
 from adapters.github import BranchAdvancedError
 from application.webhook_metrics import WebhookMetrics
 from adapters.payment_gateway import PaymentGatewayError
-from application.events import current_menu_event, event_message, source_shloka_message
+from application.events import (current_menu_event, daily_menu_shloka_available,
+                                event_for_date, event_message, source_shloka_message)
 from domain.clock import today_ist
 
 app = FastAPI(title="Daily Darshan Webhook", version="2.0.0")
@@ -1085,11 +1086,15 @@ def _effective_plan_name(c, sub) -> str:
     ))
 
 
-def _approved_source_for_today(c) -> str:
-    """Read the one administrator-approved source for the IST business date."""
+def _approved_source_for_date(c, on_date) -> str:
+    """Read the one administrator-approved source for a business date."""
     rows = [row for row in c.image_reviews.all()
-            if row.get("date") == today_ist().isoformat() and row.get("status") == "APPROVED"]
+            if row.get("date") == on_date.isoformat() and row.get("status") == "APPROVED"]
     return rows[0].get("source", "") if len(rows) == 1 else ""
+
+
+def _approved_source_for_today(c) -> str:
+    return _approved_source_for_date(c, today_ist())
 
 
 def _send_menu(c, mobile: str) -> None:
@@ -1155,8 +1160,10 @@ def _send_menu(c, mobile: str) -> None:
         if sub and sub.subscription_id and active and page_base:
             personalised_url = f"{page_base}/{sub.subscription_id}"
         body = f"{event_message(festival, personalised_url)}\n\n{body}"
-    else:
-        approved_source = _approved_source_for_today(c)
+    elif daily_menu_shloka_available(c.config.get("daily_shloka_menu")):
+        # At 06:00 IST every normal day starts with the neutral fallback. Once
+        # today's approval lands, this switches to the actual selected source.
+        approved_source = _approved_source_for_today(c) or "fallback"
         if approved_source:
             page_base = c.config.get("delivery", {}).get("page_base_url", "").rstrip("/")
             personalised_url = ""
@@ -1164,6 +1171,20 @@ def _send_menu(c, mobile: str) -> None:
                 personalised_url = f"{page_base}/{sub.subscription_id}"
             source_content = source_shloka_message(
                 approved_source, c.config.get("daily_shlokas", {}), personalised_url
+            )
+            if source_content:
+                body = f"{source_content}\n\n{body}"
+    else:
+        # Until the 06:00 IST reset, retain yesterday's devotional context.
+        # This avoids an empty transition window after midnight.
+        previous_day = today_ist() - timedelta(days=1)
+        previous_event = event_for_date(c.config.get("events"), previous_day)
+        if previous_event:
+            body = f"{event_message(previous_event)}\n\n{body}"
+        else:
+            previous_source = _approved_source_for_date(c, previous_day) or "fallback"
+            source_content = source_shloka_message(
+                previous_source, c.config.get("daily_shlokas", {}), day_label="Yesterday's"
             )
             if source_content:
                 body = f"{source_content}\n\n{body}"

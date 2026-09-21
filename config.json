@@ -59,6 +59,10 @@
     "fallback": "ॐ सर्वे भवन्तु सुखिनः। सर्वे सन्तु निरामयाः॥",
     "default": "ॐ सर्वे भवन्तु सुखिनः। सर्वे सन्तु निरामयाः॥"
   },
+  "daily_shloka_menu": {
+    "timezone": "Asia/Kolkata",
+    "available_from": "06:00"
+  },
   "image_sources": ["temple", "rss", "website"],
   "daily_image_rotation": {
     "monday": ["mahakal"],

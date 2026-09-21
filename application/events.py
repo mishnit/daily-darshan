@@ -40,6 +40,18 @@ def current_menu_event(events: list[dict] | None, now: datetime | None = None) -
     return None
 
 
+def daily_menu_shloka_available(settings: dict | None, now: datetime | None = None) -> bool:
+    """Whether the ordinary daily-menu shloka has opened for the IST day."""
+    config = settings or {}
+    try:
+        zone = ZoneInfo(config.get("timezone", "Asia/Kolkata"))
+        local_now = now.astimezone(zone) if now else datetime.now(zone)
+        hour, minute = (int(part) for part in config.get("available_from", "06:00").split(":"))
+        return local_now.time().replace(tzinfo=None) >= time(hour, minute)
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
 def event_message(day: dict, personalised_url: str = "") -> str:
     lines = [
         f"🙏 {day['event_name']} · Day {day['day_number']} ({day['tithi']})",
@@ -62,20 +74,21 @@ def source_shloka(daily_shlokas: dict[str, str] | None, source: str) -> tuple[st
     if not shloka:
         return None
     words = key.split("_")
-    title = " ".join(
+    title = "" if key in {"", "fallback", "default"} else " ".join(
         word.upper() if word == "iskcon" else word.title() for word in words if word
-    ) or "Today's Darshan"
+    )
     return title, shloka
 
 
 def source_shloka_message(source: str, daily_shlokas: dict[str, str] | None,
-                          personalised_url: str = "") -> str:
+                          personalised_url: str = "", day_label: str = "Today's") -> str:
     """Format the normal daily menu content after a source is approved."""
     selected = source_shloka(daily_shlokas, source)
     if not selected:
         return ""
     title, shloka = selected
-    lines = [f"🌺 {title} · Today's Shloka", "", shloka]
+    heading = f"🌺 {title} · {day_label} Shloka" if title else f"🌺 {day_label} Shloka"
+    lines = [heading, "", shloka]
     if personalised_url:
         lines.extend(["", f"View today's Darshan on your personalised page: {personalised_url}"])
     return "\n".join(lines)

@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from adapters.page_renderer import PageRenderer
-from application.events import current_menu_event, event_for_date
+from application.events import current_menu_event, daily_menu_shloka_available, event_for_date
 from domain.subscriber import Subscriber
 from tests.conftest import FakeWhatsApp
 from tests.test_admin import container
@@ -24,6 +24,14 @@ def test_event_menu_is_released_at_six_am_ist_only():
     assert current_menu_event(EVENTS, before) is None
     assert current_menu_event(EVENTS, released)["deity"] == "Maa Shailaputri"
     assert current_menu_event(EVENTS, released + timedelta(days=1)) is None
+
+
+def test_normal_daily_menu_shloka_opens_at_six_am_ist_only():
+    config = {"timezone": "Asia/Kolkata", "available_from": "06:00"}
+    before = datetime(2026, 9, 22, 5, 59, tzinfo=ZoneInfo("Asia/Kolkata"))
+    released = datetime(2026, 9, 22, 6, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
+    assert daily_menu_shloka_available(config, before) is False
+    assert daily_menu_shloka_available(config, released) is True
 
 
 def test_config_has_nine_unique_navratri_days_with_shlokas():
@@ -121,6 +129,7 @@ def test_menu_shows_todays_approved_mahakal_shloka(monkeypatch, container):
     today = date(2026, 9, 21)
     monkeypatch.setattr(main, "today_ist", lambda: today)
     monkeypatch.setattr(main, "current_menu_event", lambda events: None)
+    monkeypatch.setattr(main, "daily_menu_shloka_available", lambda config: True)
     container.config["daily_shlokas"] = {"mahakal": "ॐ नमः शिवाय।"}
     container.image_reviews.upsert("mahakal-approved", {
         "id": "mahakal-approved", "date": today.isoformat(), "generation": "batch",
@@ -136,12 +145,67 @@ def test_menu_shows_todays_approved_mahakal_shloka(monkeypatch, container):
     assert "Today's Darshan is ready." not in container.whatsapp.sent[-1]["body"]
 
 
+def test_menu_uses_fallback_shloka_after_six_until_todays_source_is_approved(monkeypatch, container):
+    import main
+    monkeypatch.setattr(main, "current_menu_event", lambda events: None)
+    monkeypatch.setattr(main, "daily_menu_shloka_available", lambda config: True)
+    container.config["daily_shlokas"] = {
+        "fallback": "ॐ सर्वे भवन्तु सुखिनः। सर्वे सन्तु निरामयाः॥"
+    }
+    container.whatsapp = FakeWhatsApp()
+
+    main._send_menu(container, "9199")
+
+    body = container.whatsapp.sent[-1]["body"]
+    assert "🌺 Today's Shloka" in body
+    assert "ॐ सर्वे भवन्तु सुखिनः। सर्वे सन्तु निरामयाः॥" in body
+    assert "Mahakal" not in body
+
+
+def test_menu_retains_previous_approved_source_before_six_am(monkeypatch, container):
+    import main
+    today = date(2026, 9, 22)
+    monkeypatch.setattr(main, "today_ist", lambda: today)
+    monkeypatch.setattr(main, "current_menu_event", lambda events: None)
+    monkeypatch.setattr(main, "daily_menu_shloka_available", lambda config: False)
+    container.config["daily_shlokas"] = {
+        "mahakal": "ॐ नमः शिवाय।", "fallback": "Neutral"
+    }
+    container.image_reviews.upsert("yesterday-mahakal", {
+        "id": "yesterday-mahakal", "date": "2026-09-21", "generation": "batch",
+        "source": "mahakal", "path": "docs/images/mahakal.jpg", "sha256": "x",
+        "status": "APPROVED", "approved_by": "admin", "approved_at": "now",
+    })
+    container.whatsapp = FakeWhatsApp()
+
+    main._send_menu(container, "9199")
+
+    body = container.whatsapp.sent[-1]["body"]
+    assert "Mahakal · Yesterday's Shloka" in body
+    assert "ॐ नमः शिवाय।" in body
+
+
+def test_menu_retains_previous_event_shloka_before_six_am(monkeypatch, container):
+    import main
+    today = date(2026, 10, 12)
+    monkeypatch.setattr(main, "today_ist", lambda: today)
+    monkeypatch.setattr(main, "current_menu_event", lambda events: None)
+    monkeypatch.setattr(main, "daily_menu_shloka_available", lambda config: False)
+    container.config["events"] = EVENTS
+    container.whatsapp = FakeWhatsApp()
+
+    main._send_menu(container, "9199")
+
+    assert "Maa Shailaputri" in container.whatsapp.sent[-1]["body"]
+
+
 def test_event_menu_shloka_overrides_todays_approved_source(monkeypatch, container):
     import main
     today = date(2026, 10, 11)
     event = event_for_date(EVENTS, today)
     monkeypatch.setattr(main, "today_ist", lambda: today)
     monkeypatch.setattr(main, "current_menu_event", lambda events: event)
+    monkeypatch.setattr(main, "daily_menu_shloka_available", lambda config: True)
     container.config["events"] = EVENTS
     container.config["daily_shlokas"] = {"mahakal": "ॐ नमः शिवाय।"}
     container.image_reviews.upsert("mahakal-approved", {
