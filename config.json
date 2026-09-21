@@ -124,7 +124,6 @@
     "image_public_base": "https://vipseva.com",
     "image_url_path": "images",
     "karma_api_url": "https://api.vipseva.com/karma/share",
-    "health_api_url": "https://api.vipseva.com/health",
     "caption": "Daily Darshan - {date}",
     "send_batch_size": 100,
     "max_send_retries": 3,
