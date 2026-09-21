@@ -1,8 +1,11 @@
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from adapters.page_renderer import PageRenderer
 from application.events import current_menu_event, daily_menu_shloka_available, event_for_date
+from domain.enums import SubscriberStatus
 from domain.subscriber import Subscriber
 from tests.conftest import FakeWhatsApp
 from tests.test_admin import container
@@ -23,6 +26,7 @@ def test_event_menu_is_released_at_six_am_ist_only():
     released = datetime(2026, 10, 11, 6, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
     assert current_menu_event(EVENTS, before) is None
     assert current_menu_event(EVENTS, released)["deity"] == "Maa Shailaputri"
+    assert current_menu_event(EVENTS, released.replace(hour=23, minute=59))["deity"] == "Maa Shailaputri"
     assert current_menu_event(EVENTS, released + timedelta(days=1)) is None
 
 
@@ -32,6 +36,7 @@ def test_normal_daily_menu_shloka_opens_at_six_am_ist_only():
     released = datetime(2026, 9, 22, 6, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
     assert daily_menu_shloka_available(config, before) is False
     assert daily_menu_shloka_available(config, released) is True
+    assert daily_menu_shloka_available(config, released.replace(hour=23, minute=59)) is True
 
 
 def test_config_has_nine_unique_navratri_days_with_shlokas():
@@ -223,3 +228,294 @@ def test_event_menu_shloka_overrides_todays_approved_source(monkeypatch, contain
     body = container.whatsapp.sent[-1]["body"]
     assert "ॐ देवी शैलपुत्र्यै नमः।" in body
     assert "ॐ नमः शिवाय।" not in body
+
+
+@pytest.mark.parametrize(
+    "window,after_six,approved_date,expected,forbidden",
+    [
+        ("00:00-05:59", False, "2026-09-21", "Mahakal · Yesterday's Shloka", "Today's Shloka"),
+        ("06:00-before-delivery", True, None, "🌺 Today's Shloka", "Yesterday's Shloka"),
+        ("after-delivery-23:59", True, "2026-09-22", "Mahakal · Today's Shloka", "Yesterday's Shloka"),
+    ],
+)
+def test_new_subscriber_normal_day_menu_across_daily_windows(
+    monkeypatch, container, window, after_six, approved_date, expected, forbidden,
+):
+    """New visitors get devotional context plus the normal View plans menu."""
+    import main
+    today = date(2026, 9, 22)
+    monkeypatch.setattr(main, "today_ist", lambda: today)
+    monkeypatch.setattr(main, "current_menu_event", lambda events: None)
+    monkeypatch.setattr(main, "daily_menu_shloka_available", lambda config: after_six)
+    container.config["daily_shlokas"] = {
+        "mahakal": "ॐ नमः शिवाय।", "fallback": "ॐ सर्वे भवन्तु सुखिनः।"
+    }
+    if approved_date:
+        container.image_reviews.upsert(f"approved-{approved_date}", {
+            "id": f"approved-{approved_date}", "date": approved_date,
+            "generation": "batch", "source": "mahakal", "path": "docs/images/mahakal.jpg",
+            "sha256": "x", "status": "APPROVED", "approved_by": "admin", "approved_at": "now",
+        })
+    container.whatsapp = FakeWhatsApp()
+
+    assert container.subscribers.find("9199") is None, window
+    main._send_menu(container, "9199")
+
+    sent = container.whatsapp.sent[-1]
+    assert expected in sent["body"], window
+    assert forbidden not in sent["body"], window
+    assert "Welcome to Daily Darshan" in sent["body"]
+    assert "CTA_SUBSCRIBE" in sent["rows"]
+
+
+@pytest.mark.parametrize(
+    "window,after_six,approved_date,expected,forbidden",
+    [
+        ("00:00-05:59", False, "2026-10-10", "Mahakal · Yesterday's Shloka", "Maa Shailaputri"),
+        ("06:00-before-delivery", True, None, "Maa Shailaputri", "Mahakal · Today's Shloka"),
+        ("after-delivery-23:59", True, "2026-10-11", "Maa Shailaputri", "Mahakal · Today's Shloka"),
+    ],
+)
+def test_new_subscriber_event_day_menu_across_daily_windows(
+    monkeypatch, container, window, after_six, approved_date, expected, forbidden,
+):
+    """Event content takes over at 06:00 and remains through that day's midnight."""
+    import main
+    today = date(2026, 10, 11)
+    event = event_for_date(EVENTS, today)
+    monkeypatch.setattr(main, "today_ist", lambda: today)
+    monkeypatch.setattr(main, "current_menu_event", lambda events: event if after_six else None)
+    monkeypatch.setattr(main, "daily_menu_shloka_available", lambda config: after_six)
+    container.config["events"] = EVENTS
+    container.config["daily_shlokas"] = {"mahakal": "ॐ नमः शिवाय。", "fallback": "Neutral"}
+    if approved_date:
+        container.image_reviews.upsert(f"approved-{approved_date}", {
+            "id": f"approved-{approved_date}", "date": approved_date,
+            "generation": "batch", "source": "mahakal", "path": "docs/images/mahakal.jpg",
+            "sha256": "x", "status": "APPROVED", "approved_by": "admin", "approved_at": "now",
+        })
+    container.whatsapp = FakeWhatsApp()
+
+    assert container.subscribers.find("9199") is None, window
+    main._send_menu(container, "9199")
+
+    sent = container.whatsapp.sent[-1]
+    assert expected in sent["body"], window
+    assert forbidden not in sent["body"], window
+    assert "Welcome to Daily Darshan" in sent["body"]
+    assert "CTA_SUBSCRIBE" in sent["rows"]
+
+
+def _active_existing_subscriber(container) -> str:
+    """Set up an opted-in, welcomed subscriber with a live personalised URL."""
+    subscription_id = "active-token"
+    container.subscribers.append(Subscriber(
+        "9199", "monthly", status=SubscriberStatus.ACTIVE, opt_in=True,
+        start_date=date(2026, 9, 1), end_date=date(2026, 12, 31),
+        subscription_id=subscription_id, name="Nitin",
+    ))
+    container.welcomes.upsert("welcome-9199", {
+        "reference_id": "welcome-9199", "mobile": "9199", "status": "SENT",
+        "whatsapp_message_id": "wamid.welcome", "error": "", "publication_verified": "true",
+    })
+    return subscription_id
+
+
+@pytest.mark.parametrize(
+    "window,after_six,approved_date,expected,has_personalised_url",
+    [
+        ("00:00-05:59", False, "2026-09-21", "Mahakal · Yesterday's Shloka", False),
+        ("06:00-before-delivery", True, None, "🌺 Today's Shloka", True),
+        ("after-delivery-23:59", True, "2026-09-22", "Mahakal · Today's Shloka", True),
+    ],
+)
+def test_existing_subscriber_normal_day_menu_across_daily_windows(
+    monkeypatch, container, window, after_six, approved_date, expected, has_personalised_url,
+):
+    import main
+    today = date(2026, 9, 22)
+    monkeypatch.setattr(main, "today_ist", lambda: today)
+    monkeypatch.setattr(main, "current_menu_event", lambda events: None)
+    monkeypatch.setattr(main, "daily_menu_shloka_available", lambda config: after_six)
+    container.config["delivery"]["page_base_url"] = "https://vipseva.com"
+    container.config["daily_shlokas"] = {
+        "mahakal": "ॐ नमः शिवाय।", "fallback": "ॐ सर्वे भवन्तु सुखिनः।"
+    }
+    subscription_id = _active_existing_subscriber(container)
+    if approved_date:
+        container.image_reviews.upsert(f"approved-{approved_date}", {
+            "id": f"approved-{approved_date}", "date": approved_date,
+            "generation": "batch", "source": "mahakal", "path": "docs/images/mahakal.jpg",
+            "sha256": "x", "status": "APPROVED", "approved_by": "admin", "approved_at": "now",
+        })
+    container.whatsapp = FakeWhatsApp()
+
+    main._send_menu(container, "9199")
+
+    sent = container.whatsapp.sent[-1]
+    assert expected in sent["body"], window
+    assert "Welcome to Daily Darshan" not in sent["body"]
+    assert "CTA_STATUS" in sent["rows"]
+    assert "CTA_SUBSCRIBE" not in sent["rows"]
+    assert (f"https://vipseva.com/{subscription_id}" in sent["body"]) is has_personalised_url
+
+
+@pytest.mark.parametrize(
+    "window,after_six,approved_date,expected,has_personalised_url",
+    [
+        ("00:00-05:59", False, "2026-10-10", "Mahakal · Yesterday's Shloka", False),
+        ("06:00-before-delivery", True, None, "Maa Shailaputri", True),
+        ("after-delivery-23:59", True, "2026-10-11", "Maa Shailaputri", True),
+    ],
+)
+def test_existing_subscriber_event_day_menu_across_daily_windows(
+    monkeypatch, container, window, after_six, approved_date, expected, has_personalised_url,
+):
+    import main
+    today = date(2026, 10, 11)
+    event = event_for_date(EVENTS, today)
+    monkeypatch.setattr(main, "today_ist", lambda: today)
+    monkeypatch.setattr(main, "current_menu_event", lambda events: event if after_six else None)
+    monkeypatch.setattr(main, "daily_menu_shloka_available", lambda config: after_six)
+    container.config["events"] = EVENTS
+    container.config["delivery"]["page_base_url"] = "https://vipseva.com"
+    container.config["daily_shlokas"] = {"mahakal": "ॐ नमः शिवाय।", "fallback": "Neutral"}
+    subscription_id = _active_existing_subscriber(container)
+    if approved_date:
+        container.image_reviews.upsert(f"approved-{approved_date}", {
+            "id": f"approved-{approved_date}", "date": approved_date,
+            "generation": "batch", "source": "mahakal", "path": "docs/images/mahakal.jpg",
+            "sha256": "x", "status": "APPROVED", "approved_by": "admin", "approved_at": "now",
+        })
+    container.whatsapp = FakeWhatsApp()
+
+    main._send_menu(container, "9199")
+
+    sent = container.whatsapp.sent[-1]
+    assert expected in sent["body"], window
+    assert "Welcome to Daily Darshan" not in sent["body"]
+    assert "CTA_STATUS" in sent["rows"]
+    assert "CTA_SUBSCRIBE" not in sent["rows"]
+    assert (f"https://vipseva.com/{subscription_id}" in sent["body"]) is has_personalised_url
+
+
+@pytest.mark.parametrize(
+    "window,snapshot_date,source,expected_heading",
+    [
+        ("00:00-05:59", date(2026, 9, 21), "mahakal", "Mahakal ·"),
+        ("06:00-before-delivery", date(2026, 9, 21), "mahakal", "Mahakal ·"),
+        ("after-delivery-23:59", date(2026, 9, 22), "iskcon_bangalore", "ISKCON Bangalore ·"),
+    ],
+)
+def test_newly_activated_normal_page_uses_last_deployed_snapshot_until_delivery(
+    window, snapshot_date, source, expected_heading,
+):
+    """A static page cannot switch content at 06:00 without a new deployment."""
+    subscriber = Subscriber(
+        "9199", "monthly", status=SubscriberStatus.ACTIVE, opt_in=True,
+        start_date=date(2026, 9, 1), end_date=date(2026, 12, 31), subscription_id="new-token",
+    )
+    renderer = PageRenderer(
+        image_public_base="https://vipseva.com",
+        daily_shlokas={"mahakal": "ॐ नमः शिवाय।", "iskcon_bangalore": "हरे कृष्ण।"},
+    )
+
+    page = renderer.render_html(subscriber, snapshot_date, delivered=True, source=source)
+
+    assert f'<meta name="darshan-date" content="{snapshot_date.isoformat()}">' in page, window
+    assert expected_heading in page, window
+    assert "Your Daily Darshan subscription is active" in page
+    # The browser changes the label after midnight, but not the dated content.
+    assert "card.dataset.shlokaDate < istToday" in page
+
+
+@pytest.mark.parametrize(
+    "window,snapshot_date,source,contains_event",
+    [
+        ("00:00-05:59", date(2026, 10, 10), "mahakal", False),
+        ("06:00-before-delivery", date(2026, 10, 10), "mahakal", False),
+        ("after-delivery-23:59", date(2026, 10, 11), "event_maa_shailaputri", True),
+    ],
+)
+def test_newly_activated_event_page_shows_event_only_after_today_is_deployed(
+    window, snapshot_date, source, contains_event,
+):
+    subscriber = Subscriber(
+        "9199", "monthly", status=SubscriberStatus.ACTIVE, opt_in=True,
+        start_date=date(2026, 9, 1), end_date=date(2026, 12, 31), subscription_id="new-token",
+    )
+    renderer = PageRenderer(
+        image_public_base="https://vipseva.com", events=EVENTS,
+        daily_shlokas={"mahakal": "ॐ नमः शिवाय。"},
+    )
+
+    page = renderer.render_html(subscriber, snapshot_date, delivered=True, source=source)
+
+    assert f'<meta name="darshan-date" content="{snapshot_date.isoformat()}">' in page, window
+    assert ("Maa Shailaputri" in page) is contains_event
+    if contains_event:
+        assert "ॐ देवी शैलपुत्र्यै नमः।" in page
+    else:
+        assert "Mahakal ·" in page
+
+
+@pytest.mark.parametrize(
+    "window,snapshot_date,source,renewal_visible",
+    [
+        ("00:00-05:59", date(2026, 9, 21), "mahakal", False),
+        ("06:00-before-delivery", date(2026, 9, 21), "mahakal", False),
+        ("after-delivery-23:59", date(2026, 9, 22), "iskcon_bangalore", True),
+    ],
+)
+def test_expiring_existing_normal_page_uses_snapshot_renewal_countdown(
+    window, snapshot_date, source, renewal_visible,
+):
+    """At the three-day boundary, yesterday's snapshot still sees four days."""
+    today = date(2026, 9, 22)
+    subscriber = Subscriber(
+        "9199", "monthly", status=SubscriberStatus.ACTIVE, opt_in=True,
+        start_date=date(2026, 9, 1), end_date=today + timedelta(days=3), subscription_id="active-token",
+    )
+    renderer = PageRenderer(
+        image_public_base="https://vipseva.com", renewal_whatsapp_number="916361699109",
+        renewal_window_days=3, daily_shlokas={"mahakal": "ॐ नमः शिवाय।", "iskcon_bangalore": "हरे कृष्ण।"},
+    )
+
+    page = renderer.render_html(subscriber, snapshot_date, delivered=True, source=source)
+
+    assert ("Renew on WhatsApp" in page) is renewal_visible, window
+    if renewal_visible:
+        assert "expires in 3 days" in page
+        assert "ISKCON Bangalore ·" in page
+    else:
+        assert "Mahakal ·" in page
+
+
+@pytest.mark.parametrize(
+    "window,snapshot_date,source,renewal_visible,event_visible",
+    [
+        ("00:00-05:59", date(2026, 10, 10), "mahakal", False, False),
+        ("06:00-before-delivery", date(2026, 10, 10), "mahakal", False, False),
+        ("after-delivery-23:59", date(2026, 10, 11), "event_maa_shailaputri", True, True),
+    ],
+)
+def test_expiring_existing_event_page_uses_snapshot_renewal_countdown(
+    window, snapshot_date, source, renewal_visible, event_visible,
+):
+    today = date(2026, 10, 11)
+    subscriber = Subscriber(
+        "9199", "monthly", status=SubscriberStatus.ACTIVE, opt_in=True,
+        start_date=date(2026, 9, 1), end_date=today + timedelta(days=3), subscription_id="active-token",
+    )
+    renderer = PageRenderer(
+        image_public_base="https://vipseva.com", events=EVENTS,
+        renewal_whatsapp_number="916361699109", renewal_window_days=3,
+        daily_shlokas={"mahakal": "ॐ नमः शिवाय。"},
+    )
+
+    page = renderer.render_html(subscriber, snapshot_date, delivered=True, source=source)
+
+    assert ("Renew on WhatsApp" in page) is renewal_visible, window
+    assert ("Maa Shailaputri" in page) is event_visible, window
+    if renewal_visible:
+        assert "expires in 3 days" in page
