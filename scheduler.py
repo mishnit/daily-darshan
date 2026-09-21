@@ -102,13 +102,18 @@ def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str =
         with PILImage.open(io.BytesIO(data)) as source:
             image = source.convert("RGB")
             width, height = image.size
-            footer_height = max(1, round(height * 0.24))
             if append_footer or source_name.startswith("event_"):
+                # Keep the appended event footer at 15% of the *final* image:
+                # footer / (original + footer) = 0.15.
+                footer_height = max(1, round(height * 0.15 / 0.85))
                 canvas = PILImage.new("RGB", (width, height + footer_height), (96, 96, 96))
                 canvas.paste(image, (0, 0))
                 image = canvas
                 footer_top = height
             else:
+                # Ordinary photos retain their dimensions; the bottom 15% is
+                # replaced by the footer.
+                footer_height = max(1, round(height * 0.15))
                 footer_top = height - footer_height
             draw = ImageDraw.Draw(image)
             draw.rectangle((0, footer_top, width, image.height), fill=(96, 96, 96))
@@ -136,7 +141,8 @@ def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str =
             # Date, source and VIP Seva intentionally share one prominent
             # size. Choose the largest size that accommodates the longest line.
             shared_font = font(10, bold=True)
-            for size in range(max(14, round(height * 0.040)), 9, -1):
+            # One point smaller than the previous shared Date/Source/VIP size.
+            for size in range(max(10, round(height * 0.040) - 1), 9, -1):
                 candidate = font(size, bold=True)
                 if all(
                     draw.textbbox((0, 0), text, font=candidate)[2]

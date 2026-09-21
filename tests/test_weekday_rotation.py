@@ -61,12 +61,12 @@ def test_canonical_image_replaces_bottom_24_percent_with_delivery_footer():
     ))).convert("RGB")
 
     assert branded.size == (1000, 1000)
-    assert branded.getpixel((10, 759))[2] - branded.getpixel((10, 759))[0] > 50  # source pixels remain above the footer
+    assert branded.getpixel((10, 849))[2] - branded.getpixel((10, 849))[0] > 50  # source pixels remain above the footer
     footer_pixel = branded.getpixel((10, 900))
     assert max(footer_pixel) - min(footer_pixel) < 8
     assert 80 <= footer_pixel[0] <= 110
     # Text makes white pixels visible inside the otherwise grey footer.
-    assert any(max(pixel) > 220 for pixel in branded.crop((0, 760, 1000, 1000)).get_flattened_data())
+    assert any(max(pixel) > 220 for pixel in branded.crop((0, 850, 1000, 1000)).get_flattened_data())
 
 
 def test_watermark_details_use_friendly_source_name():
@@ -172,7 +172,7 @@ def test_iskcon_vrindavan_uses_dated_gallery_hydration_image():
 
     assert image and image.source == "iskcon_vrindavan"
     assert session.calls == [
-        "https://iskconvrindavan.com/daily-darshan-gallery/sringar-darshan/2",
+        "https://iskconvrindavan.com/daily-darshan-gallery/2026-08-26/2/sringar-darshan",
         "https://cdn.iskconvrindavan.com/static/static-_16a8e9502b530a.jpg",
     ]
 
@@ -181,9 +181,9 @@ def test_iskcon_vrindavan_falls_back_to_same_day_festival_darshan():
     on_date = date(2026, 9, 4)
     festival_image = "static/static-_886a9a158a3a74c.jpg"
     session = Session([
+        Response('window.__remixContext.enqueue("no date-addressed images")'),
         Response('window.__remixContext.enqueue("no sringar images")'),
-        Response('window.__remixContext.enqueue("no mangala images")'),
-        Response(f'other gallery data 2026-09-04 [\\"{festival_image}\\"]'),
+        Response(f'images_list [\\"{festival_image}\\"]'),
         Response(content=b"festival-image"),
     ])
     source = IskconVrindavanSource("https://iskconvrindavan.com/daily-darshan-gallery", session=session)
@@ -193,15 +193,16 @@ def test_iskcon_vrindavan_falls_back_to_same_day_festival_darshan():
     assert image and image.source == "iskcon_vrindavan"
     assert source.last_image_url == f"https://cdn.iskconvrindavan.com/{festival_image}"
     assert session.calls == [
-        "https://iskconvrindavan.com/daily-darshan-gallery/sringar-darshan/2",
-        "https://iskconvrindavan.com/daily-darshan-gallery/mangala-darshan/3",
-        "https://iskconvrindavan.com/daily-darshan-gallery/festival-darshan/4",
+        "https://iskconvrindavan.com/daily-darshan-gallery/2026-09-04/2/sringar-darshan",
+        "https://iskconvrindavan.com/daily-darshan-gallery/2026-09-04/3/mangala-darshan",
+        "https://iskconvrindavan.com/daily-darshan-gallery/2026-09-04/4/festival-darshan",
         f"https://cdn.iskconvrindavan.com/{festival_image}",
     ]
 
 
 def test_iskcon_vrindavan_rejects_festival_darshan_from_another_date():
     session = Session([
+        Response('window.__remixContext.enqueue("no date-addressed images")'),
         Response('window.__remixContext.enqueue("no sringar images")'),
         Response('window.__remixContext.enqueue("no mangala images")'),
         Response(
@@ -458,7 +459,7 @@ def test_mumbai_falls_back_to_same_day_mangala_after_festival():
     session = Session([
         Response('<a href="/sringar/sringar-darshan-611"><p>Sep 04, 2026</p></a>'),
         Response('<a href="/festival/vyasa-puja-79"><p>Sep 04, 2026</p></a>'),
-        Response('<a href="/mangala/mangala-darshan-80"><p>Sep 05, 2026</p></a>'),
+        Response('<a href="/mangala/mangal-darshan-80"><p>Sep 05, 2026</p></a>'),
         Response('<span class="change_date">05 Sep 2026</span>'
                  f'<img class="darshan-detail-images" src="{_data_image(800, 600)}">'),
     ])
@@ -467,10 +468,10 @@ def test_mumbai_falls_back_to_same_day_mangala_after_festival():
     image = source.fetch(on_date)
 
     assert image and image.source == "iskcon_mumbai"
-    assert source.last_image_url.endswith("/mangala/mangala-darshan-80#embedded-darshan")
+    assert source.last_image_url.endswith("/mangala/mangal-darshan-80#embedded-darshan")
     assert session.calls[-2:] == [
         "https://www.iskconmumbai.com/daily-mangala-darshan",
-        "https://www.iskconmumbai.com/mangala/mangala-darshan-80",
+        "https://www.iskconmumbai.com/mangala/mangal-darshan-80",
     ]
 
 
