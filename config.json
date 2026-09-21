@@ -45,6 +45,19 @@
         {"date": "2026-10-18", "day_number": 8, "tithi": "Ashtami", "colour": "Purple", "deity": "Maa Mahagauri", "image_path": "assets/events/sharad-navratri-2026/08-mahagauri.jpg", "shloka": "ॐ देवी महागौर्यै नमः।"},
         {"date": "2026-10-19", "day_number": 9, "tithi": "Navami", "colour": "Peacock Green", "deity": "Maa Siddhidatri", "image_path": "assets/events/sharad-navratri-2026/09-siddhidatri.jpg", "shloka": "ॐ देवी सिद्धिदात्र्यै नमः।"}
       ]
+    },
+    {
+      "id": "diwali-2026",
+      "name": "Diwali 2026",
+      "enabled": true,
+      "images_enabled": false,
+      "menu_enabled": true,
+      "page_enabled": true,
+      "timezone": "Asia/Kolkata",
+      "menu_available_from": "06:00",
+      "days": [
+        {"date": "2026-11-08", "day_number": 3, "tithi": "Amavasya", "colour": "Golden", "deity": "Maa Lakshmi", "image_path": "assets/events/diwali-2026/03-diwali.jpg", "shloka": "ॐ श्रीं ह्रीं श्रीं कमले कमलालये प्रसीद प्रसीद ॐ श्रीं ह्रीं श्रीं महालक्ष्म्यै नमः।"}
+      ]
     }
   ],
   "daily_shlokas": {
