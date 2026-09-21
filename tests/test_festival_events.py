@@ -82,7 +82,7 @@ def test_active_subscriber_menu_includes_personalised_page_without_extra_message
     assert len(sent) == 1
     assert sent[0]["type"] == "list"
     assert "Maa Shailaputri" in sent[0]["body"]
-    assert f"https://vipseva.com/{subscription_id}" in sent[0]["body"]
+    assert f"https://vipseva.com/{subscription_id}" not in sent[0]["body"]
 
 
 def test_subscription_page_shows_matching_event_only():
@@ -325,8 +325,8 @@ def _active_existing_subscriber(container) -> str:
     "window,after_six,approved_date,expected,has_personalised_url",
     [
         ("00:00-05:59", False, "2026-09-21", "Mahakal · Yesterday's Shloka", False),
-        ("06:00-before-delivery", True, None, "🌺 Today's Shloka", True),
-        ("after-delivery-23:59", True, "2026-09-22", "Mahakal · Today's Shloka", True),
+        ("06:00-before-delivery", True, None, "🌺 Today's Shloka", False),
+        ("after-delivery-23:59", True, "2026-09-22", "Mahakal · Today's Shloka", False),
     ],
 )
 def test_existing_subscriber_normal_day_menu_across_daily_windows(
@@ -364,8 +364,8 @@ def test_existing_subscriber_normal_day_menu_across_daily_windows(
     "window,after_six,approved_date,expected,has_personalised_url",
     [
         ("00:00-05:59", False, "2026-10-10", "Mahakal · Yesterday's Shloka", False),
-        ("06:00-before-delivery", True, None, "Maa Shailaputri", True),
-        ("after-delivery-23:59", True, "2026-10-11", "Maa Shailaputri", True),
+        ("06:00-before-delivery", True, None, "Maa Shailaputri", False),
+        ("after-delivery-23:59", True, "2026-10-11", "Maa Shailaputri", False),
     ],
 )
 def test_existing_subscriber_event_day_menu_across_daily_windows(
