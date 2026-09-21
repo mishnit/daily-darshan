@@ -5,6 +5,8 @@ on:
     workflows:
       - Daily Image
       - Daily Delivery
+      - Regenerate Daily Pages
+      - Deploy Daily Darshan Pages
     types:
       - completed
 
