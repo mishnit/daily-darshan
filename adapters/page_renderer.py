@@ -101,6 +101,20 @@ _TEMPLATE = """<!DOCTYPE html>
 
 _SHARE_SCRIPT = r"""
 (() => {
+  const dateParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(new Date()).reduce((parts, part) => {
+    if (part.type !== 'literal') parts[part.type] = part.value;
+    return parts;
+  }, {});
+  const istToday = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+  document.querySelectorAll('[data-shloka-date]').forEach(card => {
+    if (card.dataset.shlokaDate < istToday) {
+      const label = card.querySelector('[data-shloka-label]');
+      if (label) label.textContent = "Yesterday's Shloka";
+      card.setAttribute('aria-label', "Yesterday's shloka");
+    }
+  });
   const button = document.getElementById('share-darshan');
   const status = document.getElementById('share-status');
   if (!button) return;
@@ -254,10 +268,11 @@ class PageRenderer:
         if not event or not event.get("page_enabled", True):
             return ""
         return (
-            '<section class="event-card" aria-label="Today\'s festival shloka">'
+            f'<section class="event-card" aria-label="Today\'s festival shloka" data-shloka-date="{on_date.isoformat()}">'
             f"<strong>{html.escape(event['event_name'])} · Day {int(event['day_number'])}</strong>"
             f"<p>{html.escape(event['tithi'])} · {html.escape(event['colour'])}</p>"
             f"<p><strong>{html.escape(event['deity'])}</strong></p>"
+            '<p data-shloka-label>Today\'s Shloka</p>'
             f"<p lang=\"sa\">{html.escape(event['shloka'])}</p>"
             "</section>"
         )
@@ -271,10 +286,11 @@ class PageRenderer:
         if not shloka:
             return ""
         title = (self.source_display_name(key)
-                 if key and key not in {"canonical", "fallback"} else "Today's Shloka")
+                 if key and key not in {"canonical", "fallback"} else "")
+        heading = (f"{html.escape(title)} · " if title else "")
         return (
-            '<section class="daily-shloka" aria-label="Today\'s shloka">'
-            f"<strong>{html.escape(title)} · Today's Shloka</strong>"
+            f'<section class="daily-shloka" aria-label="Today\'s shloka" data-shloka-date="{on_date.isoformat()}">'
+            f"<strong>{heading}<span data-shloka-label>Today's Shloka</span></strong>"
             f"<p lang=\"sa\">{html.escape(shloka)}</p>"
             "</section>"
         )

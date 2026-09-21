@@ -575,6 +575,9 @@ shloka from 06:00 IST; active subscribers also see their personalised page link 
 message. No separate festival option or follow-up message is sent. The content is evaluated on
 demand, so no scheduled menu broadcast or menu deployment is required.
 Subscriber pages show the same event card when the daily pages are rendered for that date.
+Because subscriber pages are static, their shloka label is adjusted in the visitor's browser using
+the Asia/Kolkata date: after midnight and before the next page publication, it reads
+“Yesterday's Shloka”; the next deployed page restores “Today's Shloka”.
 On a normal day, once one image source is approved for the current IST date, the next
 user-initiated menu message includes that source's configured shloka. An event shloka remains
 the higher-priority menu content on an event date.
