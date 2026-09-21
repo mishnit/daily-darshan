@@ -22,7 +22,7 @@ both price and exact day count.
 ## Positioning
 
 First-time menu copy is shown only when no `welcomes.csv` entry exists for the sender:
-“Receive temple darshan on WhatsApp, enjoy an HD image on your personal page, and share
+“Receive daily new temple darshan on WhatsApp, enjoy an HD image on your personal page, and share
 the image with family and friends.” The next action explains plan choice, payment and UTR
 confirmation. It does not promise instant activation: the admin reviews confirmed UTRs first.
 The admin also previews and approves the day's source before pages and daily messages publish.
