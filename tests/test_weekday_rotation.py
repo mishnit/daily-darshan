@@ -66,7 +66,13 @@ def test_canonical_image_replaces_bottom_24_percent_with_delivery_footer():
     assert max(footer_pixel) - min(footer_pixel) < 8
     assert 80 <= footer_pixel[0] <= 110
     # Text makes white pixels visible inside the otherwise grey footer.
-    assert any(max(pixel) > 220 for pixel in branded.crop((0, 850, 1000, 1000)).get_flattened_data())
+    footer_white_rows = [
+        y for y in range(850, 1000)
+        if any(max(branded.getpixel((x, y))) > 220 for x in range(1000))
+    ]
+    assert footer_white_rows
+    assert footer_white_rows[0] > 850
+    assert footer_white_rows[-1] < 999
 
 
 def test_watermark_details_use_friendly_source_name():
