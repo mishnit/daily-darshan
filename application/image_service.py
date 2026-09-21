@@ -31,20 +31,23 @@ class ImageCollector:
         validator: ImageValidatorProtocol,
         logs: LogRepositoryPort | None = None,
         rotation: dict[str, list[str]] | None = None,
+        event_sources: dict[str, list[ImageSourcePort]] | None = None,
     ):
         self._sources = sources
         self._validator = validator
         self._logs = logs
         self._rotation = rotation or {}
+        self._event_sources = event_sources or {}
 
     def source_names_for(self, on_date: date) -> list[str]:
         """Configured Monday–Sunday chain, with old list behaviour preserved."""
         return self._rotation.get(on_date.strftime("%A").lower(), [])
 
     def _sources_for(self, on_date: date) -> list[ImageSourcePort]:
+        extra = self._event_sources.get(on_date.isoformat(), [])
         if isinstance(self._sources, dict):
-            return [self._sources[name] for name in self.source_names_for(on_date) if name in self._sources]
-        return self._sources
+            return [self._sources[name] for name in self.source_names_for(on_date) if name in self._sources] + extra
+        return list(self._sources) + extra
 
     def collect_candidates(self, on_date: date | None = None) -> list[Image]:
         on_date = on_date or today_ist()
