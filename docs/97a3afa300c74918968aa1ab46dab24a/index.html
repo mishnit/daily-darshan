@@ -47,7 +47,6 @@
     .share a, .share button { background: #198754; }
     .share button { border: 0; border-radius: 7px; padding: 10px 16px;
                      color: white; font: inherit; font-weight: 650; cursor: pointer; }
-    .privacy-note { margin: 3px 8px; font-size: .72rem; color: #53483c; }
     .karma { margin: 5px 8px; font-size: .86rem; font-weight: 700; color: #7a4b00; }
     .share textarea { box-sizing: border-box; width: 100%; min-height: 90px; }
     body { overflow-y: auto; }
@@ -60,26 +59,39 @@
     <div class="greeting">Radhe Radhe Priyanka Gautam Ji 🙏</div>
     <div class="greeting">Your Daily Darshan subscription is active till 2026-10-16</div>
     
-    <section class="daily-shloka" aria-label="Today's shloka"><strong>Mahakal · Today's Shloka</strong><p lang="sa">ॐ नमः शिवाय।</p></section>
+    <section class="daily-shloka" aria-label="Today's shloka" data-shloka-date="2026-09-21"><strong>Mahakal · <span data-shloka-label>Today's Shloka</span></strong><p lang="sa">ॐ नमः शिवाय।</p></section>
     
     <div class="image-frame">
       <img class="darshan" src="https://vipseva.com/images/5072d718-c719-5c70-9606-c0b07097d449_2026-09-21.jpg" alt="Daily Darshan for 2026-09-21"
            onerror="this.onerror=null; this.src='https://vipseva.com/images/fallback.jpg';">
     </div>
     <div class="share">
-      <p class="privacy-note">Share Darshan on WhatsApp and earn 1 Karma point daily.</p>
       <p class="karma">Karma points: <span id="karma-points">0</span></p>
       <button id="share-darshan" type="button" data-image-url="https://vipseva.com/images/5072d718-c719-5c70-9606-c0b07097d449_2026-09-21.jpg" data-share-text="Radhe Radhe 🙏
 
 Today&#x27;s HD Daily Darshan.
 
 Visit VIP Seva for daily darshan:
-https://vipseva.com/?ref=919108711599">Share Darshan on WhatsApp</button>
+https://vipseva.com/?ref=919108711599">Share Today&#x27;s Darshan on WhatsApp and earn Karma Points</button>
       <p id="share-status" role="status" aria-live="polite"></p>
     </div>
   </div>
 <script>
 (() => {
+  const dateParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(new Date()).reduce((parts, part) => {
+    if (part.type !== 'literal') parts[part.type] = part.value;
+    return parts;
+  }, {});
+  const istToday = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+  document.querySelectorAll('[data-shloka-date]').forEach(card => {
+    if (card.dataset.shlokaDate < istToday) {
+      const label = card.querySelector('[data-shloka-label]');
+      if (label) label.textContent = "Yesterday's Shloka";
+      card.setAttribute('aria-label', "Yesterday's shloka");
+    }
+  });
   const button = document.getElementById('share-darshan');
   const status = document.getElementById('share-status');
   if (!button) return;
