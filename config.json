@@ -29,7 +29,7 @@
       "id": "sharad-navratri-2026",
       "name": "Sharad Navratri 2026",
       "enabled": true,
-      "images_enabled": false,
+      "images_enabled": true,
       "timezone": "Asia/Kolkata",
       "menu_available_from": "06:00",
       "menu_enabled": true,
