@@ -232,7 +232,7 @@ class Container:
                 if day.get("image_path"):
                     sources.setdefault(day["date"], []).append(EventImageSource(
                         self.root, day["image_path"],
-                        f"event_{event['id']}_{day['day_number']}",
+                        day["deity"],
                     ))
         return sources
 

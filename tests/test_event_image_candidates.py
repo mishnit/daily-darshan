@@ -28,23 +28,41 @@ def test_event_candidate_joins_temple_review_without_auto_approval(container, tm
     path.parent.mkdir(parents=True)
     path.write_bytes(jpeg())
     container.config['events'] = [{'id': 'navratri', 'days': [
-        {'date': DAY.isoformat(), 'day_number': 1, 'image_path': PATH}]}]
+        {'date': DAY.isoformat(), 'day_number': 1, 'deity': 'Maa Shailaputri', 'image_path': PATH}]}]
     temple = SimpleNamespace(name='temple', fetch=lambda day: Image(day, jpeg(), 'temple'))
     collector = ImageCollector({'temple': temple}, ImageValidator(min_width=600, min_height=600),
         rotation={'sunday': ['temple']}, event_sources=container._build_event_sources())
-    assert [x.source for x in collector.collect_candidates(DAY)] == ['temple', 'event_navratri_1']
+    assert [x.source for x in collector.collect_candidates(DAY)] == ['temple', 'Maa Shailaputri']
     assert [x.source for x in collector.collect_candidates(date(2026, 10, 18))] == ['temple']
     container.image_service._collector = collector
     writes = []
     git = SimpleNamespace(write_file=lambda *args: writes.append(args), commit=lambda *args: None)
     collect_for_review(container, git, DAY)
     rows = container.image_reviews.all()
-    assert {r['source'] for r in rows} == {'temple', 'event_navratri_1'}
+    assert {r['source'] for r in rows} == {'temple', 'Maa Shailaputri'}
     assert all(r['status'] == 'PENDING' for r in rows)
     assert approved(container, DAY) is None
     assert len(writes) == 2
-    event_row = next(r for r in rows if r['source'] == 'event_navratri_1')
+    event_row = next(r for r in rows if r['source'] == 'Maa Shailaputri')
+    from scheduler import _watermark_details
+    assert _watermark_details(DAY, event_row['source']) == 'Date: 2026-10-11 · Source: Maa Shailaputri'
     stored = {args[0]: args[1] for args in writes}
+    # Save and reopen both generated previews, as the repository writer does.
+    temple_row = next(r for r in rows if r['source'] == 'temple')
+    for row in (temple_row, event_row):
+        saved = tmp_path / row['path']
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_bytes(stored[row['path']])
+    with PILImage.open(tmp_path / temple_row['path']) as normal:
+        assert normal.format == 'JPEG'
+        assert normal.size == (640, 800)
+        assert normal.getpixel((20, 500))[0] > 240
+        assert normal.getpixel((20, 780)) == (96, 96, 96)
+    with PILImage.open(tmp_path / event_row['path']) as custom:
+        assert custom.format == 'JPEG'
+        assert custom.size == (640, 992)
+        assert custom.getpixel((20, 780))[0] > 240
+        assert custom.getpixel((20, 900)) == (96, 96, 96)
     with PILImage.open(BytesIO(stored[event_row['path']])) as preview:
         assert preview.size == (640, 992)
         # The original bottom remains orange, above the new grey footer.
@@ -89,7 +107,7 @@ def test_images_disabled_preserves_event_content(container):
     from zoneinfo import ZoneInfo
     event = {'id': 'navratri', 'enabled': True, 'images_enabled': False,
              'days': [{'date': DAY.isoformat(), 'day_number': 1,
-                       'image_path': PATH, 'shloka': 'Test shloka'}]}
+                       'image_path': PATH, 'deity': 'Maa Shailaputri', 'shloka': 'Test shloka'}]}
     container.config['events'] = [event]
     assert container._build_event_sources() == {}
     assert event_for_date([event], DAY)['shloka'] == 'Test shloka'

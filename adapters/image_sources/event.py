@@ -16,4 +16,4 @@ class EventImageSource:
             raise ValueError("Custom event images must be inside assets/events")
         if not path.is_file():
             return None
-        return Image(on_date, data=path.read_bytes(), source=self.name)
+        return Image(on_date, data=path.read_bytes(), source=self.name, append_footer=True)

@@ -19,6 +19,8 @@ in config.json maps each date to its file. The event must be enabled.
 The image workflow validates the custom image with the same rules as temple
 images and adds it to the administrator's review candidates alongside that day's
 normal temple sources. Missing, corrupt or undersized files are skipped and logged.
+The source name comes from `events[].days[].deity` (for example, Maa Shailaputri)
+and appears in admin selection, approval messages and the VIP Seva footer.
 The administrator must select one candidate before publication when
 `admin.require_image_approval` is enabled (the production setting). An existing
 approved selection remains preserved on reruns.

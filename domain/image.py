@@ -14,6 +14,7 @@ class Image:
     data: bytes = b""
     source: str = ""
     fmt: str | None = None  # e.g. "JPEG", "PNG"
+    append_footer: bool = False
 
     def canonical_path(self, images_dir: str = "images") -> str:
         """images/YYYY-MM-DD.jpg (section 10)."""
