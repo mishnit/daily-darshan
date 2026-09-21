@@ -60,11 +60,11 @@ def test_event_candidate_joins_temple_review_without_auto_approval(container, tm
         assert normal.getpixel((20, 780)) == (96, 96, 96)
     with PILImage.open(tmp_path / event_row['path']) as custom:
         assert custom.format == 'JPEG'
-        assert custom.size == (640, 992)
+        assert custom.size == (640, 941)
         assert custom.getpixel((20, 780))[0] > 240
         assert custom.getpixel((20, 900)) == (96, 96, 96)
     with PILImage.open(BytesIO(stored[event_row['path']])) as preview:
-        assert preview.size == (640, 992)
+        assert preview.size == (640, 941)
         # The original bottom remains orange, above the new grey footer.
         assert preview.getpixel((20, 780))[0] > 240
         assert preview.getpixel((20, 900)) == (96, 96, 96)

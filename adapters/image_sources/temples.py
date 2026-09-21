@@ -39,11 +39,11 @@ _MAYAPUR_ALBUM = re.compile(
 )
 _MAYAPUR_ORIGINAL = re.compile(r'images\[\d+\]\s*=\s*["\'](?P<image>/storage/albums/[^"\']+_image\.jpg)["\']', re.IGNORECASE)
 _MUMBAI_DETAIL_LINK = re.compile(
-    r'href=["\'](?P<detail>/(?:sringar/sringar-darshan-\d+|festival/[^"\']+-\d+|mangala/mangala-darshan-\d+))["\']',
+    r'href=["\'](?P<detail>/(?:sringar/sringar-darshan-\d+|festival/[^"\']+-\d+|mangala/mangal(?:a)?-darshan-\d+))["\']',
     re.IGNORECASE,
 )
 _MUMBAI_LISTING_CARD = re.compile(
-    r'<a\b[^>]*\bhref=["\'](?P<detail>/(?:sringar/sringar-darshan-\d+|festival/[^"\']+-\d+|mangala/mangala-darshan-\d+))["\'][^>]*>'
+    r'<a\b[^>]*\bhref=["\'](?P<detail>/(?:sringar/sringar-darshan-\d+|festival/[^"\']+-\d+|mangala/mangal(?:a)?-darshan-\d+))["\'][^>]*>'
     r'(?:(?!</a>).)*?<p\b[^>]*>\s*(?P<date>[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})\s*</p>',
     re.IGNORECASE | re.DOTALL,
 )
@@ -220,12 +220,13 @@ class IskconBangaloreSource(_TemplePageSource):
 class IskconVrindavanSource(_TemplePageSource):
     name, keywords = "iskcon_vrindavan", ["vrindavan", "krishna", "radha", "darshan"]
 
-    def category_page_url(self, category: str, index: int) -> str:
-        return f"{self._page_url.rstrip('/')}/{category}/{index}"
+    def dated_category_page_url(self, on_date: date, index: int, category: str) -> str:
+        """Official date-addressed route; the URL itself proves the image date."""
+        return f"{self._page_url.rstrip('/')}/{on_date.isoformat()}/{index}/{category}"
 
-    def _category_image_url(self, on_date, category: str, index: int):
-        """Find a same-day image in one official category route."""
-        page_url = self.category_page_url(category, index)
+    def _dated_category_image_url(self, on_date: date, index: int, category: str):
+        """Read the first gallery image from one official date-addressed route."""
+        page_url = self.dated_category_page_url(on_date, index, category)
         self.last_page_url = page_url
         try:
             response = self._session.get(
@@ -237,32 +238,26 @@ class IskconVrindavanSource(_TemplePageSource):
             return None
         if response.status_code != 200 or not response.text:
             return None
-        date_positions = [
-            response.text.find(on_date.isoformat()),
-            response.text.find(rf'\"{on_date.isoformat()}\"'),
-        ]
-        date_positions = [position for position in date_positions if position >= 0]
-        if not date_positions:
+        # This route carries the requested date in its canonical URL. Its
+        # hydration payload can omit ``gallery_date``, so bind extraction to
+        # the ``images_list`` field rather than a separate date value.
+        images_at = response.text.find("images_list")
+        if images_at < 0:
             return None
-        date_at = min(date_positions)
-        # The serialized images_list immediately follows its gallery date.
-        # Bound the search so a later, unrelated page date cannot be selected.
-        match = _VRINDAVAN_GALLERY_IMAGE.search(response.text, date_at, date_at + 4096)
-        if not match:
-            return None
-        return f"{_VRINDAVAN_CDN}{match.group(0)}"
+        match = _VRINDAVAN_GALLERY_IMAGE.search(response.text, images_at, images_at + 4096)
+        return f"{_VRINDAVAN_CDN}{match.group(0)}" if match else None
 
     def resolve_url(self, on_date):
-        """Extract same-day Sringar, then Mangala, then Festival Darshan.
+        """Extract date-addressed Sringar, Mangala, then Festival Darshan.
 
         The page's Open Graph image is a site-wide share thumbnail, so relying on
         its regular ``<img>``/metadata parser would not retrieve that day's darshan.
         """
-        self.last_image_url = self._category_image_url(on_date, "sringar-darshan", 2)
+        self.last_image_url = self._dated_category_image_url(on_date, 2, "sringar-darshan")
         if not self.last_image_url:
-            self.last_image_url = self._category_image_url(on_date, "mangala-darshan", 3)
+            self.last_image_url = self._dated_category_image_url(on_date, 3, "mangala-darshan")
         if not self.last_image_url:
-            self.last_image_url = self._category_image_url(on_date, "festival-darshan", 4)
+            self.last_image_url = self._dated_category_image_url(on_date, 4, "festival-darshan")
         return self.last_image_url
 
 
