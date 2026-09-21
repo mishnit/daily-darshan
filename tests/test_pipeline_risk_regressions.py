@@ -55,6 +55,8 @@ def test_pending_utr_alert_runs_at_9pm_ist_and_only_alerts_for_missing_utr():
 
 def test_ops_alert_passes_job_suffix_for_template_button_base():
     workflow = _workflow("ops-alert.yml")
+    assert "- Regenerate Daily Pages" in workflow
+    assert "- Deploy Daily Darshan Pages" in workflow
     assert 'https://github.com/${REPOSITORY}/actions/runs/*)' in workflow
     assert 'job_suffix="${job_url#https://github.com/${REPOSITORY}/actions/runs/}"' in workflow
     assert '{ type: "text", text: $job_suffix }' in workflow
