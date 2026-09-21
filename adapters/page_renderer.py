@@ -52,13 +52,16 @@ _TEMPLATE = """<!DOCTYPE html>
     img.darshan {{ display: block; width: auto; height: auto;
                    max-width: 100%; max-height: 100%; border-radius: 12px 12px 0 0;
                    box-shadow: 0 4px 16px rgba(0,0,0,.12); }}
-    .renewal, .share, .event-card {{ flex: 0 0 auto; padding: 9px 10px;
+    .renewal, .share, .event-card, .daily-shloka {{ flex: 0 0 auto; padding: 9px 10px;
                        background: #fff3cd; color: #664d03;
                        font-size: .8rem; line-height: 1.35; }}
     .renewal {{ margin: 6px 8px 0; border-radius: 10px 10px 0 0; }}
     .event-card {{ margin: 6px 8px; border-radius: 10px; background: #fff0f5;
                    color: #672146; }}
     .event-card p {{ margin: 3px 0; }}
+    .daily-shloka {{ margin: 6px 8px; border-radius: 10px; background: #eef7ff;
+                     color: #164c72; }}
+    .daily-shloka p {{ margin: 3px 0; }}
     .share {{ margin: 0 8px 6px; border-radius: 0 0 10px 10px; }}
     .renewal p, .share p {{ margin: 0 0 7px; }}
     .renewal a, .share a {{ display: inline-block; padding: 7px 12px; border-radius: 7px;
@@ -80,6 +83,7 @@ _TEMPLATE = """<!DOCTYPE html>
     <div class="greeting">{greeting}</div>
     {activation_confirmation}
     {event_card}
+    {daily_shloka_card}
     {renewal_reminder}
     <div class="image-frame">
       <img class="darshan" src="{image_url}" alt="Daily Darshan for {date}"
@@ -142,7 +146,8 @@ class PageRenderer:
     def __init__(self, pages_dir: str = "docs", image_public_base: str = "",
                  image_url_path: str = "images", renewal_whatsapp_number: str = "",
                  renewal_window_days: int = 3, karma_api_url: str = "",
-                 karma_repository=None, events: list[dict] | None = None):
+                 karma_repository=None, events: list[dict] | None = None,
+                 daily_shlokas: dict[str, str] | None = None):
         """pages_dir: local dir committed to the repo (GitHub Pages source).
         image_public_base: absolute base URL where images are publicly served,
         e.g. https://vipseva.com . Used for the <img> src and og:image so the
@@ -163,6 +168,7 @@ class PageRenderer:
         self._karma_api_url = karma_api_url.strip()
         self._karma_repository = karma_repository
         self._events = events or []
+        self._daily_shlokas = daily_shlokas or {}
 
     def karma_points(self, subscription_id: str) -> int:
         if not self._karma_repository or not subscription_id:
@@ -210,6 +216,7 @@ class PageRenderer:
         )
         renewal_reminder = self._renewal_reminder(subscriber, on_date)
         event_card = self._event_card(on_date)
+        daily_shloka_card = self._daily_shloka_card(on_date, source)
         image_url = self.image_url(on_date, images_dir, image_name)
         activation_confirmation = ""
         if subscriber.is_deliverable(on_date):
@@ -236,6 +243,7 @@ class PageRenderer:
             expiry=html.escape(subscriber.end_date.isoformat() if subscriber.end_date else ""),
             activation_confirmation=activation_confirmation,
             event_card=event_card,
+            daily_shloka_card=daily_shloka_card,
             image_url=html.escape(image_url),
             fallback_url=html.escape(self.fallback_url(images_dir)),
             renewal_reminder=renewal_reminder,
@@ -253,6 +261,23 @@ class PageRenderer:
             f"<p>{html.escape(event['tithi'])} · {html.escape(event['colour'])}</p>"
             f"<p><strong>{html.escape(event['deity'])}</strong></p>"
             f"<p lang=\"sa\">{html.escape(event['shloka'])}</p>"
+            "</section>"
+        )
+
+    def _daily_shloka_card(self, on_date: date, source: str) -> str:
+        """Render the selected temple's shloka unless an event owns the day."""
+        if event_for_date(self._events, on_date):
+            return ""
+        key = source.strip().lower().replace("-", "_")
+        shloka = self._daily_shlokas.get(key) or self._daily_shlokas.get("default", "")
+        if not shloka:
+            return ""
+        title = (self.source_display_name(key)
+                 if key and key not in {"canonical", "fallback"} else "Today's Shloka")
+        return (
+            '<section class="daily-shloka" aria-label="Today\'s shloka">'
+            f"<strong>{html.escape(title)} · Today's Shloka</strong>"
+            f"<p lang=\"sa\">{html.escape(shloka)}</p>"
             "</section>"
         )
 

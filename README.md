@@ -221,7 +221,8 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `plans` | Plan catalog: `{ "<plan>": { "amount": <int>, "days": <int> } }`. Drives pricing, UPI amount, and subscription length. |
 | `upi` | `payee_vpa`, `payee_name`, `currency` used to build the UPI intent string. |
 | `payments` | Selects `manual_utr` or `payment_gateway`. Gateway mode currently supports hosted Razorpay Payment Links. |
-| `events` | Date-based festival content: shlokas in subscriber pages and the initial WhatsApp menu message, plus optional custom images for admin review. |
+| `events` | Date-based festival content: shlokas in subscriber pages and the initial WhatsApp menu message, plus optional custom images for admin review. An enabled event shloka takes priority over a normal source shloka. |
+| `daily_shlokas` | Source-key-to-shloka mapping rendered on normal daily pages after image selection. `default` is used when the selected source is unknown. |
 | `daily_image_rotation` | Weekday-to-source mapping. Store all valid candidates and ask the admin to preview and approve one source. |
 | `admin.require_image_approval` | Enabled in production. Blocks pages, deployment and customer messages until today's image is approved. |
 | `admin.image_preview_base` | HTTPS repository content base used for WhatsApp image previews before Pages deployment. Must be publicly reachable by Meta. |
