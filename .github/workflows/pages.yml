@@ -6,8 +6,14 @@ on:
     paths: ["csv/pipeline_requests.csv"]
   workflow_dispatch:
     inputs:
+      day:
+        description: "Approval/image date to render"
+        required: true
+        default: "today"
+        type: choice
+        options: [today, yesterday]
       image_source:
-        description: "Stored image: canonical or source key; uses latest earlier date if today is unavailable"
+        description: "Stored image: canonical or source key for the selected date"
         required: true
         default: "canonical"
         type: string
@@ -20,12 +26,24 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.gate.outputs.ready }}
+      render_date: ${{ steps.render_date.outputs.value }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - id: render_date
+        env:
+          DAY: ${{ inputs.day || 'today' }}
+        run: |
+          today="$(TZ=Asia/Kolkata date +%F)"
+          if [ "$DAY" = "yesterday" ]; then
+            value="$(TZ=Asia/Kolkata date -d "$today - 1 day" +%F)"
+          else
+            value="$today"
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
       - id: gate
-        run: python3 -m application.image_approval
+        run: python3 -m application.image_approval --date "${{ steps.render_date.outputs.value }}"
   pages:
     needs: approval
     if: needs.approval.outputs.ready == 'true'
@@ -79,8 +97,9 @@ jobs:
           git config --global commit.gpgsign true
           echo "GIT_COMMIT_GPG_SIGN=true" >> "$GITHUB_ENV"
 
-      - name: Regenerate pages from today's or latest earlier stored image
+      - name: Regenerate pages from selected approved image
         env:
           GITHUB_REPO: ${{ github.repository }}
           IMAGE_SOURCE: ${{ inputs.image_source || 'canonical' }}
-        run: python scheduler.py pages --image-source "$IMAGE_SOURCE"
+          RENDER_DATE: ${{ needs.approval.outputs.render_date }}
+        run: python scheduler.py pages --date "$RENDER_DATE" --image-source "$IMAGE_SOURCE"

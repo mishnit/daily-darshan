@@ -1,5 +1,5 @@
 """A persisted admin decision gates image publication and all customer sends."""
-from datetime import datetime
+from datetime import date, datetime
 import hashlib
 from pathlib import Path
 from uuid import uuid4, uuid5, NAMESPACE_URL
@@ -130,6 +130,24 @@ def deployment_ready(root, on_date):
     return bool(candidates) and all(hashlib.sha256(p.read_bytes()).hexdigest() == row["sha256"] for p in candidates)
 
 
+def approval_ready(root, on_date):
+    """Whether exactly one image has been approved for an explicit render date."""
+    import csv
+    import json
+
+    root = Path(root)
+    config = json.loads((root / "config.json").read_text())
+    if not required(config):
+        return True
+    path = root / config["paths"].get("image_reviews_csv", "csv/image_reviews.csv")
+    if not path.exists():
+        return False
+    with path.open(newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    return len([row for row in rows if row["date"] == on_date.isoformat()
+                and row["status"] == "APPROVED"]) == 1
+
+
 if __name__ == "__main__":
     import argparse
     import csv
@@ -138,19 +156,16 @@ if __name__ == "__main__":
     from domain.clock import today_ist
     parser = argparse.ArgumentParser()
     parser.add_argument("--published", action="store_true")
+    parser.add_argument("--date", help="Approval/render date in YYYY-MM-DD; defaults to today in IST")
     args = parser.parse_args()
-    config = json.loads(Path("config.json").read_text())
+    try:
+        approval_date = date.fromisoformat(args.date) if args.date else today_ist()
+    except ValueError:
+        parser.error("--date must be YYYY-MM-DD")
     if args.published:
-        ok = deployment_ready(".", today_ist())
-    elif not required(config):
-        ok = True
+        ok = deployment_ready(".", approval_date)
     else:
-        path = Path(config["paths"].get("image_reviews_csv", "csv/image_reviews.csv"))
-        rows = []
-        if path.exists():
-            with path.open(newline="") as fh:
-                rows = list(csv.DictReader(fh))
-        ok = len([r for r in rows if r["date"] == today_ist().isoformat() and r["status"] == "APPROVED"]) == 1
+        ok = approval_ready(".", approval_date)
     print(f"ready={str(ok).lower()}")
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
