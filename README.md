@@ -221,7 +221,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `plans` | Plan catalog: `{ "<plan>": { "amount": <int>, "days": <int> } }`. Drives pricing, UPI amount, and subscription length. |
 | `upi` | `payee_vpa`, `payee_name`, `currency` used to build the UPI intent string. |
 | `payments` | Selects `manual_utr` or `payment_gateway`. Gateway mode currently supports hosted Razorpay Payment Links. |
-| `events` | Date-based festival content. Each enabled day can add a shloka to subscriber pages and a WhatsApp menu row after `menu_available_from` in the configured timezone. |
+| `events` | Date-based festival content: shlokas in subscriber pages and the initial WhatsApp menu message, plus optional custom images for admin review. |
 | `daily_image_rotation` | Weekday-to-source mapping. Store all valid candidates and ask the admin to preview and approve one source. |
 | `admin.require_image_approval` | Enabled in production. Blocks pages, deployment and customer messages until today's image is approved. |
 | `admin.image_preview_base` | HTTPS repository content base used for WhatsApp image previews before Pages deployment. Must be publicly reachable by Meta. |
@@ -235,6 +235,61 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `delivery.karma_api_url` | Public Render endpoint used after a successful native share handoff to award one daily Karma point. |
 | `persistence` | Webhook durability. `mode`: `github_api` (snapshot reads and atomic Git Data API commits — needs `GITHUB_TOKEN`+`GITHUB_REPO`) or `local` (no sync; dev only). `branch`: repo branch to sync against. |
 | `delivery` | Delivery mode + message settings. `mode`: `utility_template` (send a parameterized utility template linking to a per-subscriber page) or `image` (send the image inline). Also controls template language, page/image URLs, retries, 30-day operational-log retention, image retention and page-retention grace. |
+
+### Special event configuration
+
+Configure these settings in `config.json`, inside the `events` array. Each event
+contains its dated entries in `days`.
+
+| Setting | Location | Default when omitted | Purpose |
+|---|---|---|---|
+| `enabled` | `events[]` | `true` | Master switch for the event's images, WhatsApp content and page content. |
+| `images_enabled` | `events[]` | `true` | Adds custom image candidates alongside the normal weekday temple sources. Set to `false` to keep shlokas but offer only normal temple images. |
+| `image_path` | `events[].days[]` | No custom candidate | Repository-relative path to that date's artwork under `assets/events/`. Both `enabled` and `images_enabled` must be true to load it. |
+| `menu_enabled` | `events[]` | `true` | Includes the day's shloka in the initial WhatsApp menu message; no separate event CTA or follow-up message. |
+| `page_enabled` | `events[]` | `true` | Includes the event card when subscriber pages are rendered for that date. |
+| `menu_available_from` | `events[]` | `06:00` | Local time in `HH:MM` format when the menu starts showing that day's event. |
+| `timezone` | `events[]` | `Asia/Kolkata` | Timezone used for menu date and release-time selection. |
+
+For example, keep the event active while disabling its custom images:
+
+```json
+{
+  "id": "sharad-navratri-2026",
+  "name": "Sharad Navratri 2026",
+  "enabled": true,
+  "images_enabled": false,
+  "menu_enabled": true,
+  "page_enabled": true,
+  "timezone": "Asia/Kolkata",
+  "menu_available_from": "06:00",
+  "days": [
+    {
+      "date": "2026-10-11",
+      "day_number": 1,
+      "tithi": "Pratipada",
+      "colour": "Orange",
+      "deity": "Maa Shailaputri",
+      "shloka": "ॐ देवी शैलपुत्र्यै नमः।",
+      "image_path": "assets/events/sharad-navratri-2026/01-shailaputri.jpg"
+    }
+  ]
+}
+```
+
+The current Navratri configuration uses `enabled: true` and `images_enabled: false`.
+To offer its artwork, upload the configured JPEGs and set `images_enabled` to true.
+Custom candidates pass the same image validation as temple images (currently at
+least 600 pixels in both dimensions). Missing, corrupt or undersized files are
+skipped and logged. Previews append a grey VIP Seva footer below the artwork;
+admin approval publishes the exact preview bytes without adding a second footer.
+Production requires admin approval before publication and delivery.
+
+Commit and deploy configuration changes; restart/redeploy Render to load new menu
+settings. Menu content is selected on demand from 06:00 IST, while static page
+content changes only after page regeneration and deployment. Changing a flag does
+not rewrite already published pages. Rerun the image workflow to refresh pending
+image candidates; an existing approved image remains preserved on reruns.
 
 ### Common config changes
 

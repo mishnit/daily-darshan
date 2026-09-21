@@ -89,16 +89,23 @@ def _watermark_details(on_date: date, source: str) -> str:
 
 
 def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str = "") -> bytes:
-    """Normalize and brand decoded remote images before storage/page rendering."""
+    """Brand candidates; custom event artwork gets an appended footer."""
     try:
         import io
         from PIL import Image as PILImage, ImageDraw, ImageFont
         with PILImage.open(io.BytesIO(data)) as source:
             image = source.convert("RGB")
             width, height = image.size
-            footer_top = height - max(1, round(height * 0.24))
+            footer_height = max(1, round(height * 0.24))
+            if source_name.startswith("event_"):
+                canvas = PILImage.new("RGB", (width, height + footer_height), (96, 96, 96))
+                canvas.paste(image, (0, 0))
+                image = canvas
+                footer_top = height
+            else:
+                footer_top = height - footer_height
             draw = ImageDraw.Draw(image)
-            draw.rectangle((0, footer_top, width, height), fill=(96, 96, 96))
+            draw.rectangle((0, footer_top, width, image.height), fill=(96, 96, 96))
 
             def font(size: int, *, bold: bool = False):
                 face = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
@@ -127,7 +134,6 @@ def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str =
             details = _watermark_details(on_date, source_name) if on_date else ""
             details_box = draw.textbbox((0, 0), details, font=details_font)
             gap = max(4, height // 100)
-            footer_height = height - footer_top
             content_height = (
                 (title_box[3] - title_box[1])
                 + (site_box[3] - site_box[1])

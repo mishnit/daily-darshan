@@ -14,6 +14,7 @@ from adapters.image_sources import (ImageValidator, RSSSource, TempleSource, Web
     IskconTirupatiSource, IskconMumbaiSource, IskconHyderabadSource, SwaminarayanSource, MayapurSource)
 from adapters.github import GitHubApiRepository
 from adapters.page_renderer import PageRenderer
+from adapters.image_sources.event import EventImageSource
 from adapters.repo_sync import RepoSync
 from adapters.whatsapp import MetaWhatsAppClient
 from application.delivery_service import DeliveryService
@@ -157,6 +158,7 @@ class Container:
         self.image_collector = ImageCollector(
             self._build_sources(), self.image_validator, self.logs,
             rotation=self.config.get("daily_image_rotation"),
+            event_sources=self._build_event_sources(),
         )
         self.image_service = ImageService(
             self.image_collector, self.image_validator, paths["images_dir"]
@@ -220,6 +222,19 @@ class Container:
             min_width=v.get("min_width", 0),
             min_height=v.get("min_height", 0),
         )
+
+    def _build_event_sources(self) -> dict:
+        sources = {}
+        for event in self.config.get("events", []):
+            if not event.get("enabled", True) or not event.get("images_enabled", True):
+                continue
+            for day in event.get("days", []):
+                if day.get("image_path"):
+                    sources.setdefault(day["date"], []).append(EventImageSource(
+                        self.root, day["image_path"],
+                        f"event_{event['id']}_{day['day_number']}",
+                    ))
+        return sources
 
     def _build_sources(self) -> list | dict:
         cfg = self.config.get("image_source_config", {})
