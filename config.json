@@ -73,8 +73,8 @@
     "website": { "page_url": "" }
   },
   "image_validation": {
-    "min_width": 600,
-    "min_height": 600,
+    "min_width": 480,
+    "min_height": 480,
     "allowed_formats": ["JPEG", "PNG", "JPG", "WEBP"]
   },
   "paths": {
