@@ -163,7 +163,7 @@ def test_iskcon_bangalore_uses_wordpress_original_image_url():
 def test_iskcon_vrindavan_uses_dated_gallery_hydration_image():
     on_date = date(2026, 8, 26)
     session = Session([
-        Response('window.__remixContext.enqueue("images_list [\\\"static/static-_16a8e9502b530a.jpg\\\"]")'),
+        Response('2026-08-26 images_list [\\"static/static-_16a8e9502b530a.jpg\\"]'),
         Response(content=b"gallery-image"),
     ])
     source = IskconVrindavanSource("https://iskconvrindavan.com/daily-darshan-gallery", session=session)
@@ -172,7 +172,7 @@ def test_iskcon_vrindavan_uses_dated_gallery_hydration_image():
 
     assert image and image.source == "iskcon_vrindavan"
     assert session.calls == [
-        "https://iskconvrindavan.com/daily-darshan-gallery/2026-08-26/2/sringar-darshan",
+        "https://iskconvrindavan.com/daily-darshan-gallery/sringar-darshan/2",
         "https://cdn.iskconvrindavan.com/static/static-_16a8e9502b530a.jpg",
     ]
 
@@ -182,12 +182,8 @@ def test_iskcon_vrindavan_falls_back_to_same_day_festival_darshan():
     festival_image = "static/static-_886a9a158a3a74c.jpg"
     session = Session([
         Response('window.__remixContext.enqueue("no sringar images")'),
-        Response(
-            'other gallery data '
-            '\\"Festival Darshan\\",\\"festival-darshan\\" '
-            '\\"Janmastami 2026\\",\\"gallery_image/cover.jpg\\",'
-            f'\\"2026-09-04\\",\\"[\\\\\\"{festival_image}\\\\\\"]\\"'
-        ),
+        Response('window.__remixContext.enqueue("no mangala images")'),
+        Response(f'other gallery data 2026-09-04 [\\"{festival_image}\\"]'),
         Response(content=b"festival-image"),
     ])
     source = IskconVrindavanSource("https://iskconvrindavan.com/daily-darshan-gallery", session=session)
@@ -197,8 +193,9 @@ def test_iskcon_vrindavan_falls_back_to_same_day_festival_darshan():
     assert image and image.source == "iskcon_vrindavan"
     assert source.last_image_url == f"https://cdn.iskconvrindavan.com/{festival_image}"
     assert session.calls == [
-        "https://iskconvrindavan.com/daily-darshan-gallery/2026-09-04/2/sringar-darshan",
-        "https://iskconvrindavan.com/daily-darshan-gallery",
+        "https://iskconvrindavan.com/daily-darshan-gallery/sringar-darshan/2",
+        "https://iskconvrindavan.com/daily-darshan-gallery/mangala-darshan/3",
+        "https://iskconvrindavan.com/daily-darshan-gallery/festival-darshan/4",
         f"https://cdn.iskconvrindavan.com/{festival_image}",
     ]
 
@@ -206,6 +203,7 @@ def test_iskcon_vrindavan_falls_back_to_same_day_festival_darshan():
 def test_iskcon_vrindavan_rejects_festival_darshan_from_another_date():
     session = Session([
         Response('window.__remixContext.enqueue("no sringar images")'),
+        Response('window.__remixContext.enqueue("no mangala images")'),
         Response(
             '\\"Festival Darshan\\",\\"festival-darshan\\" '
             '\\"2026-09-04\\",\\"[\\\\\"static/static-_stale123.jpg\\\\\"]\\"'
@@ -214,7 +212,7 @@ def test_iskcon_vrindavan_rejects_festival_darshan_from_another_date():
     source = IskconVrindavanSource("https://iskconvrindavan.com/daily-darshan-gallery", session=session)
 
     assert source.fetch(date(2026, 9, 5)) is None
-    assert len(session.calls) == 2
+    assert len(session.calls) == 3
 
 
 def test_salangpur_uses_first_eligible_darshan_image():
@@ -332,6 +330,21 @@ def test_mayapur_uses_first_dated_album_original():
     ]
 
 
+def test_mayapur_accepts_current_dotted_date_format():
+    on_date = date(2026, 9, 21)
+    session = Session([
+        Response('<p>21.09.2026</p><a href="https://www.mayapur.com/media/album/691">Show Album</a>'),
+        Response('images[0]="/storage/albums/691/original_image.jpg";'),
+        Response(content=_jpeg(1200, 800)),
+    ])
+    source = MayapurSource("https://www.mayapur.com/media/gallery/daily-darshan", session=session)
+
+    image = source.fetch(on_date)
+
+    assert image and image.source == "mayapur"
+    assert source.last_image_url == "https://www.mayapur.com/storage/albums/691/original_image.jpg"
+
+
 def test_mumbai_decodes_first_date_matched_embedded_darshan():
     on_date = date(2026, 8, 29)
     session = Session([
@@ -387,6 +400,7 @@ def test_mumbai_does_not_load_detail_pages_when_listing_skips_requested_date():
             '<a href="/sringar/sringar-darshan-611"><p>Sep 04, 2026</p></a>'
         ),
         Response('<a href="/festival/janmashtami-78"><p>Sep 04, 2026</p></a>'),
+        Response('<a href="/mangala/mangala-darshan-81"><p>Sep 04, 2026</p></a>'),
     ])
     source = IskconMumbaiSource("https://www.iskconmumbai.com/daily-sringar-darshan", session=session)
 
@@ -394,6 +408,7 @@ def test_mumbai_does_not_load_detail_pages_when_listing_skips_requested_date():
     assert session.calls == [
         "https://www.iskconmumbai.com/daily-sringar-darshan",
         "https://www.iskconmumbai.com/festival-darshan",
+        "https://www.iskconmumbai.com/daily-mangala-darshan",
     ]
 
 
@@ -436,6 +451,27 @@ def test_mumbai_rejects_stale_festival_detail_page():
 
     assert source.fetch(date(2026, 9, 5)) is None
     assert source.last_image_url == ""
+
+
+def test_mumbai_falls_back_to_same_day_mangala_after_festival():
+    on_date = date(2026, 9, 5)
+    session = Session([
+        Response('<a href="/sringar/sringar-darshan-611"><p>Sep 04, 2026</p></a>'),
+        Response('<a href="/festival/vyasa-puja-79"><p>Sep 04, 2026</p></a>'),
+        Response('<a href="/mangala/mangala-darshan-80"><p>Sep 05, 2026</p></a>'),
+        Response('<span class="change_date">05 Sep 2026</span>'
+                 f'<img class="darshan-detail-images" src="{_data_image(800, 600)}">'),
+    ])
+    source = IskconMumbaiSource("https://www.iskconmumbai.com/daily-sringar-darshan", session=session)
+
+    image = source.fetch(on_date)
+
+    assert image and image.source == "iskcon_mumbai"
+    assert source.last_image_url.endswith("/mangala/mangala-darshan-80#embedded-darshan")
+    assert session.calls[-2:] == [
+        "https://www.iskconmumbai.com/daily-mangala-darshan",
+        "https://www.iskconmumbai.com/mangala/mangala-darshan-80",
+    ]
 
 
 def test_hyderabad_uses_same_day_sringar_without_festival_fallback():
