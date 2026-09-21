@@ -24,7 +24,6 @@ from domain.image import Image
 _WORDPRESS_SIZE_SUFFIX = re.compile(r"-\d{1,5}x\d{1,5}(?=\.[^.]+$)", re.IGNORECASE)
 _VRINDAVAN_GALLERY_IMAGE = re.compile(r"static/static-_[a-z0-9]+\.jpg", re.IGNORECASE)
 _VRINDAVAN_CDN = "https://cdn.iskconvrindavan.com/"
-_VRINDAVAN_FESTIVAL_MARKER = r'\"Festival Darshan\",\"festival-darshan\"'
 _SWAMINARAYAN_FEED = "https://dailydarshanserver.nnd.media/api/iframe/content?mode=dark"
 _SWAMINARAYAN_CARD = re.compile(
     r'<a\b[^>]*\bhref=["\'](?P<detail>[^"\']+)["\'][^>]*>.*?'
@@ -34,17 +33,17 @@ _SWAMINARAYAN_CARD = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _MAYAPUR_ALBUM = re.compile(
-    r'<p>\s*(?P<date>\d{2}/\d{2}/\d{4})\s*</p>\s*(?:<p>\s*)?'
+    r'<p>\s*(?P<date>\d{2}[./]\d{2}[./]\d{4})\s*</p>\s*(?:<p>\s*)?'
     r'<a\b[^>]*\bhref=["\'](?P<album>(?:https?://[^"\']+)?/media/album/\d+)["\']',
     re.IGNORECASE,
 )
 _MAYAPUR_ORIGINAL = re.compile(r'images\[\d+\]\s*=\s*["\'](?P<image>/storage/albums/[^"\']+_image\.jpg)["\']', re.IGNORECASE)
 _MUMBAI_DETAIL_LINK = re.compile(
-    r'href=["\'](?P<detail>/(?:sringar/sringar-darshan-\d+|festival/[^"\']+-\d+))["\']',
+    r'href=["\'](?P<detail>/(?:sringar/sringar-darshan-\d+|festival/[^"\']+-\d+|mangala/mangala-darshan-\d+))["\']',
     re.IGNORECASE,
 )
 _MUMBAI_LISTING_CARD = re.compile(
-    r'<a\b[^>]*\bhref=["\'](?P<detail>/(?:sringar/sringar-darshan-\d+|festival/[^"\']+-\d+))["\'][^>]*>'
+    r'<a\b[^>]*\bhref=["\'](?P<detail>/(?:sringar/sringar-darshan-\d+|festival/[^"\']+-\d+|mangala/mangala-darshan-\d+))["\'][^>]*>'
     r'(?:(?!</a>).)*?<p\b[^>]*>\s*(?P<date>[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})\s*</p>',
     re.IGNORECASE | re.DOTALL,
 )
@@ -221,12 +220,12 @@ class IskconBangaloreSource(_TemplePageSource):
 class IskconVrindavanSource(_TemplePageSource):
     name, keywords = "iskcon_vrindavan", ["vrindavan", "krishna", "radha", "darshan"]
 
-    def page_url(self, on_date):
-        """The official gallery uses a dated route, not a query parameter."""
-        return f"{self._page_url.rstrip('/')}/{on_date.isoformat()}/2/sringar-darshan"
+    def category_page_url(self, category: str, index: int) -> str:
+        return f"{self._page_url.rstrip('/')}/{category}/{index}"
 
-    def _image_url_from_page(self, page_url):
-        """Return the first gallery image from one Remix-rendered page."""
+    def _category_image_url(self, on_date, category: str, index: int):
+        """Find a same-day image in one official category route."""
+        page_url = self.category_page_url(category, index)
         self.last_page_url = page_url
         try:
             response = self._session.get(
@@ -238,47 +237,32 @@ class IskconVrindavanSource(_TemplePageSource):
             return None
         if response.status_code != 200 or not response.text:
             return None
-        match = _VRINDAVAN_GALLERY_IMAGE.search(response.text)
-        if not match:
+        date_positions = [
+            response.text.find(on_date.isoformat()),
+            response.text.find(rf'\"{on_date.isoformat()}\"'),
+        ]
+        date_positions = [position for position in date_positions if position >= 0]
+        if not date_positions:
             return None
-        return f"{_VRINDAVAN_CDN}{match.group(0)}"
-
-    def _festival_image_url(self, on_date):
-        """Find a dated Festival Darshan image in the gallery index payload."""
-        self.last_page_url = self._page_url
-        try:
-            response = self._session.get(
-                self._page_url,
-                timeout=self._timeout,
-                headers={"User-Agent": "DailyDarshan/2.0"},
-            )
-        except Exception:
-            return None
-        if response.status_code != 200 or not response.text:
-            return None
-        festival_at = response.text.find(_VRINDAVAN_FESTIVAL_MARKER)
-        if festival_at < 0:
-            return None
-        section = response.text[festival_at:]
-        date_at = section.find(rf'\"{on_date.isoformat()}\"')
-        if date_at < 0:
-            return None
+        date_at = min(date_positions)
         # The serialized images_list immediately follows its gallery date.
         # Bound the search so a later, unrelated page date cannot be selected.
-        match = _VRINDAVAN_GALLERY_IMAGE.search(section, date_at, date_at + 1024)
+        match = _VRINDAVAN_GALLERY_IMAGE.search(response.text, date_at, date_at + 4096)
         if not match:
             return None
         return f"{_VRINDAVAN_CDN}{match.group(0)}"
 
     def resolve_url(self, on_date):
-        """Extract Sringar, falling back to same-day Festival Darshan.
+        """Extract same-day Sringar, then Mangala, then Festival Darshan.
 
         The page's Open Graph image is a site-wide share thumbnail, so relying on
         its regular ``<img>``/metadata parser would not retrieve that day's darshan.
         """
-        self.last_image_url = self._image_url_from_page(self.page_url(on_date))
+        self.last_image_url = self._category_image_url(on_date, "sringar-darshan", 2)
         if not self.last_image_url:
-            self.last_image_url = self._festival_image_url(on_date)
+            self.last_image_url = self._category_image_url(on_date, "mangala-darshan", 3)
+        if not self.last_image_url:
+            self.last_image_url = self._category_image_url(on_date, "festival-darshan", 4)
         return self.last_image_url
 
 
@@ -287,7 +271,7 @@ class IskconTirupatiSource(_TemplePageSource):
 
 
 class IskconMumbaiSource(HttpImageSource):
-    """Decode same-day Sringar or Festival images embedded by ISKCON Mumbai."""
+    """Decode same-day Sringar, Festival, or Mangala embedded darshans."""
 
     name = "iskcon_mumbai"
     max_detail_pages = 14
@@ -394,7 +378,11 @@ class IskconMumbaiSource(HttpImageSource):
 
         parts = urlsplit(self._page_url)
         festival_url = urlunsplit((parts.scheme, parts.netloc, "/festival-darshan", "", ""))
-        return self._fetch_listing(festival_url, on_date, "/festival/")
+        image = self._fetch_listing(festival_url, on_date, "/festival/")
+        if image:
+            return image
+        mangala_url = urlunsplit((parts.scheme, parts.netloc, "/daily-mangala-darshan", "", ""))
+        return self._fetch_listing(mangala_url, on_date, "/mangala/")
 
 
 class IskconHyderabadSource(HttpImageSource):
@@ -561,7 +549,11 @@ class MayapurSource(HttpImageSource):
             return None
         requested = on_date.strftime("%d/%m/%Y")
         album_path = next(
-            (match.group("album") for match in _MAYAPUR_ALBUM.finditer(gallery.text) if match.group("date") == requested),
+            (
+                match.group("album")
+                for match in _MAYAPUR_ALBUM.finditer(gallery.text)
+                if match.group("date").replace(".", "/") == requested
+            ),
             None,
         )
         if not album_path:
