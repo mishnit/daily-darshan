@@ -69,7 +69,7 @@ def collect_for_review(c, git, on_date):
             c.image_reviews.upsert(row["id"], row)
     for image in candidates:
         path = c.image_service.candidate_path(on_date, image.source)
-        data = _canonical_jpeg(image.data, on_date, image.source)
+        data = _canonical_jpeg(image.data, on_date, image.source, append_footer=image.append_footer)
         git.write_file(path, data, f"Store review candidate {on_date} {image.source}")
         files.append(path)
         key = uuid4().hex

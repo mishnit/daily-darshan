@@ -246,6 +246,7 @@ contains its dated entries in `days`.
 | `enabled` | `events[]` | `true` | Master switch for the event's images, WhatsApp content and page content. |
 | `images_enabled` | `events[]` | `true` | Adds custom image candidates alongside the normal weekday temple sources. Set to `false` to keep shlokas but offer only normal temple images. |
 | `image_path` | `events[].days[]` | No custom candidate | Repository-relative path to that date's artwork under `assets/events/`. Both `enabled` and `images_enabled` must be true to load it. |
+| `deity` | `events[].days[]` | Required for custom images | Devi name used as the custom image source in admin selection, preview, approval and the VIP Seva footer, for example `Maa Shailaputri`. Also appears in the shloka content. |
 | `menu_enabled` | `events[]` | `true` | Includes the day's shloka in the initial WhatsApp menu message; no separate event CTA or follow-up message. |
 | `page_enabled` | `events[]` | `true` | Includes the event card when subscriber pages are rendered for that date. |
 | `menu_available_from` | `events[]` | `06:00` | Local time in `HH:MM` format when the menu starts showing that day's event. |

@@ -88,7 +88,8 @@ def _watermark_details(on_date: date, source: str) -> str:
     )
 
 
-def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str = "") -> bytes:
+def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str = "",
+                    *, append_footer: bool = False) -> bytes:
     """Brand candidates; custom event artwork gets an appended footer."""
     try:
         import io
@@ -97,7 +98,7 @@ def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str =
             image = source.convert("RGB")
             width, height = image.size
             footer_height = max(1, round(height * 0.24))
-            if source_name.startswith("event_"):
+            if append_footer or source_name.startswith("event_"):
                 canvas = PILImage.new("RGB", (width, height + footer_height), (96, 96, 96))
                 canvas.paste(image, (0, 0))
                 image = canvas
@@ -189,12 +190,12 @@ def run_image(
         for candidate in candidates:
             candidate_path = container.image_service.candidate_path(on_date, candidate.source)
             git.write_file(candidate_path, _canonical_jpeg(
-                candidate.data, on_date, candidate.source
+                candidate.data, on_date, candidate.source, append_footer=candidate.append_footer
             ),
                            f"Add {candidate.source} darshan image {on_date.isoformat()}")
             committed.append(candidate_path)
         git.write_file(
-            path, _canonical_jpeg(image.data, on_date, image.source),
+            path, _canonical_jpeg(image.data, on_date, image.source, append_footer=image.append_footer),
             f"Add daily darshan image {on_date.isoformat()}"
         )
         committed.append(path)
