@@ -47,6 +47,45 @@
       ]
     },
     {
+      "id": "dussehra-2026",
+      "name": "Dussehra · Vijayadashami 2026",
+      "enabled": true,
+      "images_enabled": false,
+      "timezone": "Asia/Kolkata",
+      "menu_available_from": "06:00",
+      "menu_enabled": true,
+      "page_enabled": true,
+      "days": [
+        {"date": "2026-10-20", "day_number": 1, "tithi": "Ashwin Shukla Dashami · Vijayadashami", "colour": "Saffron", "deity": "Lord Rama", "shloka": "रामाय रामभद्राय रामचन्द्राय वेधसे। रघुनाथाय नाथाय सीतायाः पतये नमः॥"}
+      ]
+    },
+    {
+      "id": "sharad-purnima-2026",
+      "name": "Sharad Purnima 2026",
+      "enabled": true,
+      "images_enabled": false,
+      "timezone": "Asia/Kolkata",
+      "menu_available_from": "06:00",
+      "menu_enabled": true,
+      "page_enabled": true,
+      "days": [
+        {"date": "2026-10-25", "day_number": 1, "tithi": "Ashwin Shukla Purnima", "colour": "White", "deity": "Chandra Deva", "shloka": "ॐ चन्द्राय नमः।"}
+      ]
+    },
+    {
+      "id": "karva-chauth-2026",
+      "name": "Karva Chauth 2026",
+      "enabled": true,
+      "images_enabled": false,
+      "timezone": "Asia/Kolkata",
+      "menu_available_from": "06:00",
+      "menu_enabled": true,
+      "page_enabled": true,
+      "days": [
+        {"date": "2026-10-29", "day_number": 1, "tithi": "Kartik Krishna Chaturthi", "colour": "Red", "deity": "Lord Shiva and Maa Parvati", "shloka": "ॐ उमामहेश्वराभ्यां नमः।"}
+      ]
+    },
+    {
       "id": "diwali-2026",
       "name": "Diwali 2026",
       "enabled": true,
@@ -56,7 +95,24 @@
       "timezone": "Asia/Kolkata",
       "menu_available_from": "06:00",
       "days": [
-        {"date": "2026-11-08", "day_number": 3, "tithi": "Amavasya", "colour": "Golden", "deity": "Maa Lakshmi", "image_path": "assets/events/diwali-2026/03-diwali.jpg", "shloka": "ॐ श्रीं ह्रीं श्रीं कमले कमलालये प्रसीद प्रसीद ॐ श्रीं ह्रीं श्रीं महालक्ष्म्यै नमः।"}
+        {"date": "2026-11-06", "day_number": 1, "tithi": "Dhanteras", "colour": "Golden", "deity": "Lord Dhanvantari", "image_path": "assets/events/diwali-2026/01-dhanteras.jpg", "shloka": "ॐ नमो भगवते वासुदेवाय धन्वंतरये अमृतकलश हस्ताय सर्वामय विनाशनाय त्रैलोक्यनाथाय श्री महाविष्णवे नमः।"},
+        {"date": "2026-11-07", "day_number": 2, "tithi": "Narak Chaturdashi", "colour": "Deep Blue", "deity": "Lord Krishna", "image_path": "assets/events/diwali-2026/02-narak-chaturdashi.jpg", "shloka": "ॐ कृष्णाय वासुदेवाय हरये परमात्मने। प्रणतः क्लेशनाशाय गोविन्दाय नमो नमः॥"},
+        {"date": "2026-11-08", "day_number": 3, "tithi": "Diwali · Lakshmi Puja", "colour": "Golden", "deity": "Maa Lakshmi", "image_path": "assets/events/diwali-2026/03-diwali.jpg", "shloka": "ॐ श्रीं ह्रीं श्रीं कमले कमलालये प्रसीद प्रसीद ॐ श्रीं ह्रीं श्रीं महालक्ष्म्यै नमः।"},
+        {"date": "2026-11-09", "day_number": 4, "tithi": "Govardhan Puja · Annakut", "colour": "Green", "deity": "Lord Krishna", "image_path": "assets/events/diwali-2026/04-govardhan-puja.jpg", "shloka": "गोवर्धनधरं वन्दे गोपालं गोपरूपिणम्। गोविन्दं गोपिकाकान्तं भक्तानां हितकारिणम्॥"},
+        {"date": "2026-11-10", "day_number": 5, "tithi": "Bhai Dooj", "colour": "Saffron", "deity": "Lord Yama and Maa Yamuna", "image_path": "assets/events/diwali-2026/05-bhai-dooj.jpg", "shloka": "ॐ यमाय नमः। ॐ यमुनायै नमः।"}
+      ]
+    },
+    {
+      "id": "chhath-puja-2026",
+      "name": "Chhath Puja 2026",
+      "enabled": true,
+      "images_enabled": false,
+      "timezone": "Asia/Kolkata",
+      "menu_available_from": "06:00",
+      "menu_enabled": true,
+      "page_enabled": true,
+      "days": [
+        {"date": "2026-11-15", "day_number": 1, "tithi": "Chhath Puja", "colour": "Saffron", "deity": "Surya Deva", "shloka": "ॐ घृणि सूर्याय नमः।"}
       ]
     }
   ],
