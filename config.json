@@ -24,6 +24,28 @@
     "payment_rejected": "Payment {reference_id} was rejected after verification. You can send MENU and select Request review now. Starting another renewal or upgrade is temporarily blocked. This rejected checkout becomes eligible for automatic release on {release_date}, after {release_days} full calendar days. Keep your payment proof and do not pay again until the payment is resolved.",
     "payment_approved": "Payment {reference_id} for the {purchased_plan} plan was approved and applied. Your Daily Darshan subscription is active through {expiry_date}. Your updated personalised page and confirmation message are being prepared, and page publication is awaiting confirmation. You can earn 1 Karma point daily by sharing your Daily Darshan image with close friends and family from your personalised page. Please do not pay again for this reference."
   },
+  "events": [
+    {
+      "id": "sharad-navratri-2026",
+      "name": "Sharad Navratri 2026",
+      "enabled": true,
+      "timezone": "Asia/Kolkata",
+      "menu_available_from": "06:00",
+      "menu_enabled": true,
+      "page_enabled": true,
+      "days": [
+        {"date": "2026-10-11", "day_number": 1, "tithi": "Pratipada", "colour": "Orange", "deity": "Maa Shailaputri", "shloka": "ॐ देवी शैलपुत्र्यै नमः।"},
+        {"date": "2026-10-12", "day_number": 2, "tithi": "Dwitiya", "colour": "White", "deity": "Maa Brahmacharini", "shloka": "ॐ देवी ब्रह्मचारिण्यै नमः।"},
+        {"date": "2026-10-13", "day_number": 3, "tithi": "Tritiya", "colour": "Red", "deity": "Maa Chandraghanta", "shloka": "ॐ देवी चन्द्रघण्टायै नमः।"},
+        {"date": "2026-10-14", "day_number": 4, "tithi": "Chaturthi", "colour": "Royal Blue", "deity": "Maa Kushmanda", "shloka": "ॐ देवी कूष्माण्डायै नमः।"},
+        {"date": "2026-10-15", "day_number": 5, "tithi": "Panchami", "colour": "Yellow", "deity": "Maa Skandamata", "shloka": "ॐ देवी स्कन्दमातायै नमः।"},
+        {"date": "2026-10-16", "day_number": 6, "tithi": "Shashthi", "colour": "Green", "deity": "Maa Katyayani", "shloka": "ॐ देवी कात्यायन्यै नमः।"},
+        {"date": "2026-10-17", "day_number": 7, "tithi": "Saptami", "colour": "Grey", "deity": "Maa Kalaratri", "shloka": "ॐ देवी कालरात्र्यै नमः।"},
+        {"date": "2026-10-18", "day_number": 8, "tithi": "Ashtami", "colour": "Purple", "deity": "Maa Mahagauri", "shloka": "ॐ देवी महागौर्यै नमः।"},
+        {"date": "2026-10-19", "day_number": 9, "tithi": "Navami", "colour": "Peacock Green", "deity": "Maa Siddhidatri", "shloka": "ॐ देवी सिद्धिदात्र्यै नमः।"}
+      ]
+    }
+  ],
   "image_sources": ["temple", "rss", "website"],
   "daily_image_rotation": {
     "monday": ["mahakal"],

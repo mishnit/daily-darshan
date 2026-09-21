@@ -32,6 +32,7 @@ from repositories.state_lock import StateLockTimeout
 from adapters.github import BranchAdvancedError
 from application.webhook_metrics import WebhookMetrics
 from adapters.payment_gateway import PaymentGatewayError
+from application.events import current_menu_event, event_message
 
 app = FastAPI(title="Daily Darshan Webhook", version="2.0.0")
 app.add_middleware(
@@ -1096,6 +1097,7 @@ def _send_menu(c, mobile: str) -> None:
     expiring_soon = _is_expiring_soon(c, mobile)
     eligible_plans = _eligible_plan_names(c, mobile)
     rows = [("CTA_STATUS", "Subscription status", "Check your subscription")] if _shows_subscription_status(c, sub) else []
+    festival = current_menu_event(c.config.get("events"))
     body = "🙏 Radhe Radhe! Choose an option below."
     locked_payment = bool(payment and payment.status.value != "PENDING")
     if sub and (not sub.end_date or payment) and not locked_payment and (sub.awaiting_name or not sub.name):
@@ -1139,6 +1141,12 @@ def _send_menu(c, mobile: str) -> None:
             body = f"Your subscription expired on {sub.end_date}. Choose a renewal plan."
     if _has_active_subscription(c, mobile) and not sub.opt_in and not any(r[0] == "CTA_RESUME_MESSAGES" for r in rows):
         rows.append(("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
+    if festival:
+        page_base = c.config.get("delivery", {}).get("page_base_url", "").rstrip("/")
+        personalised_url = ""
+        if sub and sub.subscription_id and active and page_base:
+            personalised_url = f"{page_base}/{sub.subscription_id}"
+        body = f"{event_message(festival, personalised_url)}\n\n{body}"
     result = c.whatsapp.send_list(
         mobile,
         (("🙏 Welcome to Daily Darshan! Receive temple darshan on WhatsApp, enjoy an HD image "
