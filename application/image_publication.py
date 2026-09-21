@@ -59,7 +59,14 @@ def publish_image(root, on_date, *, render_pages=True, attempts=5, regenerate_on
                           ))
                 if result:
                     return result
-                if render_pages and ready(container, on_date):
+                # A manual historical Pages refresh must be presentation-only:
+                # evaluating expiry against yesterday (or an older selected
+                # image date) can postpone real expirations and prune the
+                # wrong subscriber pages.  Today's normal render retains the
+                # pre-publication expiry sweep.
+                from domain.clock import today_ist
+                if (render_pages and ready(container, on_date)
+                        and (not regenerate_only or on_date == today_ist())):
                     run_expiry_sweep(container, transaction, on_date)
                 transaction._stage_files(sorted(transaction.files))
                 if not transaction._git("diff", "--cached", "--name-only", capture=True).strip():
