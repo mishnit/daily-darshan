@@ -17,7 +17,7 @@
     "gateway": {
       "provider": "razorpay",
       "base_url": "https://api.razorpay.com/v1",
-      "callback_url": "https://vipseva.com"
+      "callback_url": "https://api.vipseva.com"
     }
   },
   "messages": {
