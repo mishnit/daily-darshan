@@ -324,7 +324,7 @@ def test_page_renderer_uses_opaque_daily_image_name():
     assert "data-share-text=" in html_text
     assert "https://vipseva.com/?ref=9199" in html_text
     assert "Bring today's Darshan to someone you love" not in html_text
-    assert "Share Darshan on WhatsApp" in html_text
+    assert "Share Today&#x27;s Darshan on WhatsApp and earn Karma Points" in html_text
     assert "Download image" not in html_text
     assert "copy-caption" not in html_text
 
@@ -395,7 +395,7 @@ def test_page_renderer_hides_renewal_before_configured_window():
 
     assert "Renew on WhatsApp" not in html_text
     assert "https://wa.me/916361699109?text=RENEW" not in html_text
-    assert "Share Darshan on WhatsApp" in html_text
+    assert "Share Today&#x27;s Darshan on WhatsApp and earn Karma Points" in html_text
     assert "Download image" not in html_text
     assert ">Join Vip Seva on Whatsapp</a>" not in html_text
 

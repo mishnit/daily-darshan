@@ -222,7 +222,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `upi` | `payee_vpa`, `payee_name`, `currency` used to build the UPI intent string. |
 | `payments` | Selects `manual_utr` or `payment_gateway`. Gateway mode currently supports hosted Razorpay Payment Links. |
 | `events` | Date-based festival content: shlokas in subscriber pages and the initial WhatsApp menu message, plus optional custom images for admin review. An enabled event shloka takes priority over a normal source shloka. |
-| `daily_shlokas` | Source-key-to-shloka mapping rendered on normal daily pages after image selection. `default` is used when the selected source is unknown. |
+| `daily_shlokas` | Source-key-to-shloka mapping rendered on normal daily pages and in the next user-initiated WhatsApp menu after today's image source is approved. `default` is used when the selected source is unknown. |
 | `daily_image_rotation` | Weekday-to-source mapping. Store all valid candidates and ask the admin to preview and approve one source. |
 | `admin.require_image_approval` | Enabled in production. Blocks pages, deployment and customer messages until today's image is approved. |
 | `admin.image_preview_base` | HTTPS repository content base used for WhatsApp image previews before Pages deployment. Must be publicly reachable by Meta. |
@@ -574,6 +574,9 @@ shloka from 06:00 IST; active subscribers also see their personalised page link 
 message. No separate festival option or follow-up message is sent. The content is evaluated on
 demand, so no scheduled menu broadcast or menu deployment is required.
 Subscriber pages show the same event card when the daily pages are rendered for that date.
+On a normal day, once one image source is approved for the current IST date, the next
+user-initiated menu message includes that source's configured shloka. An event shloka remains
+the higher-priority menu content on an event date.
 The following examples describe the exact plan actions and safe recovery from an unexpected input:
 
 | State | User sends or taps | Expected menu/list | Unexpected input recovery |

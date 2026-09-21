@@ -114,3 +114,45 @@ def test_event_shloka_has_priority_over_selected_source_shloka():
     assert "Maa Shailaputri" in page
     assert "ॐ देवी शैलपुत्र्यै नमः।" in page
     assert "ॐ नमः शिवाय।" not in page
+
+
+def test_menu_shows_todays_approved_mahakal_shloka(monkeypatch, container):
+    import main
+    today = date(2026, 9, 21)
+    monkeypatch.setattr(main, "today_ist", lambda: today)
+    monkeypatch.setattr(main, "current_menu_event", lambda events: None)
+    container.config["daily_shlokas"] = {"mahakal": "ॐ नमः शिवाय।"}
+    container.image_reviews.upsert("mahakal-approved", {
+        "id": "mahakal-approved", "date": today.isoformat(), "generation": "batch",
+        "source": "mahakal", "path": "docs/images/mahakal.jpg", "sha256": "x",
+        "status": "APPROVED", "approved_by": "admin", "approved_at": "now",
+    })
+    container.whatsapp = FakeWhatsApp()
+
+    main._send_menu(container, "9199")
+
+    assert "Mahakal · Today's Shloka" in container.whatsapp.sent[-1]["body"]
+    assert "ॐ नमः शिवाय।" in container.whatsapp.sent[-1]["body"]
+    assert "Today's Darshan is ready." not in container.whatsapp.sent[-1]["body"]
+
+
+def test_event_menu_shloka_overrides_todays_approved_source(monkeypatch, container):
+    import main
+    today = date(2026, 10, 11)
+    event = event_for_date(EVENTS, today)
+    monkeypatch.setattr(main, "today_ist", lambda: today)
+    monkeypatch.setattr(main, "current_menu_event", lambda events: event)
+    container.config["events"] = EVENTS
+    container.config["daily_shlokas"] = {"mahakal": "ॐ नमः शिवाय।"}
+    container.image_reviews.upsert("mahakal-approved", {
+        "id": "mahakal-approved", "date": today.isoformat(), "generation": "batch",
+        "source": "mahakal", "path": "docs/images/mahakal.jpg", "sha256": "x",
+        "status": "APPROVED", "approved_by": "admin", "approved_at": "now",
+    })
+    container.whatsapp = FakeWhatsApp()
+
+    main._send_menu(container, "9199")
+
+    body = container.whatsapp.sent[-1]["body"]
+    assert "ॐ देवी शैलपुत्र्यै नमः।" in body
+    assert "ॐ नमः शिवाय।" not in body

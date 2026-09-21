@@ -32,7 +32,8 @@ from repositories.state_lock import StateLockTimeout
 from adapters.github import BranchAdvancedError
 from application.webhook_metrics import WebhookMetrics
 from adapters.payment_gateway import PaymentGatewayError
-from application.events import current_menu_event, event_message
+from application.events import current_menu_event, event_message, source_shloka_message
+from domain.clock import today_ist
 
 app = FastAPI(title="Daily Darshan Webhook", version="2.0.0")
 app.add_middleware(
@@ -1084,6 +1085,13 @@ def _effective_plan_name(c, sub) -> str:
     ))
 
 
+def _approved_source_for_today(c) -> str:
+    """Read the one administrator-approved source for the IST business date."""
+    rows = [row for row in c.image_reviews.all()
+            if row.get("date") == today_ist().isoformat() and row.get("status") == "APPROVED"]
+    return rows[0].get("source", "") if len(rows) == 1 else ""
+
+
 def _send_menu(c, mobile: str) -> None:
     """Show actions appropriate to entitlement and the current checkout."""
     sub = c.subscribers.find(mobile)
@@ -1147,9 +1155,21 @@ def _send_menu(c, mobile: str) -> None:
         if sub and sub.subscription_id and active and page_base:
             personalised_url = f"{page_base}/{sub.subscription_id}"
         body = f"{event_message(festival, personalised_url)}\n\n{body}"
+    else:
+        approved_source = _approved_source_for_today(c)
+        if approved_source:
+            page_base = c.config.get("delivery", {}).get("page_base_url", "").rstrip("/")
+            personalised_url = ""
+            if sub and sub.subscription_id and active and page_base:
+                personalised_url = f"{page_base}/{sub.subscription_id}"
+            source_content = source_shloka_message(
+                approved_source, c.config.get("daily_shlokas", {}), personalised_url
+            )
+            if source_content:
+                body = f"{source_content}\n\n{body}"
     result = c.whatsapp.send_list(
         mobile,
-        (("🙏 Welcome to Daily Darshan! Receive temple darshan on WhatsApp, enjoy an HD image "
+        (("🙏 Welcome to Daily Darshan! Receive daily new temple darshan on WhatsApp, enjoy an HD image "
           "on your personal page, and share the image with family and friends. "
           "Choose a plan, make payment and confirm your UTR to request activation.\n\n")
          if not any(row.get("mobile") == mobile for row in c.welcomes.all()) else "") + body,

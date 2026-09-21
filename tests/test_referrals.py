@@ -59,7 +59,8 @@ def test_subscription_page_shows_karma_total_and_daily_reward_copy(tmp_path):
         date(2026, 9, 12), delivered=True,
     )
 
-    assert "Share Darshan on WhatsApp and earn 1 Karma point daily." in page
+    assert "Share Today&#x27;s Darshan on WhatsApp and earn Karma Points" in page
+    assert "Share Darshan on WhatsApp and earn 1 Karma point daily." not in page
     assert 'id="karma-points">2</span>' in page
     assert 'const karmaApi = "https://api.example/karma/share"' in page
     assert 'const subscriptionId = "opaque"' in page

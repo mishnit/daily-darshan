@@ -70,7 +70,6 @@ _TEMPLATE = """<!DOCTYPE html>
     .share a, .share button {{ background: #198754; }}
     .share button {{ border: 0; border-radius: 7px; padding: 10px 16px;
                      color: white; font: inherit; font-weight: 650; cursor: pointer; }}
-    .privacy-note {{ margin: 3px 8px; font-size: .72rem; color: #53483c; }}
     .karma {{ margin: 5px 8px; font-size: .86rem; font-weight: 700; color: #7a4b00; }}
     .share textarea {{ box-sizing: border-box; width: 100%; min-height: 90px; }}
     body {{ overflow-y: auto; }}
@@ -90,9 +89,8 @@ _TEMPLATE = """<!DOCTYPE html>
            onerror="this.onerror=null; this.src='{fallback_url}';">
     </div>
     <div class="share">
-      <p class="privacy-note">Share Darshan on WhatsApp and earn 1 Karma point daily.</p>
       <p class="karma">Karma points: <span id="karma-points">{karma_points}</span></p>
-      <button id="share-darshan" type="button" data-image-url="{image_url}" data-share-text="{share_text}">Share Darshan on WhatsApp</button>
+      <button id="share-darshan" type="button" data-image-url="{image_url}" data-share-text="{share_text}">Share Today&#x27;s Darshan on WhatsApp and earn Karma Points</button>
       <p id="share-status" role="status" aria-live="polite"></p>
     </div>
   </div>

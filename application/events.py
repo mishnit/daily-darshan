@@ -53,3 +53,29 @@ def event_message(day: dict, personalised_url: str = "") -> str:
     if personalised_url:
         lines.extend(["", f"View today's Darshan on your personalised page: {personalised_url}"])
     return "\n".join(lines)
+
+
+def source_shloka(daily_shlokas: dict[str, str] | None, source: str) -> tuple[str, str] | None:
+    """Return a display name and shloka for an approved normal image source."""
+    key = source.strip().lower().replace("-", "_")
+    shloka = (daily_shlokas or {}).get(key) or (daily_shlokas or {}).get("default", "")
+    if not shloka:
+        return None
+    words = key.split("_")
+    title = " ".join(
+        word.upper() if word == "iskcon" else word.title() for word in words if word
+    ) or "Today's Darshan"
+    return title, shloka
+
+
+def source_shloka_message(source: str, daily_shlokas: dict[str, str] | None,
+                          personalised_url: str = "") -> str:
+    """Format the normal daily menu content after a source is approved."""
+    selected = source_shloka(daily_shlokas, source)
+    if not selected:
+        return ""
+    title, shloka = selected
+    lines = [f"🌺 {title} · Today's Shloka", "", shloka]
+    if personalised_url:
+        lines.extend(["", f"View today's Darshan on your personalised page: {personalised_url}"])
+    return "\n".join(lines)
