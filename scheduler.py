@@ -135,19 +135,28 @@ def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str =
 
             def centered(text: str, y: int, text_font) -> None:
                 box = draw.textbbox((0, 0), text, font=text_font)
-                draw.text(((width - (box[2] - box[0])) // 2, y), text, fill="white", font=text_font)
+                draw.text(
+                    ((width - (box[2] - box[0])) // 2 - box[0], y),
+                    text,
+                    fill="white",
+                    font=text_font,
+                )
 
             date_line, source_line = _watermark_lines(on_date, source_name) if on_date else ("", "")
             # Date, source and VIP Seva intentionally share one prominent
-            # size. Choose the largest size that accommodates the longest line.
+            # size. Keep all footer rows inside its centered middle 90%.
+            safe_text_width = max(1, round(width * 0.90))
+
+            def fits_footer_width(text: str, text_font) -> bool:
+                box = draw.textbbox((0, 0), text, font=text_font)
+                return box[2] - box[0] <= safe_text_width
+
             shared_font = font(10, bold=True)
             # One point smaller than the previous shared Date/Source/VIP size.
             for size in range(max(10, round(height * 0.040) - 1), 9, -1):
                 candidate = font(size, bold=True)
                 if all(
-                    draw.textbbox((0, 0), text, font=candidate)[2]
-                    - draw.textbbox((0, 0), text, font=candidate)[0]
-                    <= width - max(16, width // 20)
+                    fits_footer_width(text, candidate)
                     for text in (date_line, source_line, "VIP Seva") if text
                 ):
                     shared_font = candidate
@@ -157,28 +166,37 @@ def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str =
             source_font = shared_font
             title_font = shared_font
             site_font = font(max(8, round(height * 0.019)))
+            for size in range(max(8, round(height * 0.019)), 5, -1):
+                candidate = font(size)
+                if fits_footer_width("www.vipseva.com", candidate):
+                    site_font = candidate
+                    break
             date_box = draw.textbbox((0, 0), date_line, font=date_font)
             source_box = draw.textbbox((0, 0), source_line, font=source_font)
             title_box = draw.textbbox((0, 0), "VIP Seva", font=title_font)
             site_box = draw.textbbox((0, 0), "www.vipseva.com", font=site_font)
             gap = max(4, height // 100)
-            content_height = (
-                (date_box[3] - date_box[1] if date_line else 0)
-                + (source_box[3] - source_box[1] if source_line else 0)
-                + (title_box[3] - title_box[1])
-                + (site_box[3] - site_box[1])
-                + gap * 3
-            )
-            first_y = footer_top + max(0, (footer_height - content_height) // 2)
-            if date_line:
-                centered(date_line, first_y, date_font)
-            source_y = first_y + (date_box[3] - date_box[1] if date_line else 0) + gap
-            if source_line:
-                centered(source_line, source_y, source_font)
-            title_y = source_y + (source_box[3] - source_box[1] if source_line else 0) + gap
-            centered("VIP Seva", title_y, title_font)
-            site_y = title_y + (title_box[3] - title_box[1]) + gap
-            centered("www.vipseva.com", site_y, site_font)
+            lines = [
+                (date_line, date_font, date_box),
+                (source_line, source_font, source_box),
+                ("VIP Seva", title_font, title_box),
+                ("www.vipseva.com", site_font, site_box),
+            ]
+            # ``textbbox`` has a font-specific top offset. Position the visual
+            # bounds (not the drawing origins) so four rows have equal padding
+            # above and below them inside every adaptive footer.
+            layout = []
+            visual_y = 0
+            for text, text_font, box in lines:
+                if not text:
+                    continue
+                visual_height = box[3] - box[1]
+                layout.append((text, text_font, box, visual_y - box[1]))
+                visual_y += visual_height + gap
+            content_height = max(0, visual_y - gap)
+            first_visual_y = footer_top + max(0, (footer_height - content_height) // 2)
+            for text, text_font, _box, relative_draw_y in layout:
+                centered(text, first_visual_y + relative_draw_y, text_font)
 
             out = io.BytesIO()
             image.save(out, format="JPEG", quality=90, optimize=True)
