@@ -5,4 +5,4 @@ https://api.vipseva.com points to https://daily-darshan-webhook.onrender.com in 
 https://api.vipseva.com/health and https://api.vipseva.com/webhook point similarly 
 
 ----------------------------
-upi link need to be updated and verified
+upi link need to be updated and verified + pg integration
