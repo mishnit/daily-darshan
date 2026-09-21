@@ -104,8 +104,10 @@ def test_normal_daily_page_shows_selected_source_shloka():
         date(2026, 10, 12), delivered=True, source="mahakal",
     )
 
-    assert "Mahakal · Today's Shloka" in page
+    assert "Mahakal · <span data-shloka-label>Today's Shloka</span>" in page
     assert "ॐ नमः शिवाय।" in page
+    assert 'data-shloka-date="2026-10-12"' in page
+    assert 'label.textContent = "Yesterday\'s Shloka"' in page
 
 
 def test_event_shloka_has_priority_over_selected_source_shloka():
@@ -122,6 +124,7 @@ def test_event_shloka_has_priority_over_selected_source_shloka():
     assert "Maa Shailaputri" in page
     assert "ॐ देवी शैलपुत्र्यै नमः।" in page
     assert "ॐ नमः शिवाय।" not in page
+    assert 'data-shloka-label>Today\'s Shloka</p>' in page
 
 
 def test_menu_shows_todays_approved_mahakal_shloka(monkeypatch, container):
