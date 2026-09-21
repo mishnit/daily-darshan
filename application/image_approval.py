@@ -55,16 +55,16 @@ def queue_request(c, key, reason):
             "created_at": datetime.now(INDIA_TZ).isoformat()})
 
 
-def collect_for_review(c, git, on_date):
+def collect_for_review(c, git, on_date, *, force_recollect: bool = False):
     from scheduler import _canonical_jpeg
-    if approved(c, on_date):
+    if approved(c, on_date) and not force_recollect:
         print(f"[image] {on_date} already approved; preserving selected image")
         return 0
     candidates = c.image_service.collect_daily_images(on_date)
     generation = uuid4().hex
     files = []
     for row in c.image_reviews.all():
-        if row["date"] == on_date.isoformat() and row["status"] == "PENDING":
+        if row["date"] == on_date.isoformat() and row["status"] in {"PENDING", "APPROVED"}:
             row["status"] = "SUPERSEDED"
             c.image_reviews.upsert(row["id"], row)
     for image in candidates:

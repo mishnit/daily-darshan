@@ -118,3 +118,28 @@ def test_images_disabled_preserves_event_content(container):
     event['enabled'] = False
     assert container._build_event_sources() == {}
     assert event_for_date([event], DAY) is None
+
+
+def test_force_recollect_supersedes_an_existing_approval(container, tmp_path):
+    path = tmp_path / PATH
+    path.parent.mkdir(parents=True)
+    path.write_bytes(jpeg())
+    container.config['events'] = [{'id': 'navratri', 'days': [
+        {'date': DAY.isoformat(), 'day_number': 1, 'deity': 'Maa Shailaputri', 'image_path': PATH}]}]
+    collector = ImageCollector(
+        [SimpleNamespace(name='temple', fetch=lambda day: Image(day, jpeg(), 'temple'))],
+        ImageValidator(min_width=600, min_height=600), event_sources=container._build_event_sources(),
+    )
+    container.image_service._collector = collector
+    git = SimpleNamespace(write_file=lambda *args: None, commit=lambda *args: None)
+    collect_for_review(container, git, DAY)
+    chosen = container.image_reviews.all()[0]
+    chosen['status'] = 'APPROVED'
+    container.image_reviews.upsert(chosen['id'], chosen)
+
+    collect_for_review(container, git, DAY, force_recollect=True)
+
+    rows = container.image_reviews.all()
+    assert len([row for row in rows if row['status'] == 'SUPERSEDED']) == 2
+    assert len([row for row in rows if row['status'] == 'PENDING']) == 2
+    assert approved(container, DAY) is None

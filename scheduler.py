@@ -184,12 +184,13 @@ def _canonical_jpeg(data: bytes, on_date: date | None = None, source_name: str =
 
 
 def run_image(
-    container: Container, git: LocalGitRepository, on_date: date, *, render_pages: bool = True
+    container: Container, git: LocalGitRepository, on_date: date, *, render_pages: bool = True,
+    force_recollect: bool = False,
 ) -> int:
     """Fetch/store a day's images, optionally regenerating subscriber pages."""
     from application.image_approval import required, collect_for_review
     if required(container.config):
-        return collect_for_review(container, git, on_date)
+        return collect_for_review(container, git, on_date, force_recollect=force_recollect)
     path = container.image_service.canonical_path(on_date)
     candidates: list[Image] = []
     try:
@@ -620,13 +621,18 @@ def main(argv: list[str] | None = None) -> int:
         default="canonical",
         help="For the pages job: canonical or a stored source key such as iskcon_mumbai",
     )
+    parser.add_argument(
+        "--force-recollect", action="store_true",
+        help="Manual image runs only: supersede an approved selection and queue fresh candidates",
+    )
     args = parser.parse_args(argv)
 
     on_date = date.fromisoformat(args.date) if args.date else datetime.now(ZoneInfo("Asia/Kolkata")).date()
     if args.job in ("image", "image-only", "pages") and os.environ.get("GITHUB_ACTIONS") == "true":
         from application.image_publication import publish_image
         return publish_image(os.getcwd(), on_date, render_pages=args.job != "image-only",
-                             regenerate_only=args.job == "pages", image_source=args.image_source)
+                             regenerate_only=args.job == "pages", image_source=args.image_source,
+                             force_recollect=args.force_recollect)
     container = Container()
     git = LocalGitRepository(root=container.root)
 
@@ -638,9 +644,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.job in ("cleanup", "all"):
         rc |= run_log_cleanup(container, git, on_date)
     if args.job in ("image", "all"):
-        rc |= run_image(container, git, on_date)
+        rc |= run_image(container, git, on_date, force_recollect=args.force_recollect)
     if args.job == "image-only":
-        rc |= run_image(container, git, on_date, render_pages=False)
+        rc |= run_image(container, git, on_date, render_pages=False,
+                        force_recollect=args.force_recollect)
     if args.job == "pages":
         rc |= run_pages(container, git, on_date, image_source=args.image_source)
     # Expiry sweep runs before renewal/delivery so downstream steps see accurate

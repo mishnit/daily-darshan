@@ -290,7 +290,11 @@ Commit and deploy configuration changes; restart/redeploy Render to load new men
 settings. Menu content is selected on demand from 06:00 IST, while static page
 content changes only after page regeneration and deployment. Changing a flag does
 not rewrite already published pages. Rerun the image workflow to refresh pending
-image candidates; an existing approved image remains preserved on reruns.
+image candidates; an existing approved image remains preserved on ordinary reruns.
+For a deliberate replacement, manually run **Daily Image** with
+`force_recollect: true`. It supersedes the existing approval, queues fresh
+candidates with the current footer, and requires a new admin approval before
+pages or delivery can use a replacement.
 
 ### Common config changes
 

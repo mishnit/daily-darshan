@@ -23,7 +23,8 @@ class PublicationFiles(LocalGitRepository):
         self.files.update(path for path in files if not os.path.isabs(path))
 
 
-def publish_image(root, on_date, *, render_pages=True, attempts=5, regenerate_only=False, image_source="canonical"):
+def publish_image(root, on_date, *, render_pages=True, attempts=5, regenerate_only=False,
+                  image_source="canonical", force_recollect=False):
     from scheduler import run_image, run_pages, run_expiry_sweep
     from application.image_approval import ready, required, approved
 
@@ -45,14 +46,17 @@ def publish_image(root, on_date, *, render_pages=True, attempts=5, regenerate_on
                 config = load_config(os.path.join(checkout, "config.json"))
                 config["paths"]["logs_csv"] = str(audit_path)
                 container = Container(config=config, root=checkout)
-                already_approved = required(config) and approved(container, on_date)
+                already_approved = required(config) and approved(container, on_date) and not force_recollect
                 if cached is None and not regenerate_only and not already_approved:
                     # Network collection happens once, before any publication retry.
                     cached = container.image_service.collect_daily_images(on_date)
                 container.image_service.collect_daily_images = lambda date: cached
                 transaction = PublicationFiles(checkout)
                 result = (run_pages(container, transaction, on_date, image_source=image_source)
-                          if regenerate_only else run_image(container, transaction, on_date, render_pages=render_pages))
+                          if regenerate_only else run_image(
+                              container, transaction, on_date, render_pages=render_pages,
+                              force_recollect=force_recollect,
+                          ))
                 if result:
                     return result
                 if render_pages and ready(container, on_date):

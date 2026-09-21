@@ -173,6 +173,9 @@ Choose the recovery entry point deliberately:
 
 - **Daily Image** on `main` stores candidates and asks the admin to preview/approve a source.
   Approval triggers regeneration, deployment and delivery. A single source still requires approval.
+  Its `force_recollect` manual input defaults to `false`. Set it to `true` only when deliberately
+  replacing an approved image: it supersedes the old approval for every date included by
+  `backfill_days`, creates fresh candidates using the current branding, and waits for a new approval.
 - **Deploy Daily Darshan Pages** publishes the current `main` `docs/` tree once and then starts
   Daily Delivery. Use this after a mid-day activation or manual page regeneration.
 - **Daily Delivery** sends against the already-published site. It does not build or deploy Pages.

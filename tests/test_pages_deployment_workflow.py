@@ -33,7 +33,7 @@ def test_image_expires_and_prunes_pages_before_triggering_publication():
     publication = Path("application/image_publication.py").read_text(encoding="utf-8")
     assert publication.index("run_expiry_sweep(container, transaction") < publication.index('transaction._git("push"')
     assert "ref: main" in workflow
-    assert 'if ! python scheduler.py image-only --date "$image_date"; then' in workflow
+    assert 'if ! python scheduler.py image-only --date "$image_date" $force_args; then' in workflow
     assert "continuing to today's required image" in workflow
 
 
