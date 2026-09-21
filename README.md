@@ -883,16 +883,17 @@ template is attempted per subscriber per date.
 |----------|----------------|------------|------|
 | `image.yml` | Manual / external scheduler | On demand | Store valid source candidates, then invite admin to reply ADMIN for visual selection. No automatic highest-resolution selection. |
 | `payment-utr-alert.yml` | Manual only | On demand | Alert admin about confirmed UTRs awaiting review and today's checkouts missing a UTR. Uses `daily_darshan_ops_alert`. |
-| `pages.yml` | Push to `csv/pipeline_requests.csv` on main; manual | After admin approval | Check today's approval, copy only approved bytes to canonical image, regenerate pages and record the approval stamp. |
-| `deploy-pages.yml` | Successful Daily Image or Regenerate Daily Pages; manual | After rendering | Deploy only if approval, canonical bytes and rendered stamp agree. Collection-only completion skips deployment. |
+| `pages.yml` | Push to `csv/pipeline_requests.csv` on main; manual | After admin approval | Default: validate today's approval. Manual `day: yesterday` validates yesterday's approved image for a historical/template refresh and records that date's approval stamp. |
+| `deploy-pages.yml` | Successful Daily Image or Regenerate Daily Pages; manual | After rendering | Deploy only if approval, canonical bytes and the rendered artifact's stamped date agree. Collection-only completion skips deployment. |
 | `delivery.yml` | Successful deployment; every 30 minutes; manual | After publication | Require today's approval and live public stamp, then run welcome, renewal and delivery with the shared daily contact limit. Scheduled recovery safely retries confirmed failures; ambiguous sends remain held for callback reconciliation. |
 
-With `admin.require_image_approval=true`, no previous-date fallback or manual source override
-can bypass today's admin decision. Jobs exit/skip while waiting; no runner sleeps waiting for
-the admin. The admin's committed decision creates a durable publication request, triggering
-page regeneration automatically. A failed workflow can be rerun after correcting its cause.
-Successful page regeneration triggers deployment, then delivery. The existing once-per-day
-ledger still prevents repeat customer messages.
+With `admin.require_image_approval=true`, a normal/current-day publication cannot bypass today's
+admin decision. The deliberate manual `day: yesterday` option is restricted to historical page
+refreshes and cannot unblock today's delivery. Jobs exit/skip while waiting; no runner sleeps
+waiting for the admin. The admin's committed decision creates a durable publication request,
+triggering page regeneration automatically. A failed workflow can be rerun after correcting its
+cause. Successful current-day page regeneration triggers deployment, then delivery. The existing
+once-per-day ledger still prevents repeat customer messages.
 
 The former automatic largest-image selection and previous-date page fallback remain available
 only when image approval is explicitly disabled in configuration. Production enables approval.
@@ -969,7 +970,9 @@ dates).
 **Page timing (utility-template mode).** Each subscriber's page lives at
 `docs/<subscription_id>/index.html` and is the target of the utility-template link. Pages are
 produced in two places so a subscriber's branded URL is never a 404 when they receive it:
-1. **Regenerate Daily Pages** renders all pages after today's source is approved.
+1. **Regenerate Daily Pages** renders all pages after today's source is approved. Its manual
+   `day: yesterday` option can republish an already approved previous-day page without treating it
+   as today's Darshan.
 2. **Activation**, through WhatsApp or `admin.py verify --activate --commit`, queues a publication
    request when image approval is enabled. It never renders a page before source approval.
    If a CLI commit uses credentials that suppress push workflows, manually run **Regenerate
