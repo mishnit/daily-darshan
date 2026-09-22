@@ -4,6 +4,8 @@ from __future__ import annotations
 import csv
 import io
 
+from application.payment_references import serialize_applied_payment_refs
+
 
 DELIVERY_RANK = {
     "": 0, "QUEUED": 0, "PENDING": 0,
@@ -64,13 +66,10 @@ def merge_keyed(repository, baseline, remote, *, key_fields, strict=False,
                 )
                 continue
             if field in union_fields:
-                values = {
-                    item.strip()
-                    for value in (local_value, remote_value)
-                    for item in str(value).split(",")
-                    if item.strip()
-                }
-                row[field] = ",".join(sorted(values))
+                # ``applied_payment_refs`` is a semicolon-delimited domain
+                # collection.  Canonicalizing here also repairs legacy comma
+                # values created by the initial semantic-merge implementation.
+                row[field] = serialize_applied_payment_refs((local_value, remote_value))
                 continue
             local_changed = local_value != old_value
             remote_changed = remote_value != old_value

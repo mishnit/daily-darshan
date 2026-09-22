@@ -6,6 +6,12 @@ The caller must serialize repository writes and supply durable persistence.
 
 _NOT_APPLIED = "Activation reference is not applied to subscriber"
 
+from application.payment_references import (
+    is_canonical_payment_reference,
+    parse_applied_payment_refs,
+    serialize_applied_payment_refs,
+)
+
 
 def queue_missing_welcomes(container):
     """Create one durable welcome task for every applied ACTIVE payment.
@@ -18,7 +24,13 @@ def queue_missing_welcomes(container):
     for sub in container.subscribers.all():
         if sub.status.value != "ACTIVE":
             continue
-        references = {ref.strip() for ref in sub.applied_payment_refs.split(";") if ref.strip()}
+        references = parse_applied_payment_refs(sub.applied_payment_refs)
+        # Self-heal legacy comma-separated snapshots before they can be
+        # persisted by this scheduler again.
+        canonical_references = serialize_applied_payment_refs(references)
+        if sub.applied_payment_refs != canonical_references:
+            sub.applied_payment_refs = canonical_references
+            container.subscribers.update(sub)
         for reference_id in sorted(references):
             existing = container.welcomes.find(reference_id)
             if existing:
@@ -68,7 +80,11 @@ def drain_welcomes(
                 container.welcomes.upsert(row["reference_id"], row)
                 persist()
             continue
-        applied = bool(sub and row["reference_id"] in sub.applied_payment_refs.split(";"))
+        applied = bool(
+            sub
+            and is_canonical_payment_reference(row["reference_id"])
+            and row["reference_id"] in parse_applied_payment_refs(sub.applied_payment_refs)
+        )
         if not applied:
             row.update(status="CANCELLED", error=_NOT_APPLIED)
             container.welcomes.upsert(row["reference_id"], row)

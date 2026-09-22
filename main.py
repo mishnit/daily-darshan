@@ -1062,7 +1062,8 @@ def _supersede_lower_unpaid_checkouts(c, mobile: str) -> None:
 
 
 def _applied_payment_refs(sub) -> set[str]:
-    return {ref.strip() for ref in (sub.applied_payment_refs or "").split(";") if ref.strip()}
+    from application.payment_references import parse_applied_payment_refs
+    return parse_applied_payment_refs(sub.applied_payment_refs)
 
 
 def _effective_plan_name(c, sub) -> str:

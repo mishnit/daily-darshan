@@ -91,6 +91,38 @@ def test_manual_active_applied_reference_queues_welcome_once_and_preserves_page(
     assert container.subscribers.find("9199").subscription_id == subscription_id
 
 
+def test_corrupted_comma_reference_never_creates_or_sends_duplicate_welcome(container, monkeypatch):
+    """A legacy CSV merge must not turn an existing payment into a fake key."""
+    container.subscribers.append(Subscriber(
+        mobile="9199", plan="monthly", status=SubscriberStatus.ACTIVE,
+        start_date=date.today(), end_date=date.today(), opt_in=True,
+        subscription_id="stable", name="Nitin",
+        applied_payment_refs="DD2609160004,DD2609160004;DD2609200001",
+    ))
+    container.welcomes.upsert("DD2609160004", {
+        "reference_id": "DD2609160004", "mobile": "9199", "status": "DELIVERED",
+    })
+    container.welcomes.upsert("DD2609160004,DD2609160004", {
+        "reference_id": "DD2609160004,DD2609160004", "mobile": "9199", "status": "QUEUED",
+    })
+
+    assert queue_missing_welcomes(container) == (1, 0)
+    assert container.welcomes.find("DD2609200001")["status"] == "QUEUED"
+    assert container.subscribers.find("9199").applied_payment_refs == (
+        "DD2609160004;DD2609200001"
+    )
+
+    monkeypatch.setattr(container.delivery_service, "send_welcome", lambda *_: pytest.fail("must not send fake welcome"))
+    drain_welcomes(container, date.today(), lambda: None, lambda *_: True)
+    fake = container.welcomes.find("DD2609160004,DD2609160004")
+    assert fake["status"] == "CANCELLED"
+    assert fake["error"] == "Activation reference is not applied to subscriber"
+    assert all(
+        row["image"] != "welcome:DD2609160004,DD2609160004"
+        for row in container.sentlog.all()
+    )
+
+
 def test_unapplied_manual_welcome_is_cancelled_instead_of_blocking(container, monkeypatch):
     container.subscribers.append(Subscriber(
         mobile="9199", plan="monthly", status=SubscriberStatus.ACTIVE,

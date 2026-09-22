@@ -64,6 +64,26 @@ def test_strict_merge_blocks_same_mutable_field_conflict(monkeypatch, tmp_path):
         )
 
 
+def test_applied_payment_refs_merge_is_semicolon_canonical_and_deduplicated(monkeypatch, tmp_path):
+    fields = ["mobile", "applied_payment_refs"]
+    repo = repository(monkeypatch, tmp_path, fields, key="mobile")
+    base = [{"mobile": "9199", "applied_payment_refs": "DD2609160004"}]
+    repo.replace_memory_rows([
+        {"mobile": "9199", "applied_payment_refs": "DD2609160004"},
+    ], dirty=True)
+    remote = [{
+        "mobile": "9199",
+        "applied_payment_refs": "DD2609160004;DD2609200001",
+    }]
+
+    merge_keyed(
+        repo, encoded(fields, base), encoded(fields, remote),
+        key_fields=("mobile",), union_fields=("applied_payment_refs",),
+    )
+
+    assert repo.find("9199")["applied_payment_refs"] == "DD2609160004;DD2609200001"
+
+
 def test_append_only_log_merge_is_an_idempotent_union(monkeypatch, tmp_path):
     fields = ["timestamp", "event"]
     repo = repository(monkeypatch, tmp_path, fields, key="timestamp")
