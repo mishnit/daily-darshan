@@ -69,6 +69,7 @@ class Payment:
     activation_state: str = ""  # Blank legacy SUCCESS needs reconciliation before applying.
     utr_confirmed_at: datetime | None = None
     rejected_at: datetime | None = None
+    superseded_at: datetime | None = None
     payment_provider: str = "manual_utr"
     gateway_checkout_id: str = ""
     gateway_payment_id: str = ""
@@ -88,6 +89,7 @@ class Payment:
             activation_state=str(row.get("activation_state", "")),
             utr_confirmed_at=_parse_dt(row.get("utr_confirmed_at")),
             rejected_at=_parse_dt(row.get("rejected_at")),
+            superseded_at=_parse_dt(row.get("superseded_at")),
             payment_provider=str(row.get("payment_provider", "manual_utr") or "manual_utr"),
             gateway_checkout_id=str(row.get("gateway_checkout_id", "")),
             gateway_payment_id=str(row.get("gateway_payment_id", "")),
@@ -111,6 +113,7 @@ class Payment:
             "gateway_checkout_id": self.gateway_checkout_id,
             "gateway_payment_id": self.gateway_payment_id,
             "checkout_url": self.checkout_url,
+            "superseded_at": self.superseded_at.isoformat() if self.superseded_at else "",
         }
 
     def upi_intent(self, payee_vpa: str, payee_name: str, currency: str = "INR") -> str:
@@ -130,11 +133,19 @@ class Payment:
         self.utr = utr.strip()
         # Remains PENDING until an admin verifies (section 6).
         self.status = PaymentStatus.PENDING
+        self.superseded_at = None
 
     def mark_verified(self, at: datetime | None = None) -> None:
         self.status = PaymentStatus.SUCCESS
+        self.superseded_at = None
         self.verified_at = at or datetime.now()
         self.activation_state = "PENDING"
+
+    def mark_superseded(self, at: datetime | None = None) -> None:
+        """Archive this checkout and timestamp the transition."""
+        from domain.clock import INDIA_TZ
+        self.status = PaymentStatus.SUPERSEDED
+        self.superseded_at = at or datetime.now(INDIA_TZ)
 
 
 def _parse_dt(value) -> datetime | None:

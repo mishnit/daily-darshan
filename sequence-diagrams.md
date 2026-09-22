@@ -164,6 +164,10 @@ Same-plan renewal opens only in the last three calendar days, including expiry d
 
 ## C. Existing user requests payment instructions and revises a UTR
 
+The normal menu body remains generic in every payment state. Payment references, UTRs, amounts,
+and administrator decisions are returned only after the customer selects Payment instructions or
+Payment status. Review past UTR identifies only the relevant reference in its list row.
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -171,7 +175,9 @@ sequenceDiagram
     participant Webhook
     participant State
     participant WA
-    User->>Webhook: PAYMENT or MENU
+    User->>Webhook: MENU
+    Webhook->>WA: Generic menu body and payment list option
+    User->>Webhook: PAYMENT option
     Webhook->>State: Resolve checkout
     alt PENDING without UTR
         Webhook->>WA: Existing payment instructions
@@ -180,7 +186,11 @@ sequenceDiagram
     else confirmed UTR exists
         Webhook->>WA: Awaiting review and do not pay again
     else FAILED
-        Webhook->>WA: Rejected and Request review
+        Webhook->>WA: Rejected, payment and UTR changes blocked until release date
+    else unresolved SUPERSEDED with UTR and no prior admin decision
+        Webhook->>WA: Offer Review past UTR alongside eligible checkout actions
+    else SUPERSEDED after rejection cleanup
+        Webhook->>WA: Prior decision is final and offer only eligible new checkout actions
     else SUCCESS not applied
         Webhook->>WA: Approved and activation in progress
     else SUCCESS and applied
@@ -270,34 +280,82 @@ sequenceDiagram
     participant AdminCLI as Admin CLI
     participant Cleanup as Delivery cleanup job
     Payments-->>Webhook: FAILED payment
-    Webhook-->>User: Proactive rejection notice with review action and release date
-    Webhook-->>User: Rejected with Request review
-    User->>Webhook: CTA_PAYMENT_REVIEW
-    Webhook->>Logs: Append PAYMENT_REVIEW_REQUESTED
-    Webhook->>Logs: Immediate critical semantic merge and Git push
-    Webhook-->>User: Request recorded and do not pay again
-    AdminWA->>Payments: List PENDING or SUPERSEDED with UTR
-    Note over AdminWA,Payments: FAILED requests are absent
+    Webhook-->>User: Proactive rejection notice with blocked period and release date
+    Note over User,Payments: FAILED blocks new checkout and UTR revision for three full days
+    Cleanup->>Payments: FAILED to SUPERSEDED after three full calendar days
+    Note over User,Payments: Rejection timestamp remains, this reference cannot be reviewed or revised again
+    Payments-->>User: New eligible checkout is unblocked
+    AdminWA->>Payments: List only PENDING rows with UTR
+    Note over AdminWA,Payments: FAILED and SUPERSEDED rows are absent
     alt bank evidence shows payment
         AdminCLI->>Payments: Verify and activate original reference
     else administrator confirms no payment
         AdminCLI->>Payments: Reopen with no-payment-confirmed
         Payments->>Payments: FAILED to SUPERSEDED
-    else still FAILED after three full calendar days
-        Cleanup->>Payments: Preserve row UTR rejection time and audit trail
-        Cleanup->>Payments: FAILED to SUPERSEDED
-        Cleanup->>Logs: PAYMENT_REJECTION_AUTO_RELEASED
-        Payments-->>User: Rejected checkout no longer blocks a new renewal or upgrade
     end
 ```
 
-**Current implementation gap:** the CTA creates an audit log but no actionable admin WhatsApp queue
-item or alert. The normal queue excludes `FAILED` rows, so an operator must inspect logs and use the
-CLI. The request log is immediately persisted through the critical financial-action lane, but a
-complete re-review flow still needs durable request state plus an admin list, alert, and resolution
-actions. The daily delivery cleanup automatically releases a rejected checkout after three full
-calendar days. Release means `SUPERSEDED`, not deletion, so bank evidence remains reviewable and a
-later verified payment can still be applied idempotently.
+An unresolved `SUPERSEDED` UTR that has never been accepted or rejected follows a separate recovery
+edge: customer Review past UTR changes it to `PENDING`, records `PAYMENT_REVIEW_REQUESTED`, and makes
+it visible in the admin queue. After an admin decision, that reference can never use this edge again.
+
+### Payment CSV state transitions and customer permissions
+
+The diagram uses only values that can appear in `payments.csv.status`. UTR presence,
+`rejected_at`, and `activation_state` are conditions on a row, not additional payment states.
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING: Checkout created
+    PENDING --> PENDING: Confirm or revise UTR before admin decision
+    PENDING --> SUPERSEDED: Checkout replaced before admin decision
+    SUPERSEDED --> PENDING: Review or revise under three days when UTR exists and rejected_at is empty
+    PENDING --> SUCCESS: Admin approves
+    PENDING --> FAILED: Admin rejects
+    PENDING --> FAILED: Another same plan UTR is approved
+    FAILED --> SUPERSEDED: Cleanup after three calendar days retains rejected_at
+
+    note right of PENDING
+        View payment information
+        Revise UTR before admin decision
+        UTR present means admin review is already pending
+        New payment is blocked while a UTR is under review
+    end note
+
+    note right of SUCCESS
+        View approval while activation or publication is pending
+        UTR revision is not allowed
+        Review request is not allowed
+        New payment follows upgrade and renewal eligibility
+    end note
+
+    note right of FAILED
+        View rejection and release date
+        UTR revision is not allowed
+        Review request is not allowed
+        New payment is blocked for three calendar days
+    end note
+
+    note right of SUPERSEDED
+        If rejected_at is empty the unresolved UTR may be revised or reviewed for three days
+        If rejected_at exists the old reference is final and hidden from review
+        A new payment is allowed subject to plan eligibility
+    end note
+```
+
+| `payments.csv.status` and row condition | View transaction/payment information | Revise UTR | Request admin review | Create another payment |
+|---|---|---|---|---|
+| `PENDING`, UTR empty | Yes, payment instructions | Yes | No, nothing submitted yet | Yes; replacing it makes the old row `SUPERSEDED` |
+| `PENDING`, UTR present | Yes, verification pending | Yes, until an admin decision | Already in review automatically | No |
+| `SUCCESS` | Yes while activation/publication is pending; afterward subscription status is shown | No | No | Only when upgrade or renewal rules permit |
+| `FAILED` | Yes, including rejection and release date | No | No | No for three calendar days |
+| `SUPERSEDED`, UTR present, `rejected_at` empty, under three days old | Reference is exposed through Review past UTR, not the normal payment-status card | Yes, using the reference | Yes; changes status to `PENDING` | Yes, subject to plan eligibility |
+| `SUPERSEDED`, UTR present, `rejected_at` empty, at least three days old | No ordinary transaction action; retained for audit | No | No | Yes, subject to plan eligibility |
+| `SUPERSEDED`, `rejected_at` present | No ordinary transaction action; retained for audit | No | No | Yes, subject to plan eligibility |
+| `SUPERSEDED`, UTR empty | No ordinary transaction action | No | No | Yes, subject to plan eligibility |
+
+The WhatsApp admin Review payments option contains only `PENDING` rows with a non-empty UTR.
+`FAILED`, `SUPERSEDED`, and `SUCCESS` rows never appear in that queue.
 
 ## G. Admin selects the canonical image
 
@@ -365,8 +423,9 @@ sequenceDiagram
         Webhook->>Payments: SUCCESS
         Webhook->>Subscribers: Activate renew or upgrade once
         Webhook->>Payments: activation_state APPLIED
-        Webhook->>Payments: Supersede every other PENDING or FAILED checkout for customer
-        Note over Payments: Preserve competing UTRs for later admin reconciliation
+        Webhook->>Payments: Fail other submitted UTRs for the same customer and plan
+        Note over Payments: Same-plan FAILED rows block changes for three full days, then cleanup supersedes them
+        Webhook->>Payments: Supersede unpaid or different-plan competing checkouts
         Webhook-->>Customer: Immediate approval notice with plan and updated expiry
         Webhook->>Welcomes: Reference-keyed QUEUED welcome
         Webhook->>Requests: Payment publication request
@@ -449,7 +508,7 @@ fingerprints.
 | State | Primary key | Main transitions | Persistence timing |
 |---|---|---|---|
 | Subscriber | mobile | pending → active, active → expired, opt-in true or false | periodic or immediate admin approval |
-| Payment | reference | PENDING → SUPERSEDED, review → SUCCESS or FAILED | UTR and admin decisions immediate |
+| Payment | reference | PENDING without decision ↔ unresolved SUPERSEDED; PENDING review → SUCCESS or FAILED; FAILED → final SUPERSEDED after cleanup | UTR, re-review promotion and admin decisions immediate |
 | UTR draft | conversation mobile | empty → drafted → edited or confirmed → empty | draft periodic, edit and confirm immediate |
 | Welcome | payment reference | QUEUED → PENDING → SENT → DELIVERED or FAILED | delivery workflow commits |
 | Renewal | mobile type expiry | eligible → PENDING → SENT → DELIVERED or FAILED | delivery workflow commits |

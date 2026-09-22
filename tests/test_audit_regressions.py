@@ -51,6 +51,8 @@ def test_failed_stop_confirmation_preserves_optout_and_retries_reply_only(app_cl
 
 
 def test_failed_utr_ack_does_not_lose_or_reassign_payment(app_client):
+    from application.payment_service import PaymentError
+
     main, client = app_client
     c = main.container
     payment = c.payment_service.create_payment("9199", "monthly", TODAY)
@@ -65,10 +67,12 @@ def test_failed_utr_ack_does_not_lose_or_reassign_payment(app_client):
                    interactive={"button_reply": {"id": confirm}})
     assert client.post("/webhook", json=payload).status_code == 503
     assert c.payments.find(payment.reference_id).utr == "123456789012"
-    next_payment = c.payment_service.create_payment("9199", "monthly", TODAY)
+    with pytest.raises(PaymentError, match="under review"):
+        c.payment_service.create_payment("9199", "monthly", TODAY)
     c.whatsapp = FakeWhatsApp()
     assert client.post("/webhook", json=payload).status_code == 200
-    assert c.payments.find(next_payment.reference_id).utr == ""
+    assert len(c.payments.all()) == 1
+    assert c.payments.find(payment.reference_id).utr == "123456789012"
 
 def test_failed_utr_confirmation_prompt_does_not_submit_for_review(app_client):
     main, client = app_client

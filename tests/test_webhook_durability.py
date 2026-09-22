@@ -148,7 +148,10 @@ def test_rejected_payment_review_commits_before_acknowledgement_reply(app_client
 
     c.subscriber_service.upsert_pending("9199", "monthly", "Nitin")
     payment = c.payment_service.create_payment("9199", "monthly")
-    admin.cmd_reject(c, SimpleNamespace(reference_id=payment.reference_id, commit=False))
+    payment.record_utr("123456789012")
+    from domain.enums import PaymentStatus
+    payment.status = PaymentStatus.SUPERSEDED
+    c.payments.update(payment)
     monkeypatch.setattr(main, "_refresh_remote_payments", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "_flush_critical_snapshot", lambda _container: events.append("commit"))
     original = c.whatsapp.send_text

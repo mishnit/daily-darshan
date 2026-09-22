@@ -596,6 +596,7 @@ def _process_payment_gateway_webhook(c, raw_body: bytes, signature: str) -> dict
     elif payment.status in {PaymentStatus.PENDING, PaymentStatus.SUPERSEDED}:
         payment.status = PaymentStatus.FAILED
         payment.rejected_at = datetime.now(ZoneInfo("Asia/Kolkata"))
+        payment.superseded_at = None
         if event.external_payment_id:
             payment.gateway_payment_id = event.external_payment_id
         c.payments.update(payment)
@@ -1054,7 +1055,7 @@ def _supersede_lower_unpaid_checkouts(c, mobile: str) -> None:
         payment_rank = _plan_rank(c, payment.plan)
         if payment.plan in eligible:
             continue
-        payment.status = PaymentStatus.SUPERSEDED
+        payment.mark_superseded()
         c.payments.update(payment)
         event = ("PAYMENT_SUPERSEDED_LOWER_PLAN" if payment_rank is None or payment_rank < current_rank
                  else "PAYMENT_SUPERSEDED_OUTSIDE_RENEWAL_WINDOW")
@@ -1102,6 +1103,7 @@ def _send_menu(c, mobile: str) -> None:
     """Show actions appropriate to entitlement and the current checkout."""
     sub = c.subscribers.find(mobile)
     payment = _checkout_payment(c, mobile)
+    superseded_review = _latest_superseded_utr(c, mobile) if payment is None else None
     # An abandoned unpaid checkout may outlive a deleted subscriber row.
     # Restart signup, but retain payment evidence and reviewed/approved states.
     if not sub and payment and payment.status.value == "PENDING" and not payment.utr:
@@ -1113,7 +1115,9 @@ def _send_menu(c, mobile: str) -> None:
     rows = [("CTA_STATUS", "Subscription status", "Check your subscription")] if _shows_subscription_status(c, sub) else []
     festival = current_menu_event(c.config.get("events"))
     body = "🙏 Radhe Radhe! Choose an option below."
-    locked_payment = bool(payment and payment.status.value != "PENDING")
+    locked_payment = bool(
+        payment and (payment.status.value != "PENDING" or payment.utr)
+    )
     if sub and (not sub.end_date or payment) and not locked_payment and (sub.awaiting_name or not sub.name):
         c.subscriber_service.set_awaiting_name(mobile, True)
         body = "🙏 What name should we greet you by? Reply with your name, or choose another plan."
@@ -1125,7 +1129,7 @@ def _send_menu(c, mobile: str) -> None:
         reviewing = payment.utr or payment.status.value != "PENDING"
         rows.append(("CTA_PAYMENT", "Payment status" if reviewing else "Payment instructions",
                      "View your payment details"))
-        if payment.status.value == "PENDING" and (not active or eligible_plans):
+        if payment.status.value == "PENDING" and not payment.utr and (not active or eligible_plans):
             if active:
                 label = "Renew" if expiring_soon else "Upgrade"
             else:
@@ -1135,10 +1139,8 @@ def _send_menu(c, mobile: str) -> None:
             else:
                 description = "Choose a larger plan" if active else "Choose a different plan"
             rows.append(("CTA_RENEW", label, description))
-        if reviewing:
-            body = _payment_status_text(c, payment)
-            if payment.status.value == "FAILED":
-                rows.append(("CTA_PAYMENT_REVIEW", "Request review", "Ask the administrator to recheck payment"))
+        # Keep financial details behind the explicit Payment status list
+        # option. The menu body stays generic and safe to glance at/share.
     elif active:
         if not sub.opt_in:
             rows.append(("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
@@ -1153,6 +1155,12 @@ def _send_menu(c, mobile: str) -> None:
                     else ("CTA_SUBSCRIBE", "View plans", "Choose a plan"))
         if sub and sub.is_expired(datetime.now(ZoneInfo("Asia/Kolkata")).date()):
             body = f"Your subscription expired on {sub.end_date}. Choose a renewal plan."
+    if superseded_review:
+        rows.append((
+            "CTA_PAYMENT_REVIEW",
+            "Review past UTR",
+            f"Ask admin to recheck {superseded_review.reference_id}",
+        ))
     if _has_active_subscription(c, mobile) and not sub.opt_in and not any(r[0] == "CTA_RESUME_MESSAGES" for r in rows):
         rows.append(("CTA_RESUME_MESSAGES", "Resume messages", "Restore consent without paying"))
     if festival:
@@ -1196,7 +1204,7 @@ def _send_menu(c, mobile: str) -> None:
 def _send_plan_list(c, mobile: str) -> None:
     """Send the plan catalog as a tappable list (ids = PLAN_<plan>)."""
     payment = _checkout_payment(c, mobile)
-    if payment and payment.status.value != "PENDING":
+    if payment and (payment.status.value != "PENDING" or payment.utr):
         _resume_conversation(c, mobile)
         return
     plan_names = _eligible_plan_names(c, mobile)
@@ -1283,7 +1291,7 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
             _handle_utr_confirmation(c, mobile, value)
             return
         payment = _checkout_payment(c, mobile)
-        if (payment and payment.status.value != "PENDING"
+        if (payment and (payment.status.value != "PENDING" or payment.utr)
                 and (value in {"CTA_SUBSCRIBE", "CTA_RENEW"} or value.startswith("PLAN_"))):
             _resume_conversation(c, mobile)
             return
@@ -1294,9 +1302,19 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
             _resume_conversation(c, mobile)
             return
         if value == "CTA_PAYMENT_REVIEW":
-            if payment and payment.status.value == "FAILED":
-                c.logs.log("PAYMENT_REVIEW_REQUESTED", mobile, payment.reference_id)
-                _require_send(wa.send_text(mobile, f"Your review request for {payment.reference_id} has been recorded for the administrator. Please allow time for verification and do not pay again."), "review request")
+            review_payment = _latest_superseded_utr(c, mobile) if payment is None else None
+            if review_payment:
+                from domain.enums import PaymentStatus
+                review_payment.status = PaymentStatus.PENDING
+                review_payment.rejected_at = None
+                review_payment.superseded_at = None
+                c.payments.update(review_payment)
+                c.logs.log("PAYMENT_REVIEW_REQUESTED", mobile, review_payment.reference_id)
+                _require_send(wa.send_text(
+                    mobile,
+                    f"Your review request for {review_payment.reference_id} is pending administrator verification. "
+                    "Please do not pay again while it is under review.",
+                ), "review request")
             else:
                 _send_menu(c, mobile)
             return
@@ -1439,7 +1457,12 @@ def _handle_message(c, mobile: str, kind: str, value: str, name: str = "") -> No
         if referenced_utr:
             reference, text = referenced_utr.groups()
             payment = c.payments.find(reference.upper())
-            if not payment or payment.mobile != mobile or payment.status.value not in {"PENDING", "SUPERSEDED"}:
+            if (
+                not payment
+                or payment.mobile != mobile
+                or payment.status.value not in {"PENDING", "SUPERSEDED"}
+                or (payment.status.value == "SUPERSEDED" and not _superseded_review_open(c, payment))
+            ):
                 _require_send(wa.send_text(mobile, "That reference is not an open payment for your account. Send MENU to check payment status."), "payment reference")
                 return
             other_review = any(p.mobile == mobile and p.reference_id != payment.reference_id
@@ -1490,8 +1513,12 @@ def _handle_utr_confirmation(c, mobile: str, value: str) -> None:
         return
     reference = state.get("utr_reference", "")
     payment = c.payments.find(reference)
-    if (not payment or payment.mobile != mobile
-            or payment.status.value not in {"PENDING", "SUPERSEDED"}):
+    if (
+        not payment
+        or payment.mobile != mobile
+        or payment.status.value not in {"PENDING", "SUPERSEDED"}
+        or (payment.status.value == "SUPERSEDED" and not _superseded_review_open(c, payment))
+    ):
         _send_menu(c, mobile)
         return
     if value.startswith("UTR_EDIT_"):
@@ -1542,7 +1569,7 @@ def _start_payment(c, mobile: str, plan: str, returning: bool = False) -> None:
     `returning=True` uses renewal wording for an existing subscriber.
     """
     payment = _checkout_payment(c, mobile)
-    if payment and payment.status.value != "PENDING":
+    if payment and (payment.status.value != "PENDING" or payment.utr):
         _require_send(c.whatsapp.send_text(mobile, _payment_status_text(c, payment)), "payment status")
         return
     if _has_active_subscription(c, mobile) and plan not in _eligible_plan_names(c, mobile):
@@ -1609,8 +1636,17 @@ def _send_payment_instructions(c, mobile, payment, returning=False):
 def _resume_conversation(c, mobile):
     state = c.conversations.find(mobile) or {}
     draft_payment = c.payments.find(state.get("utr_reference", "")) if state.get("utr_confirmation") else None
-    if (draft_payment and draft_payment.mobile == mobile
-            and draft_payment.status.value in {"PENDING", "SUPERSEDED"}):
+    if (
+        draft_payment
+        and draft_payment.mobile == mobile
+        and (
+            draft_payment.status.value == "PENDING"
+            or (
+                draft_payment.status.value == "SUPERSEDED"
+                and _superseded_review_open(c, draft_payment)
+            )
+        )
+    ):
         _send_utr_confirmation(c, mobile, state)
         return
     sub = c.subscribers.find(mobile)
@@ -1664,23 +1700,11 @@ def _payment_status_text(c, payment):
         from application.payment_messages import payment_approval_text
         return payment_approval_text(c.config, payment, c.subscribers.find(payment.mobile))
     if payment.utr:
-        active = _has_active_subscription(c, payment.mobile)
-        if active:
-            larger_plans = _larger_plan_names(c, payment.mobile)
-            expiring_soon = _is_expiring_soon(c, payment.mobile)
-            plan_action = (
-                "You may choose Renew to keep your current plan or choose a larger plan."
-                if expiring_soon
-                else "You may choose Upgrade to choose a larger plan."
-                if larger_plans
-                else "Same-plan renewal opens three days before expiry."
-            )
-        else:
-            plan_action = "You may choose Change plan."
         return (f"Payment verification pending for {ref}. Please allow the admin time to verify it. "
                 f"If you have already made payment, please confirm your UTR in this format: "
                 f"*UTR {ref} 123456789012* (replace the last 12 digits with your UTR). "
-                f"{plan_action} Do not pay again if this payment is already complete.")
+                "Plan changes and replacement payments remain locked until the review completes. "
+                "Do not pay again if this payment is already complete.")
     return f"Payment {ref} is awaiting payment. Send MENU and select Payment instructions."
 
 
@@ -1706,6 +1730,40 @@ def _checkout_payment(c, mobile):
         if welcome and (welcome.get("publication_verified") == "true" or welcome.get("status") in {"PENDING", "UNKNOWN", "SENT", "DELIVERED", "READ"}):
             return None
     return payment
+
+
+def _latest_superseded_utr(c, mobile):
+    """Latest archived UTR that the customer may explicitly reopen for review."""
+    sub = c.subscribers.find(mobile)
+    applied = _applied_payment_refs(sub) if sub else set()
+    payments = [
+        payment for payment in c.payments.all()
+        if payment.mobile == mobile
+        and payment.status.value == "SUPERSEDED"
+        and payment.utr
+        and _superseded_review_open(c, payment)
+        and payment.reference_id not in applied
+    ]
+    if not payments:
+        return None
+    return max(
+        payments,
+        key=lambda payment: (
+            payment.created_at.isoformat() if payment.created_at else "",
+            payment.reference_id,
+        ),
+    )
+
+
+def _superseded_review_open(c, payment) -> bool:
+    """Allow unresolved superseded UTR recovery only during its visibility window."""
+    if payment.status.value != "SUPERSEDED" or payment.rejected_at:
+        return False
+    anchor = payment.superseded_at or payment.utr_confirmed_at or payment.created_at
+    if anchor is None:
+        return False
+    days = max(1, int(c.config.get("delivery", {}).get("failed_payment_release_days", 3)))
+    return 0 <= (today_ist() - today_ist(anchor)).days < days
 
 
 def _latest_pending_payment(c, mobile: str):

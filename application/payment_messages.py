@@ -6,11 +6,10 @@ from datetime import timedelta
 
 DEFAULT_REJECTION_MESSAGE = (
     "Payment {reference_id} was rejected after verification. "
-    "You can send MENU and select Request review now. "
-    "Starting another renewal or upgrade is temporarily blocked. "
-    "This rejected checkout becomes eligible for automatic release on {release_date}, "
-    "after {release_days} full calendar days. Keep your payment proof and do not pay again "
-    "until the payment is resolved."
+    "This admin decision is final for that payment reference, so its UTR cannot be revised or "
+    "submitted for review again. Creating another payment is temporarily blocked until "
+    "{release_date}, after {release_days} full calendar days. After release, send MENU to create "
+    "a new eligible payment. Keep your payment proof and do not pay again during the blocked period."
 )
 
 DEFAULT_APPROVAL_MESSAGE = (

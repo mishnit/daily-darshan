@@ -39,7 +39,7 @@ def handle_admin(c, mobile, value):
         except ValueError:
             text("Send ADMIN to reopen review.")
             return
-        payments = sorted((p for p in c.payments.all() if p.status.value in {"PENDING", "SUPERSEDED"}
+        payments = sorted((p for p in c.payments.all() if p.status.value == "PENDING"
                            and p.utr), key=lambda p: p.reference_id)
         selected = payments[offset:offset + 9]
         if not selected:
@@ -61,7 +61,7 @@ def handle_admin(c, mobile, value):
     state = c.conversations.find(mobile) or {"mobile": mobile, "version": "0"}
     if value.startswith("ADM_PAY_"):
         p = c.payments.find(value.removeprefix("ADM_PAY_"))
-        if not p or p.status.value not in {"PENDING", "SUPERSEDED"} or not p.utr:
+        if not p or p.status.value != "PENDING" or not p.utr:
             text("This payment is no longer awaiting review. Send ADMIN to refresh.")
             return
         token = uuid4().hex

@@ -14,7 +14,8 @@ from application.admin_alert import payment_counts
 from application.image_approval import deployment_ready
 from adapters.github import LocalGitRepository
 from domain.clock import today_ist, INDIA_TZ
-from domain.enums import SubscriberStatus
+from domain.enums import PaymentStatus, SubscriberStatus
+from domain.payment import Payment
 from domain.subscriber import Subscriber
 from tests.test_admin import container
 from tests.conftest import FakeWhatsApp
@@ -51,6 +52,31 @@ def test_only_confirmed_utr_visible_to_admin(review):
     main._handle_message(c, ADMIN, "button", "ADM_PAYMENTS_0")
     assert "No confirmed UTRs" in c.whatsapp.sent[-1]["message"]
     assert payment_counts([c.payments.find(p.reference_id).to_row()], today_ist()) == (0, 1)
+
+
+def test_admin_review_and_alert_exclude_failed_and_superseded_utrs(review):
+    c = review
+    pending = confirmed(c)
+    superseded = Payment(
+        "DD2609229001", CUSTOMER, "monthly", 49,
+        status=PaymentStatus.SUPERSEDED, utr="222222222222",
+    )
+    superseded.mark_superseded()
+    c.payments.append(superseded)
+    failed = Payment(
+        "DD2609229002", CUSTOMER, "monthly", 49,
+        status=PaymentStatus.FAILED, utr="333333333333", rejected_at=datetime.now(INDIA_TZ),
+    )
+    c.payments.append(failed)
+    pending.status = PaymentStatus.PENDING
+    c.payments.update(pending)
+
+    main._handle_message(c, ADMIN, "button", "ADM_PAYMENTS_0")
+
+    assert c.whatsapp.sent[-1]["rows"] == [f"ADM_PAY_{pending.reference_id}"]
+    assert payment_counts(
+        [payment.to_row() for payment in c.payments.all()], today_ist()
+    )[0] == 1
 
 
 def test_authorized_approval_applies_once_and_queues_publication(review):
@@ -131,7 +157,7 @@ def test_admin_rejection_does_not_activate(review):
         if item.get("mobile") == CUSTOMER and item.get("type") == "text"
     )
     assert p.reference_id in customer_notice["message"]
-    assert "Request review" in customer_notice["message"]
+    assert "After release" in customer_notice["message"]
     assert "temporarily blocked" in customer_notice["message"]
     assert "full calendar days" in customer_notice["message"]
     assert c.subscribers.find(CUSTOMER).status == SubscriberStatus.PENDING
@@ -167,7 +193,7 @@ def test_dates_use_confirmation_and_preserve_remaining_days(review, remaining):
     args = SimpleNamespace(reference_id=p.reference_id, activate=True, renew=False, commit=False, skip_render=True)
     assert admin.cmd_verify(c, args) == 0
     first = c.subscribers.find(CUSTOMER)
-    assert first.start_date == day
+    assert first.start_date == date(2026, 8, 1)
     assert first.end_date == day + timedelta(days=max(0, remaining) + 30)
     assert admin.cmd_verify(c, args) == 0
     assert c.subscribers.find(CUSTOMER).to_row() == first.to_row()

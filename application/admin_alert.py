@@ -10,7 +10,7 @@ from domain.clock import today_ist
 
 
 def payment_counts(rows, today):
-    review = [r for r in rows if r.get("status") in {"PENDING", "SUPERSEDED"} and r.get("utr")]
+    review = [r for r in rows if r.get("status") == "PENDING" and r.get("utr")]
     missing = [r for r in rows if r.get("status") == "PENDING" and not r.get("utr")
                and r.get("reference_id", "").startswith(f"DD{today:%y%m%d}")]
     return len(review), len(missing)

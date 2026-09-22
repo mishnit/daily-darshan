@@ -635,11 +635,14 @@ Details:
 - Help, Stop messages, Continue, Resend and Back are not menu options. Typed STOP and the
   consent disclosure's No thanks button still revoke consent without removing paid days.
 - An unpaid checkout shows Payment instructions and Change plan for new users, Renew for existing
-  subscribers, and Upgrade/Renew for active users according to the renewal window. After UTR submission, Payment status and the
-  applicable plan action remain available. Status repeats the reference-qualified
-  UTR format so the customer can identify the checkout actually paid. Choosing another plan
-  creates a new checkout; a customer who already paid must confirm the older paid-against
-  reference as `UTR <reference> <12-digit UTR>` and must not pay again.
+  subscribers, and Upgrade/Renew for active users according to the renewal window. After UTR
+  submission, only Payment status remains; replacement payments and plan changes are locked until
+  the administrator accepts or rejects the submitted evidence. Status repeats the
+  reference-qualified UTR format so the customer can identify the checkout actually paid.
+- The normal WhatsApp menu body never exposes a payment reference, UTR, amount, approval/rejection
+  decision, or detailed payment status. Those details are returned only after the customer selects
+  Payment instructions or Payment status from the list. Review past UTR may identify its reference
+  in the list row so the customer can deliberately select the correct historical transaction.
 - Sending a reference-qualified UTR again creates a correction draft. Only tapping Confirm UTR
   replaces the previously stored UTR. The acknowledgement names the latest UTR and payment reference,
   confirms that it is awaiting admin verification within 24 hours, and tells the user to send
@@ -668,12 +671,35 @@ Details:
   and questions are rejected with a name prompt; valid names remain title-cased.
 - An active opted-out user always has Resume messages, even during payment review. Its
   separate consent action changes consent only, not checkout, UTR or entitlement.
-- Rejected users can select Request review. This records `PAYMENT_REVIEW_REQUESTED` in the
-  operational log through the immediate critical Git lane and acknowledges the request only after
-  that commit; it does not automatically notify an admin or
-  approve payment. Administrators inspect `list-rejected` and logs. A new checkout is unlocked
-  only after `reopen-payment <reference> --no-payment-confirmed --commit`, or the original
-  payment is verified after proof review. The explicit flag must never be used if payment occurred.
+- A `FAILED` payment blocks new checkout creation and UTR revision for three full calendar days.
+  It is absent from the ordinary WhatsApp admin queue during that interval. Cleanup changes it to
+  `SUPERSEDED`; the customer may then start a fresh eligible checkout. A rejected reference retains
+  its rejection timestamp and cannot be revised or reviewed again. Only an unresolved superseded
+  UTR with no prior admin decision and a `superseded_at` age under three calendar days may be revised
+  or promoted back to `PENDING` through Review past UTR. Administrators see only `PENDING` rows with
+  a confirmed UTR.
+
+### Customer permissions by payment state
+
+Only `PENDING`, `SUCCESS`, `FAILED`, and `SUPERSEDED` are stored in
+`payments.csv.status`. UTR presence, `rejected_at`, and `activation_state` further determine which
+customer actions are safe.
+
+| Payment state and row condition | View transaction/payment information | Revise UTR | Request admin review | Create another payment |
+|---|---|---|---|---|
+| `PENDING`, UTR empty | Yes, payment instructions | Yes | No, nothing has been submitted | Yes; replacing it makes the old row `SUPERSEDED` |
+| `PENDING`, UTR present | Yes, verification pending | Yes, until an admin decision | Already in admin review | No |
+| `SUCCESS` | Yes while activation or publication is pending; afterward subscription status is shown | No | No | Only when upgrade or renewal rules permit |
+| `FAILED` | Yes, including rejection and release date | No | No | No for three calendar days |
+| `SUPERSEDED`, UTR present, `rejected_at` empty, under three days old | Reference is exposed through Review past UTR | Yes, using the reference | Yes; changes status to `PENDING` | Yes, subject to plan eligibility |
+| `SUPERSEDED`, UTR present, `rejected_at` empty, at least three days old | No ordinary transaction action; retained for audit | No | No | Yes, subject to plan eligibility |
+| `SUPERSEDED`, `rejected_at` present | No ordinary transaction action; retained for audit | No | No | Yes, subject to plan eligibility |
+| `SUPERSEDED`, UTR empty | No ordinary transaction action | No | No | Yes, subject to plan eligibility |
+
+The WhatsApp admin **Review payments** option contains only `PENDING` rows with a non-empty UTR.
+`SUCCESS`, `FAILED`, and `SUPERSEDED` rows never appear in that queue. An admin approval or rejection
+is final for that payment reference.
+
 - A WhatsApp admin rejection immediately sends the customer the configured
   `messages.payment_rejected` response. `{reference_id}`, `{release_days}`, and `{release_date}`
   are supported placeholders. Payment status reuses exactly the same text so the proactive notice
@@ -688,10 +714,13 @@ Details:
   so the customer can renew or upgrade again without deleting the old reference, UTR, timestamp, or
   audit history. Legacy rows use their `PAYMENT_REJECTED` log timestamp and remain blocked when no
   trustworthy rejection timestamp exists.
-- As soon as one approved payment is applied, every other `PENDING` or `FAILED` checkout for that
-  customer becomes `SUPERSEDED`. This immediately removes competing reviews from the customer menu
-  without deleting their UTR evidence. Those rows remain in the admin review queue and can still be
-  verified later when bank evidence proves that a second payment also occurred.
+- As soon as one approved payment is applied, another submitted UTR for the same customer and same
+  plan becomes `FAILED`, with a rejection timestamp and audit event. It blocks payment/UTR changes
+  for `delivery.failed_payment_release_days` (currently three full calendar days). Cleanup then
+  changes it to `SUPERSEDED` without deleting its UTR. The prior rejection remains final for that
+  reference; cleanup only permits a new eligible checkout.
+  Unpaid competing checkouts and unresolved different-plan rows become `SUPERSEDED` immediately.
+  `SUPERSEDED` and `FAILED` rows never appear in the ordinary WhatsApp admin payment queue.
 - A newly verified purchase can reactivate a CANCELLED subscriber once, starting a fresh term
   from the UTR-confirmation IST date without silently restoring consent. Old cancelled/paused/expired
   activation welcomes are cancelled rather than announcing an active subscription.
@@ -933,7 +962,7 @@ token does not trigger another push workflow. No new Meta template is needed: th
 reviews and image previews. The template's URL button remains a workflow-run link.
 
 New operational schemas (existing headers migrate on write):
-- `payments.csv`: adds `utr_confirmed_at` and `rejected_at`.
+- `payments.csv`: adds `utr_confirmed_at`, `rejected_at`, and `superseded_at`.
 - `conversations.csv`: adds draft and admin decision fields; only opaque, sender-bound buttons
   for the current snapshot can approve.
 - `image_reviews.csv`: `id,date,generation,source,path,sha256,status,approved_by,approved_at`.

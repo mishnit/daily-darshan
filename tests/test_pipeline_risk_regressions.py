@@ -50,6 +50,8 @@ def test_pending_utr_alert_runs_at_9pm_ist_and_only_alerts_for_missing_utr():
     assert payment_counts([
         {"reference_id": "DD2609160001", "status": "PENDING", "utr": ""},
         {"reference_id": "DD2609150001", "status": "PENDING", "utr": "123456789012"},
+        {"reference_id": "DD2609150002", "status": "SUPERSEDED", "utr": "222222222222"},
+        {"reference_id": "DD2609150003", "status": "FAILED", "utr": "333333333333"},
         {"reference_id": "DD2609140001", "status": "SUCCESS", "utr": "999999999999"},
     ], date(2026, 9, 16)) == (1, 1)
 

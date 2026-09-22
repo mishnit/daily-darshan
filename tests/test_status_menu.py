@@ -7,7 +7,7 @@ import pytest
 from tests.test_admin import container
 from tests.conftest import FakeWhatsApp
 from domain.subscriber import Subscriber
-from domain.enums import SubscriberStatus
+from domain.enums import PaymentStatus, SubscriberStatus
 
 
 @pytest.mark.parametrize("status,expiry,expected", [
@@ -285,7 +285,7 @@ def test_yearly_payment_status_does_not_offer_extend_plan(container):
     container.payments.update(payment)
 
     message = main._payment_status_text(container, payment)
-    assert "Same-plan renewal opens three days before expiry" in message
+    assert "locked until the review completes" in message
     assert "choose Upgrade" not in message
 
 
@@ -388,8 +388,36 @@ def test_active_higher_plan_keeps_lower_checkout_with_utr_as_review_only(contain
 
     assert container.payments.find(lower.reference_id).status == PaymentStatus.PENDING
     assert calls[-1][3][1] == ("CTA_PAYMENT", "Payment status", "View your payment details")
-    assert "verification pending" in calls[-1][1]
+    assert "verification pending" not in calls[-1][1]
+    assert lower.reference_id not in calls[-1][1]
     assert "Payment instructions" not in calls[-1][1]
+
+
+@pytest.mark.parametrize("status,utr,activation_state", [
+    (PaymentStatus.PENDING, "123456789012", ""),
+    (PaymentStatus.FAILED, "123456789012", ""),
+    (PaymentStatus.SUCCESS, "123456789012", "PENDING"),
+])
+def test_menu_body_never_exposes_payment_details(container, status, utr, activation_state):
+    import main
+
+    container.subscriber_service.upsert_pending("9199", "monthly", "Nitin")
+    payment = container.payment_service.create_payment("9199", "monthly")
+    payment.status = status
+    payment.utr = utr
+    payment.activation_state = activation_state
+    container.payments.update(payment)
+    container.whatsapp = FakeWhatsApp()
+
+    main._send_menu(container, "9199")
+
+    menu = container.whatsapp.sent[-1]
+    assert "CTA_PAYMENT" in menu["rows"]
+    assert payment.reference_id not in menu["body"]
+    assert payment.utr not in menu["body"]
+    assert "verification pending" not in menu["body"]
+    assert "rejected after verification" not in menu["body"]
+    assert "approved" not in menu["body"]
 
 
 def test_new_user_plan_list_offers_all_configured_plans(container):
