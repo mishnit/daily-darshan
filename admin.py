@@ -104,7 +104,11 @@ def _verify_locked(container: Container, args) -> int:
             existing = container.subscribers.find(payment.mobile)
             from domain.subscriber import Subscriber
             sub = existing or Subscriber(mobile=payment.mobile, plan=payment.plan, opt_in=False)
-            applied = set(filter(None, sub.applied_payment_refs.split(";")))
+            from application.payment_references import (
+                parse_applied_payment_refs,
+                serialize_applied_payment_refs,
+            )
+            applied = parse_applied_payment_refs(sub.applied_payment_refs)
             newly_applied = reference_id not in applied
             if reference_id not in applied and payment.activation_state != "PENDING":
                 raise SubscriberError(
@@ -140,7 +144,7 @@ def _verify_locked(container: Container, args) -> int:
                 action = "Activated"
             sub.ensure_subscription_id()
             applied.add(reference_id)
-            sub.applied_payment_refs = ";".join(sorted(applied))
+            sub.applied_payment_refs = serialize_applied_payment_refs(applied)
             # Dates and their idempotency marker are one atomic row update.
             container.subscribers.update(sub)
             payment.activation_state = "APPLIED"
