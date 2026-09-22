@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <meta name="darshan-subscription" content="97a3afa300c74918968aa1ab46dab24a">
-  <meta name="darshan-date" content="2026-09-21">
+  <meta name="darshan-date" content="2026-09-22">
   <meta name="darshan-expiry" content="2026-10-16">
-  <title>Daily Darshan — 2026-09-21</title>
+  <title>Daily Darshan — 2026-09-22</title>
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Daily Darshan — 2026-09-21">
-  <meta property="og:description" content="Delivered — 2026-09-21">
-  <meta property="og:image" content="https://vipseva.com/images/5072d718-c719-5c70-9606-c0b07097d449_2026-09-21.jpg">
+  <meta property="og:title" content="Daily Darshan — 2026-09-22">
+  <meta property="og:description" content="Delivered — 2026-09-22">
+  <meta property="og:image" content="https://vipseva.com/images/b22e9742-d6ce-5fe4-897e-d6266ab881ca_2026-09-22.jpg">
   <style>
     html, body { height: 100%; }
     body { font-family: system-ui, sans-serif; margin: 0; overflow: hidden;
@@ -59,15 +59,15 @@
     <div class="greeting">Radhe Radhe Priyanka Gautam Ji 🙏</div>
     <div class="greeting">Your Daily Darshan subscription is active till 2026-10-16</div>
     
-    <section class="daily-shloka" aria-label="Today's shloka" data-shloka-date="2026-09-21"><strong>Mahakal · <span data-shloka-label>Today's Shloka</span></strong><p lang="sa">ॐ नमः शिवाय।</p></section>
+    <section class="daily-shloka" aria-label="Today's shloka" data-shloka-date="2026-09-22"><strong>Salangpur · <span data-shloka-label>Today's Shloka</span></strong><p lang="sa">ॐ हनुमते नमः।</p></section>
     
     <div class="image-frame">
-      <img class="darshan" src="https://vipseva.com/images/5072d718-c719-5c70-9606-c0b07097d449_2026-09-21.jpg" alt="Daily Darshan for 2026-09-21"
+      <img class="darshan" src="https://vipseva.com/images/b22e9742-d6ce-5fe4-897e-d6266ab881ca_2026-09-22.jpg" alt="Daily Darshan for 2026-09-22"
            onerror="this.onerror=null; this.src='https://vipseva.com/images/fallback.jpg';">
     </div>
     <div class="share">
       <p class="karma">Karma points: <span id="karma-points">0</span></p>
-      <button id="share-darshan" type="button" data-image-url="https://vipseva.com/images/5072d718-c719-5c70-9606-c0b07097d449_2026-09-21.jpg" data-share-text="Radhe Radhe 🙏
+      <button id="share-darshan" type="button" data-image-url="https://vipseva.com/images/b22e9742-d6ce-5fe4-897e-d6266ab881ca_2026-09-22.jpg" data-share-text="Radhe Radhe 🙏
 
 Today&#x27;s HD Daily Darshan.
 
@@ -98,7 +98,7 @@ https://vipseva.com/?ref=919108711599">Share Today&#x27;s Darshan on WhatsApp an
   let file;
   const imageUrl = button.dataset.imageUrl;
   const text = button.dataset.shareText;
-  const karmaApi = "https://daily-darshan-webhook.onrender.com/karma/share";
+  const karmaApi = "https://api.vipseva.com/karma/share";
   const subscriptionId = "97a3afa300c74918968aa1ab46dab24a";
   const points = document.getElementById('karma-points');
   fetch(imageUrl).then(r => { if (!r.ok) throw new Error('image unavailable'); return r.blob(); })
