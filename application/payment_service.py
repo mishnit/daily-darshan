@@ -54,7 +54,7 @@ class PaymentService:
         for p in self._payments.all():
             if (p.mobile == mobile and p.status == PaymentStatus.PENDING
                     and p.reference_id != keep_reference_id):
-                p.status = PaymentStatus.SUPERSEDED
+                p.mark_superseded()
                 self._payments.update(p)
                 self._log("PAYMENT_SUPERSEDED", mobile, p.reference_id)
                 count += 1
@@ -65,6 +65,16 @@ class PaymentService:
             raise PaymentError(f"Unknown plan: {plan}")
         amount = float(self._plans[plan]["amount"])
         on_date = on_date or today_ist()
+
+        if any(
+            payment.mobile == mobile
+            and payment.status == PaymentStatus.PENDING
+            and payment.utr
+            for payment in self._payments.all()
+        ):
+            raise PaymentError(
+                "Another payment is already under review; do not create a replacement checkout"
+            )
 
         # (#4) Supersede any earlier still-pending payments for this mobile so
         # only the newest is actionable; a UTR then attaches unambiguously.
@@ -124,6 +134,10 @@ class PaymentService:
         payment = self._payments.find(reference_id)
         if payment is None:
             raise PaymentError(f"Payment not found: {reference_id}")
+        if payment.status in {PaymentStatus.SUCCESS, PaymentStatus.FAILED}:
+            raise PaymentError("An approved or rejected payment reference cannot be revised")
+        if payment.status == PaymentStatus.SUPERSEDED and payment.rejected_at:
+            raise PaymentError("A previously rejected payment reference cannot be revised")
         if not is_valid_utr(utr):
             raise PaymentError(f"Invalid UTR: {utr!r}")
         if reconcile_checkout and any(
@@ -157,18 +171,45 @@ class PaymentService:
     def supersede_other_unresolved(self, mobile: str, keep_reference_id: str) -> list[Payment]:
         """Release every competing checkout after one entitlement is applied.
 
-        UTR evidence is retained and SUPERSEDED rows remain available to the
-        admin review queue. They are not marked FAILED because that status
-        deliberately blocks customer checkout until resolution or cleanup.
+        Another submitted UTR for the same purchased plan is rejected because
+        the administrator has selected the payment that funds that entitlement.
+        It remains FAILED for the configured cleanup window and cannot be
+        challenged again, while different-plan evidence remains reconcilable.
         """
         released = []
+        approved = self._payments.find(keep_reference_id)
+        if approved is None:
+            return released
         for payment in self._payments.all():
             if (
                 payment.mobile == mobile
                 and payment.reference_id != keep_reference_id
-                and payment.status in {PaymentStatus.PENDING, PaymentStatus.FAILED}
+                and payment.status in {
+                    PaymentStatus.PENDING,
+                    PaymentStatus.FAILED,
+                    PaymentStatus.SUPERSEDED,
+                }
             ):
-                payment.status = PaymentStatus.SUPERSEDED
+                if payment.plan == approved.plan and payment.utr:
+                    if payment.status != PaymentStatus.FAILED:
+                        payment.status = PaymentStatus.FAILED
+                        payment.rejected_at = datetime.now(INDIA_TZ)
+                        payment.superseded_at = None
+                        self._payments.update(payment)
+                        self._log(
+                            "PAYMENT_DUPLICATE_SAME_PLAN_FAILED_AFTER_APPROVAL",
+                            mobile,
+                            f"approved={keep_reference_id};failed={payment.reference_id}",
+                        )
+                        released.append(payment)
+                    elif payment.rejected_at is None:
+                        payment.rejected_at = datetime.now(INDIA_TZ)
+                        payment.superseded_at = None
+                        self._payments.update(payment)
+                    continue
+                if payment.status == PaymentStatus.SUPERSEDED:
+                    continue
+                payment.mark_superseded()
                 self._payments.update(payment)
                 self._log(
                     "PAYMENT_REVIEW_SUPERSEDED_AFTER_APPROVAL",

@@ -16,6 +16,7 @@ FIELDNAMES = [
     "activation_state", "utr_confirmed_at",
     "rejected_at",
     "payment_provider", "gateway_checkout_id", "gateway_payment_id", "checkout_url",
+    "superseded_at",
 ]
 
 

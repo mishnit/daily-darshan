@@ -136,7 +136,6 @@ def _verify_locked(container: Container, args) -> int:
                 # subscriber's active plan label.
                 sub.plan = _larger_plan(container, sub.plan, payment.plan) if already else payment.plan
                 sub.renew(container.payment_service.plan_days(payment.plan), effective_date)
-                sub.start_date = effective_date
                 action = "Renewed"
             else:
                 sub.plan = payment.plan
@@ -206,6 +205,7 @@ def cmd_reject(container: Container, args) -> int:
         return 1
     payment.status = PaymentStatus.FAILED
     payment.rejected_at = datetime.now(INDIA_TZ)
+    payment.superseded_at = None
     container.payments.update(payment)
     container.logs.log("PAYMENT_REJECTED", payment.mobile, reference_id)
     print(f"Rejected payment {reference_id}: status=FAILED")
@@ -225,7 +225,7 @@ def cmd_reopen_payment(container: Container, args) -> int:
         if not payment or payment.status != PaymentStatus.FAILED or not args.no_payment_confirmed:
             print("ERROR: requires a FAILED payment and --no-payment-confirmed", file=sys.stderr)
             return 1
-        payment.status = PaymentStatus.SUPERSEDED
+        payment.mark_superseded()
         container.payments.update(payment)
         container.logs.log("PAYMENT_REJECTION_RESOLVED", payment.mobile, payment.reference_id)
         if args.commit:

@@ -9,6 +9,8 @@ import admin
 from tests.test_admin import container
 from tests.conftest import FakeWhatsApp
 from domain.enums import SubscriberStatus, PaymentStatus
+from domain.payment import Payment
+from application.payment_cleanup import release_stale_failed_payments
 from application.welcome_service import drain_welcomes
 
 
@@ -160,13 +162,96 @@ def test_rejected_payment_review_and_explicit_admin_resolution(container):
     prepare(container)
     p = container.payment_service.create_payment('9199', 'monthly')
     admin.cmd_reject(container, SimpleNamespace(reference_id=p.reference_id, commit=False))
-    main._handle_message(container, '9199', 'button', 'CTA_PAYMENT_REVIEW')
-    assert 'recorded' in container.whatsapp.sent[-1]['message']
-    args = SimpleNamespace(reference_id=p.reference_id, no_payment_confirmed=False, commit=False)
-    assert admin.cmd_reopen_payment(container, args) == 1
-    args.no_payment_confirmed = True
-    assert admin.cmd_reopen_payment(container, args) == 0
+    main._send_menu(container, '9199')
+    assert 'CTA_PAYMENT_REVIEW' not in container.whatsapp.sent[-1]['rows']
+    rejected_on = container.payments.find(p.reference_id).rejected_at.date()
+    release_stale_failed_payments(container, rejected_on + timedelta(days=3))
+    main._send_menu(container, '9199')
+    assert 'CTA_PAYMENT_REVIEW' not in container.whatsapp.sent[-1]['rows']
     assert container.payments.find(p.reference_id).status == PaymentStatus.SUPERSEDED
+    main._handle_message(container, '9199', 'text', f'UTR {p.reference_id} 999999999999')
+    assert 'not an open payment' in container.whatsapp.sent[-1]['message']
+    assert container.payments.find(p.reference_id).utr != '999999999999'
+
+
+def test_unresolved_superseded_utr_can_be_requested_for_review_once(container):
+    prepare(container)
+    payment = container.payment_service.create_payment('9199', 'monthly')
+    payment.record_utr('123456789012')
+    payment.status = PaymentStatus.SUPERSEDED
+    container.payments.update(payment)
+
+    main._send_menu(container, '9199')
+    assert 'CTA_PAYMENT_REVIEW' in container.whatsapp.sent[-1]['rows']
+    main._handle_message(container, '9199', 'button', 'CTA_PAYMENT_REVIEW')
+
+    assert container.payments.find(payment.reference_id).status == PaymentStatus.PENDING
+    assert 'pending administrator verification' in container.whatsapp.sent[-1]['message']
+
+
+def test_unresolved_superseded_utr_review_offer_expires_after_three_days(container):
+    prepare(container)
+    payment = container.payment_service.create_payment('9199', 'monthly')
+    payment.record_utr('123456789012')
+    now = datetime.now(ZoneInfo('Asia/Kolkata'))
+    payment.mark_superseded(now - timedelta(days=2))
+    container.payments.update(payment)
+
+    main._send_menu(container, '9199')
+    assert 'CTA_PAYMENT_REVIEW' in container.whatsapp.sent[-1]['rows']
+
+    payment = container.payments.find(payment.reference_id)
+    payment.mark_superseded(now - timedelta(days=3))
+    container.payments.update(payment)
+    main._send_menu(container, '9199')
+    assert 'CTA_PAYMENT_REVIEW' not in container.whatsapp.sent[-1]['rows']
+
+    main._handle_message(
+        container, '9199', 'text', f'UTR {payment.reference_id} 999999999999',
+    )
+    assert 'not an open payment' in container.whatsapp.sent[-1]['message']
+    assert container.payments.find(payment.reference_id).utr == '123456789012'
+
+
+def test_auto_failed_same_plan_utr_blocks_revision_until_three_day_cleanup(container):
+    prepare(container)
+    approved = container.payment_service.create_payment('9199', 'monthly')
+    approved.record_utr('111111111111')
+    container.payments.update(approved)
+    duplicate = Payment(
+        'DD2609229001', '9199', 'monthly', approved.amount,
+        status=PaymentStatus.PENDING, utr='222222222222', created_at=approved.created_at,
+    )
+    container.payments.append(duplicate)
+
+    args = SimpleNamespace(
+        reference_id=approved.reference_id, activate=True, renew=False, commit=False,
+    )
+    assert admin.cmd_verify(container, args) == 0
+    failed = container.payments.find(duplicate.reference_id)
+    assert failed.status == PaymentStatus.FAILED
+
+    main._handle_message(
+        container, '9199', 'text', f'UTR {duplicate.reference_id} 333333333333',
+    )
+    assert 'not an open payment' in container.whatsapp.sent[-1]['message']
+    assert container.payments.find(duplicate.reference_id).utr == '222222222222'
+
+    rejected_on = failed.rejected_at.date()
+    assert release_stale_failed_payments(
+        container, rejected_on + timedelta(days=2), after_days=3,
+    ) == []
+    released = release_stale_failed_payments(
+        container, rejected_on + timedelta(days=3), after_days=3,
+    )
+    assert [payment.reference_id for payment in released] == [duplicate.reference_id]
+    assert container.payments.find(duplicate.reference_id).status == PaymentStatus.SUPERSEDED
+
+    main._handle_message(
+        container, '9199', 'text', f'UTR {duplicate.reference_id} 333333333333',
+    )
+    assert 'not an open payment' in container.whatsapp.sent[-1]['message']
+    assert container.payments.find(duplicate.reference_id).utr == '222222222222'
 
 
 def test_publication_change_invalidates_queued_status(container):

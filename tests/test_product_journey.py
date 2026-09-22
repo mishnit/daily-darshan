@@ -54,30 +54,16 @@ def test_payment_review_cannot_be_replaced_by_stale_cta(container, action):
     main._handle_message(container, "9199", "button", container.whatsapp.sent[-1]["buttons"][0])
     main._send_menu(container, "9199")
     assert "CTA_PAYMENT" in container.whatsapp.sent[-1]["rows"]
-    assert "CTA_RENEW" in container.whatsapp.sent[-1]["rows"]
-    assert f"UTR {paid.reference_id} 123456789012" in container.whatsapp.sent[-1]["body"]
+    assert "CTA_RENEW" not in container.whatsapp.sent[-1]["rows"]
+    assert paid.reference_id not in container.whatsapp.sent[-1]["body"]
+    assert "123456789012" not in container.whatsapp.sent[-1]["body"]
 
     main._handle_message(container, "9199", "button", action)
-    if action == "CTA_BACK":
-        assert "CTA_RENEW" in container.whatsapp.sent[-1]["rows"]
-        main._handle_message(container, "9199", "button", "CTA_RENEW")
-    if action != "PLAN_yearly":
-        assert "PLAN_yearly" in container.whatsapp.sent[-1]["rows"]
-        main._handle_message(container, "9199", "button", "PLAN_yearly")
-    replacement = main._latest_pending_payment(container, "9199")
-    assert replacement.reference_id != paid.reference_id
+    assert len(container.payments.all()) == 1
     preserved = container.payments.find(paid.reference_id)
-    assert preserved.status == PaymentStatus.SUPERSEDED
+    assert preserved.status == PaymentStatus.PENDING
     assert preserved.utr == "123456789012"
     assert container.subscribers.find("9199").to_row() == entitlement_before
-    assert f"Example: *UTR {replacement.reference_id} 123456789012*" in container.whatsapp.sent[-1]["message"]
-
-    main._handle_message(container, "9199", "text", f"UTR {paid.reference_id} 123456789012")
-    main._handle_message(container, "9199", "button", container.whatsapp.sent[-1]["buttons"][0])
-    assert container.payments.find(paid.reference_id).status == PaymentStatus.PENDING
-    assert container.payments.find(replacement.reference_id).status == PaymentStatus.SUPERSEDED
-    assert "awaiting admin verification" in container.whatsapp.sent[-1]["message"]
-    assert "within 24 hours" in container.whatsapp.sent[-1]["message"]
 
 
 def test_payment_status_during_review_explains_reference_qualified_utr(container):
@@ -91,7 +77,7 @@ def test_payment_status_during_review_explains_reference_qualified_utr(container
     message = container.whatsapp.sent[-1]["message"]
     assert "verification pending" in message
     assert f"UTR {payment.reference_id} 123456789012" in message
-    assert "Upgrade" in message
+    assert "locked until the review completes" in message
 
 
 def test_reference_qualified_utr_correction_overwrites_previous_value(container):
@@ -194,7 +180,7 @@ def test_messages_do_not_advertise_obsolete_navigation(container, stage):
     assert not set(rows) & {"CTA_CONTINUE", "CTA_RESEND", "CTA_BACK", "CTA_HELP", "CTA_STOP"}
     if stage in {"unpaid", "review"}:
         assert "CTA_PAYMENT" in rows
-        assert "CTA_RENEW" in rows
+        assert ("CTA_RENEW" in rows) == (stage == "unpaid")
         main._handle_message(container, "9199", "button", "CTA_PAYMENT")
         assert main._latest_pending_payment(container, "9199").reference_id in container.whatsapp.sent[-1]["message"]
     main._handle_message(container, "9199", "button", "CTA_HELP")
@@ -278,7 +264,7 @@ def test_orphaned_payment_evidence_keeps_status_and_blocks_purchase(container, s
     container.payments.update(payment)
     before = payment.to_row()
     main._send_menu(container, "9199")
-    assert container.whatsapp.sent[-1]["rows"] == ["CTA_PAYMENT"] + (["CTA_PAYMENT_REVIEW"] if status == "FAILED" else [])
+    assert container.whatsapp.sent[-1]["rows"] == ["CTA_PAYMENT"]
     for cta in ["CTA_SUBSCRIBE", "CTA_RENEW", "PLAN_monthly"]:
         main._handle_message(container, "9199", "button", cta)
         assert payment.reference_id in container.whatsapp.sent[-1]["message"]
@@ -313,7 +299,10 @@ def test_approved_payment_waits_for_publication_not_welcome_delivery(container, 
     p = container.payment_service.create_payment("9199", "monthly")
     admin.cmd_verify(container, SimpleNamespace(reference_id=p.reference_id, activate=True, renew=True, commit=False))
     main._send_menu(container, "9199")
-    assert "publication is awaiting confirmation" in container.whatsapp.sent[-1]["body"]
+    assert "publication is awaiting confirmation" not in container.whatsapp.sent[-1]["body"]
+    assert "CTA_PAYMENT" in container.whatsapp.sent[-1]["rows"]
+    main._handle_message(container, "9199", "button", "CTA_PAYMENT")
+    assert "publication is awaiting confirmation" in container.whatsapp.sent[-1]["message"]
     drain_welcomes(container, datetime.now().date(), lambda: None, lambda *a: False)
     assert main._checkout_payment(container, "9199") is not None
     monkeypatch.setattr(container.delivery_service, "send_welcome", lambda *a: WhatsAppResult(ok=False, error="template unavailable"))

@@ -1,8 +1,9 @@
 """Release stale rejected checkouts without deleting financial evidence."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 
+from domain.clock import INDIA_TZ
 from domain.enums import PaymentStatus
 
 
@@ -43,7 +44,7 @@ def release_stale_failed_payments(container, on_date: date, *, after_days: int =
         )
         if rejected_on is None or (on_date - rejected_on).days < after_days:
             continue
-        payment.status = PaymentStatus.SUPERSEDED
+        payment.mark_superseded(datetime.combine(on_date, time.min, tzinfo=INDIA_TZ))
         container.payments.update(payment)
         container.logs.log(
             "PAYMENT_REJECTION_AUTO_RELEASED",

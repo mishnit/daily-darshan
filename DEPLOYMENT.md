@@ -137,7 +137,7 @@ The image preview base in `config.json` uses publicly accessible raw repository 
 repository requires a separate HTTPS preview host accessible to Meta before enabling this flow.
 
 Schema changes are backward-compatible: `payments.csv` adds `utr_confirmed_at`, `rejected_at`,
-`payment_provider`, `gateway_checkout_id`, `gateway_payment_id`, and `checkout_url`; conversation
+`superseded_at`, `payment_provider`, `gateway_checkout_id`, `gateway_payment_id`, and `checkout_url`; conversation
 rows add draft/admin decision fields. New `image_reviews.csv` and `pipeline_requests.csv` are
 created automatically and included in atomic webhook persistence. Do not manually reset their
 rows to force retries. Reopen ADMIN to review a fresh snapshot after corrections.
@@ -311,15 +311,13 @@ rewrite. Blank means publication has not been confirmed by this worker. The work
 `true` after checking the published page, independently of notification outcome or opt-out.
 Old PENDING/UNKNOWN/SENT/DELIVERED/READ welcome rows imply the existing publication gate passed.
 The webhook never performs a network publication check while replying.
-Rejected payments remain blocked for user checkout until administrator resolution. Verify
-the original payment using `admin.py verify <reference> --activate --commit` only after
-validating payment proof. If no payment occurred, an administrator must explicitly reconcile
-  the rejected record before opening another checkout; rejection alone is not permission to pay again.
-Use `python admin.py list-rejected` and inspect `PAYMENT_REVIEW_REQUESTED` events in logs daily.
-The customer Request review action records a request, not an automatic admin notification.
-The delivery workflow cleanup changes unresolved `FAILED` rows to `SUPERSEDED` after the configured
-three full calendar days, preserving the payment and UTR while releasing renewal and upgrade menus.
-Manual verification of the preserved original reference remains possible after automatic release.
+Rejected payments block checkout creation and UTR revision for three full calendar days. They are
+not shown in the ordinary WhatsApp admin queue. Delivery cleanup changes them to `SUPERSEDED`,
+preserving payment evidence while releasing the customer menu. The customer can then submit a
+new eligible checkout. A rejected reference retains `rejected_at` and cannot be revised or reviewed
+again. Only unresolved `SUPERSEDED` UTRs with no prior admin decision and a `superseded_at` age under
+three calendar days can be revised or promoted to `PENDING` through Review past UTR; only then do
+they appear in the WhatsApp admin review queue.
 If proof validates a payment, verify its original reference. Only after confirming no payment
 occurred, run `python admin.py reopen-payment <reference> --no-payment-confirmed --commit`.
 This preserves the old row as SUPERSEDED and permits a fresh checkout; it does not erase UTRs.

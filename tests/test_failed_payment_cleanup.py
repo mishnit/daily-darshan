@@ -63,6 +63,8 @@ def test_failed_payment_is_released_after_full_three_day_boundary(tmp_path):
     assert stored.status == PaymentStatus.SUPERSEDED
     assert stored.utr == "123456789012"
     assert stored.rejected_at == rejected
+    assert stored.superseded_at is not None
+    assert stored.superseded_at.date() == date(2026, 9, 20)
 
 
 def test_legacy_failed_payment_uses_rejection_audit_timestamp(tmp_path):
