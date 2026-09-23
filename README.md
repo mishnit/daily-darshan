@@ -451,6 +451,10 @@ WhatsApp secrets as environment variables on the host.
 > the process. In best-effort mode valid webhook payloads receive HTTP 200 even when dropped;
 > failures are logged instead of requesting Meta redelivery. Invalid signatures
 > return **403**; malformed JSON is acknowledged and ignored without executing actions.
+> When `WEBHOOK_METRICS_ENABLED=true`, the response also contains non-sensitive
+> `webhook_metrics.queue` and `webhook_metrics.snapshot` diagnostics: queue depth and counters,
+> snapshot result/age/duration, and time until the next snapshot. It never exposes subscriber
+> data, message bodies, UTRs, or CSV rows.
 >
 > **Best-effort acknowledgement.** HTTP 200 is returned before conversation processing,
 > reply sending or Git persistence. One actor owns state mutation, so Render does not use CSV
