@@ -24,6 +24,8 @@ def test_actor_processes_in_bounded_batches_and_flushes(monkeypatch):
     metrics = actor.metrics()
     assert metrics["queue"]["worker_started"] is True
     assert metrics["queue"]["processed"] == 7
+    assert metrics["queue"]["estimated_queue_wait_ms"] >= 0
+    assert metrics["queue"]["oldest_processed_event_ms"] >= metrics["queue"]["estimated_queue_wait_ms"]
     assert metrics["snapshot"]["last_snapshot_succeeded"] is True
     assert metrics["snapshot"]["last_snapshot_at"].endswith("Z")
     assert metrics["snapshot"]["next_snapshot_in_seconds"] is not None
