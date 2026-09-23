@@ -464,6 +464,32 @@ WhatsApp secrets as environment variables on the host.
 > start of its processing batch; despite the compatibility-oriented name, it is not calculated
 > by subtracting two rounded health metrics.
 >
+> `meta_metrics` helps distinguish Render backlog from events that Meta delivered late or more
+> than once. Its counters start at zero whenever the Render process restarts:
+>
+> ```json
+> "meta_metrics": {
+>   "last_event_lag_ms": 850,
+>   "maximum_event_lag_ms": 42000,
+>   "delayed_events": 2,
+>   "duplicate_events": 1,
+>   "out_of_order_statuses": 0,
+>   "oldest_pending_delivery_seconds": 12
+> }
+> ```
+>
+> Event lag is measured at Render ingress using Meta's event timestamp, so queue waiting does not
+> inflate it. `delayed_events` counts events above `WEBHOOK_META_DELAY_THRESHOLD_SECONDS` (30 by
+> default). `duplicate_events` uses a bounded in-memory set of hashed inbound message IDs and
+> status keys; repeated identities are strong evidence of Meta redelivery, although the payload
+> does not provide a retry-attempt number. `out_of_order_statuses` counts delivery/read
+> callbacks that reached Render before the corresponding send result was reconciled.
+> `oldest_pending_delivery_seconds` measures the oldest webhook-generated reply still awaiting a
+> delivery/read callback. As operating guidance: lag below 5 seconds is normal; 5–30 seconds is
+> worth observing; above 30 seconds is delayed; above 5 minutes is concerning. Occasional
+> duplicates are safe when deduplication works, but steadily increasing duplicates, pending age,
+> or out-of-order counts warrant checking Render response latency and Meta callback health.
+>
 > **Best-effort acknowledgement.** HTTP 200 is returned before conversation processing,
 > reply sending or Git persistence. One actor owns state mutation, so Render does not use CSV
 > or state locks in this mode. This is not exactly-once or lossless; a durable queue remains the

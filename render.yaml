@@ -40,6 +40,8 @@ services:
         value: "0.001"
       - key: WEBHOOK_METRICS_ENABLED
         value: "true"
+      - key: WEBHOOK_META_DELAY_THRESHOLD_SECONDS
+        value: "30"
       - key: WEBHOOK_LOGGING_ENABLED
         value: "true"
 

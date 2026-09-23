@@ -91,3 +91,22 @@ def test_metrics_correlate_delivery_callback_that_overtakes_sender(monkeypatch):
     metrics.delivered("wamid.fast", event_epoch=1001)
     metrics.response("reply", "SENT", "wamid.fast")
     assert metrics.health()["last_completed_invocation"]["meta_event_e2e_ms"] == 1000
+    assert metrics.meta_health()["out_of_order_statuses"] == 1
+
+
+def test_meta_metrics_measure_lag_delay_duplicates_and_pending_delivery(monkeypatch):
+    monkeypatch.setenv("WEBHOOK_META_DELAY_THRESHOLD_SECONDS", "30")
+    monkeypatch.setenv("WEBHOOK_METRICS_SAMPLE_RATE", "0")
+    metrics = WebhookMetrics()
+    metrics.meta_event(100, received_epoch=100.85, event_key="message:one")
+    metrics.meta_event(100, received_epoch=142, event_key="message:one")
+    metrics.reply("reply", "inbound", time.monotonic())
+    metrics.response("reply", "SENT", "wamid.pending")
+
+    health = metrics.meta_health()
+    assert health["last_event_lag_ms"] == 42000
+    assert health["maximum_event_lag_ms"] == 42000
+    assert health["delayed_events"] == 1
+    assert health["duplicate_events"] == 1
+    assert health["out_of_order_statuses"] == 0
+    assert health["oldest_pending_delivery_seconds"] >= 0

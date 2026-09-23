@@ -559,15 +559,21 @@ def test_health_exposes_webhook_metrics_only_when_enabled(app_client, monkeypatc
     monkeypatch.setattr(main._webhook_metrics, "health", lambda: {
         "completed_invocations": 1,
     })
+    monkeypatch.setattr(main._webhook_metrics, "meta_health", lambda: {
+        "duplicate_events": 2,
+    })
     monkeypatch.setenv("WEBHOOK_METRICS_ENABLED", "true")
     assert client.get("/health").json()["webhook_metrics"] == {
         "queue": {"worker_started": True, "depth": 3, "estimated_queue_wait_ms": 4.5},
         "snapshot": {"last_snapshot_succeeded": True},
         "delivery": {"completed_invocations": 1},
     }
+    assert client.get("/health").json()["meta_metrics"] == {"duplicate_events": 2}
 
     monkeypatch.setenv("WEBHOOK_METRICS_ENABLED", "false")
-    assert "webhook_metrics" not in client.get("/health").json()
+    disabled = client.get("/health").json()
+    assert "webhook_metrics" not in disabled
+    assert "meta_metrics" not in disabled
 
 
 def test_production_health_requires_all_webhook_secrets(tmp_path, monkeypatch):
