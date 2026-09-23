@@ -131,7 +131,20 @@ def health() -> Response:
         ok = False
     if production and best_effort and not all((signed, whatsapp, verified)):
         ok = False
-    return _json({"status": "ok" if ok else "degraded", "checks": checks}, 200 if ok else 503)
+    body = {"status": "ok" if ok else "degraded", "checks": checks}
+    metrics_enabled = os.environ.get("WEBHOOK_METRICS_ENABLED", "true").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+    if metrics_enabled:
+        actor = _webhook_actor
+        body["webhook_metrics"] = (
+            actor.metrics() if actor is not None
+            else {
+                "queue": {"worker_started": False, "depth": 0},
+                "snapshot": {"last_snapshot_at": None, "next_snapshot_in_seconds": None},
+            }
+        )
+    return _json(body, 200 if ok else 503)
 
 
 def _json(payload: dict, status: int = 200) -> Response:
@@ -808,16 +821,34 @@ def _process_messages(c, payload: dict, restore_on_error: bool = True) -> bool:
             kind, value = _extract_input(message)
             if mobile and value:
                 state = c.conversations.find(mobile) or {"mobile": mobile, "version": "0", "last_recovery": "0"}
+                # Meta can redeliver distinct inbound events hours later and
+                # out of order.  A unique message ID is not sufficient to make
+                # an older command safe: replaying it can rewind the
+                # conversation and send an obsolete menu/payment response.
+                # Claim the message ID above (so Meta may be acknowledged with
+                # HTTP 200), but do not mutate business state or reply when a
+                # newer event from this user has already been processed.
+                now = time.time()
+                try:
+                    incoming_at = min(now, float(message.get("timestamp", now)))
+                except (ValueError, TypeError):
+                    incoming_at = now
+                try:
+                    last_inbound = float(state.get("last_inbound") or 0)
+                except (ValueError, TypeError):
+                    last_inbound = 0
+                if last_inbound > 0 and incoming_at < last_inbound:
+                    c.logs.log(
+                        "STALE_WEBHOOK_IGNORED",
+                        mobile,
+                        f"incoming_at={incoming_at};last_inbound={last_inbound}",
+                    )
+                    continue
                 recovery = ((kind == "text" and value.strip().upper() in {"CONTINUE", "RESEND"})
                             or (kind == "button" and value in {"CTA_CONTINUE", "CTA_RESEND"}))
                 if (recovery
                         and time.time() - float(state.get("last_recovery") or 0) < 30):
                     continue
-                # Bound delayed events to their original reply window.
-                try:
-                    incoming_at = min(time.time(), float(message.get("timestamp", time.time())))
-                except (ValueError, TypeError):
-                    incoming_at = 0
                 state.update(version=str(int(state["version"]) + 1), last_inbound=str(incoming_at))
                 c.conversations.upsert(mobile, state)
             referral = _REFERRAL_RE.search(value or "")

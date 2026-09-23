@@ -5,6 +5,7 @@ import logging
 import queue
 import threading
 import time
+from datetime import datetime, timezone
 
 
 class BestEffortWebhookActor:
@@ -40,6 +41,11 @@ class BestEffortWebhookActor:
         self.last_batch_ms = 0.0
         self.oldest_queue_ms = 0.0
         self.last_snapshot_ms = 0.0
+        self.last_snapshot_at = None
+        self.last_snapshot_succeeded = None
+        self.last_snapshot_error = None
+        self._started_at = None
+        self._next_flush_at = None
         self._last_metrics_at = time.monotonic()
 
     @property
@@ -54,7 +60,48 @@ class BestEffortWebhookActor:
                 return
             self._thread = threading.Thread(target=self._run, name="webhook-state-writer", daemon=True)
             self._started = True
+            self._started_at = time.time()
             self._thread.start()
+
+    @staticmethod
+    def _iso8601(timestamp):
+        if timestamp is None:
+            return None
+        return datetime.fromtimestamp(timestamp, timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def metrics(self) -> dict:
+        """Return non-sensitive queue and persistence diagnostics for /health."""
+        now_monotonic = time.monotonic()
+        now_wall = time.time()
+        return {
+            "queue": {
+                "worker_started": self._started,
+                "worker_started_at": self._iso8601(self._started_at),
+                "depth": self.depth,
+                "capacity": self._queue.maxsize,
+                "accepted": self.accepted,
+                "processed": self.processed,
+                "failed": self.failed,
+                "dropped": self.dropped,
+                "last_batch_ms": round(self.last_batch_ms, 3),
+                "oldest_processed_event_ms": round(self.oldest_queue_ms, 3),
+            },
+            "snapshot": {
+                "interval_seconds": self._flush_seconds,
+                "last_snapshot_at": self._iso8601(self.last_snapshot_at),
+                "last_snapshot_age_seconds": (
+                    None if self.last_snapshot_at is None
+                    else round(max(0.0, now_wall - self.last_snapshot_at), 3)
+                ),
+                "last_snapshot_ms": round(self.last_snapshot_ms, 3),
+                "last_snapshot_succeeded": self.last_snapshot_succeeded,
+                "last_snapshot_error": self.last_snapshot_error,
+                "next_snapshot_in_seconds": (
+                    None if self._next_flush_at is None
+                    else round(max(0.0, self._next_flush_at - now_monotonic), 3)
+                ),
+            },
+        }
 
     def enqueue(self, payload, *, critical=False) -> bool:
         self.start()
@@ -88,6 +135,7 @@ class BestEffortWebhookActor:
 
     def _run(self):
         next_flush = time.monotonic() + self._flush_seconds
+        self._next_flush_at = next_flush
         while True:
             self._drain_controls()
             timeout = max(0.0, min(self._batch_wait, next_flush - time.monotonic()))
@@ -143,13 +191,19 @@ class BestEffortWebhookActor:
                 snapshot_started = time.monotonic()
                 try:
                     self._flusher()
-                except Exception:
+                    self.last_snapshot_succeeded = True
+                    self.last_snapshot_error = None
+                except Exception as exc:
+                    self.last_snapshot_succeeded = False
+                    self.last_snapshot_error = type(exc).__name__
                     self._log.exception("Best-effort 15-minute Git snapshot failed")
                 finally:
+                    self.last_snapshot_at = time.time()
                     self.last_snapshot_ms = (time.monotonic() - snapshot_started) * 1000
                     self._log.info(
                         "Webhook snapshot complete snapshot_ms=%.1f resume_depth=%d",
                         self.last_snapshot_ms, self.depth,
                     )
                 next_flush = time.monotonic() + self._flush_seconds
+                self._next_flush_at = next_flush
             self._drain_controls()

@@ -21,6 +21,38 @@ def test_actor_processes_in_bounded_batches_and_flushes(monkeypatch):
     actor._queue.join()
     assert sorted(item for batch in batches for item in batch) == list(range(7))
     assert all(len(batch) <= 3 for batch in batches)
+    metrics = actor.metrics()
+    assert metrics["queue"]["worker_started"] is True
+    assert metrics["queue"]["processed"] == 7
+    assert metrics["snapshot"]["last_snapshot_succeeded"] is True
+    assert metrics["snapshot"]["last_snapshot_at"].endswith("Z")
+    assert metrics["snapshot"]["next_snapshot_in_seconds"] is not None
+
+
+def test_actor_metrics_record_snapshot_failure_without_sensitive_details():
+    flushed = threading.Event()
+    attempts = 0
+
+    def fail():
+        nonlocal attempts
+        attempts += 1
+        if attempts > 1:
+            return
+        flushed.set()
+        raise ValueError("secret customer content")
+
+    actor = BestEffortWebhookActor(
+        lambda _items: None, fail, flush_seconds=0.1, batch_wait_seconds=0.001,
+    )
+    actor.start()
+    assert flushed.wait(2)
+    deadline = time.monotonic() + 2
+    while actor.last_snapshot_succeeded is None and time.monotonic() < deadline:
+        time.sleep(0.001)
+    snapshot = actor.metrics()["snapshot"]
+    assert snapshot["last_snapshot_succeeded"] is False
+    assert snapshot["last_snapshot_error"] == "ValueError"
+    assert "secret" not in str(snapshot)
 
 
 def test_actor_drops_without_blocking_when_queue_is_full():

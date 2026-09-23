@@ -78,6 +78,60 @@ def test_best_effort_overload_is_acknowledged_and_dropped(app_client, monkeypatc
     assert response.json() == {"status": "dropped"}
 
 
+def test_unique_older_event_is_recorded_but_does_not_rewind_or_reply(app_client):
+    main, _ = app_client
+    c = main.container
+
+    newer = {"entry": [{"changes": [{"value": {"messages": [{
+        "id": "newer-message", "from": "9199", "timestamp": "200",
+        "type": "text", "text": {"body": "MENU"},
+    }]}}]}]}
+    older = {"entry": [{"changes": [{"value": {"messages": [{
+        "id": "older-but-unique", "from": "9199", "timestamp": "100",
+        "type": "text", "text": {"body": "MENU"},
+    }]}}]}]}
+
+    assert main._process_messages(c, newer) is False
+    state_before = c.conversations.find("9199")
+    replies_before = list(c.whatsapp.sent)
+
+    assert main._process_messages(c, older) is False
+
+    assert c.processed.was_processed("older-but-unique") is True
+    assert c.conversations.find("9199") == state_before
+    assert c.whatsapp.sent == replies_before
+    assert any(row["event"] == "STALE_WEBHOOK_IGNORED" for row in c.logs.all())
+
+
+def test_stale_unique_event_is_acknowledged_with_http_200_without_reply(
+    app_client, monkeypatch,
+):
+    main, client = app_client
+    c = main.container
+    c.conversations.upsert("9199", {
+        "mobile": "9199", "version": "7", "last_inbound": "200",
+        "last_recovery": "0",
+    })
+    monkeypatch.setenv("WEBHOOK_BEST_EFFORT_QUEUE", "false")
+    monkeypatch.setattr(
+        main,
+        "_process_payload_with_retries",
+        lambda container, payload, _timeout: main._process_messages(container, payload),
+    )
+    payload = {"entry": [{"changes": [{"value": {"messages": [{
+        "id": "late-unique-message", "from": "9199", "timestamp": "100",
+        "type": "text", "text": {"body": "MENU"},
+    }]}}]}]}
+
+    response = client.post("/webhook", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "accepted"}
+    assert c.processed.was_processed("late-unique-message") is True
+    assert c.conversations.find("9199")["version"] == "7"
+    assert c.whatsapp.sent == []
+
+
 def test_karma_share_is_daily_idempotent_and_persisted_by_state_actor(app_client, monkeypatch):
     main, client = app_client
     from domain.subscriber import Subscriber
@@ -494,6 +548,22 @@ def test_health_ok_when_container_healthy(app_client):
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+def test_health_exposes_webhook_metrics_only_when_enabled(app_client, monkeypatch):
+    main, client = app_client
+    main._webhook_actor = SimpleNamespace(metrics=lambda: {
+        "queue": {"worker_started": True, "depth": 3},
+        "snapshot": {"last_snapshot_succeeded": True},
+    })
+    monkeypatch.setenv("WEBHOOK_METRICS_ENABLED", "true")
+    assert client.get("/health").json()["webhook_metrics"] == {
+        "queue": {"worker_started": True, "depth": 3},
+        "snapshot": {"last_snapshot_succeeded": True},
+    }
+
+    monkeypatch.setenv("WEBHOOK_METRICS_ENABLED", "false")
+    assert "webhook_metrics" not in client.get("/health").json()
 
 
 def test_production_health_requires_all_webhook_secrets(tmp_path, monkeypatch):
