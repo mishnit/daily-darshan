@@ -464,6 +464,16 @@ WhatsApp secrets as environment variables on the host.
 > start of its processing batch; despite the compatibility-oriented name, it is not calculated
 > by subtracting two rounded health metrics.
 >
+> **Why one user message can appear as four `/webhook` invocations.** Meta invokes the same
+> endpoint for both inbound messages and outbound-message status changes. A common sequence for
+> one user message that produces one business reply is: (1) the inbound user-message webhook,
+> followed by callbacks reporting that reply as (2) `sent`, (3) `delivered`, and (4) `read`.
+> Consequently, `queue.accepted` counts webhook payloads, not user messages. Four is not a fixed
+> multiplier: Meta may batch statuses, omit `read`, redeliver an event, deliver callbacks out of
+> order, or the application may send multiple replies. Use `meta_metrics.duplicate_events` to
+> identify repeated event identities and the delivery metrics to correlate replies; do not infer
+> four customer actions from four POST requests.
+>
 > `meta_metrics` helps distinguish Render backlog from events that Meta delivered late or more
 > than once. Its counters start at zero whenever the Render process restarts:
 >
@@ -489,6 +499,11 @@ WhatsApp secrets as environment variables on the host.
 > worth observing; above 30 seconds is delayed; above 5 minutes is concerning. Occasional
 > duplicates are safe when deduplication works, but steadily increasing duplicates, pending age,
 > or out-of-order counts warrant checking Render response latency and Meta callback health.
+>
+> Delivery ledgers preserve Meta's monotonic success progression as `SENT → DELIVERED → READ`.
+> A delayed `failed` callback cannot downgrade `DELIVERED` or `READ`, and `READ` remains a terminal
+> successful state for daily-contact and renewal idempotency, so recording it cannot trigger a
+> duplicate customer message.
 >
 > **Best-effort acknowledgement.** HTTP 200 is returned before conversation processing,
 > reply sending or Git persistence. One actor owns state mutation, so Render does not use CSV

@@ -22,13 +22,37 @@ class MessageStatusRepository:
         reconciled = set()
         for message_id, values in statuses.items():
             # A positive receipt must never be undone by a delayed failure.
-            state = "DELIVERED" if values & {"delivered", "read"} else "FAILED"
+            if "read" in values:
+                state = "READ"
+            elif "delivered" in values:
+                state = "DELIVERED"
+            else:
+                state = "FAILED"
             for ledger in ledgers:
-                updated = getattr(ledger, "_csv", ledger).update_where(
-                    lambda row: row.get("whatsapp_message_id") == message_id,
+                repository = getattr(ledger, "_csv", ledger)
+                matched = any(
+                    row.get("whatsapp_message_id") == message_id
+                    for row in repository.all()
+                )
+                if not matched:
+                    continue
+                repository.update_where(
+                    lambda row: (
+                        row.get("whatsapp_message_id") == message_id
+                        and self._can_advance(row.get("status", ""), state)
+                    ),
                     {"status": state},
                 )
-                if updated:
+                if matched:
                     reconciled.add(message_id)
         if consume and reconciled:
             self._csv.retain(lambda row: row.get("message_id") not in reconciled)
+
+    @staticmethod
+    def _can_advance(current, incoming):
+        current = str(current).upper()
+        if current == "READ":
+            return False
+        if current == "DELIVERED" and incoming == "FAILED":
+            return False
+        return True

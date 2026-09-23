@@ -51,7 +51,7 @@ class CSVSentLogRepository(SentLogRepositoryPort):
             if (
                 row.get("date") == target
                 and row.get("mobile") == mobile
-                and row.get("status") in {"SENT", "DELIVERED", "PENDING", "UNKNOWN"}
+                and row.get("status") in {"SENT", "DELIVERED", "READ", "PENDING", "UNKNOWN"}
             ):
                 return True
         return False

@@ -245,6 +245,43 @@ def test_best_effort_reconciliation_consumes_matched_status_callback(container):
     assert container.message_statuses._csv.all() == []
 
 
+def test_read_receipt_is_preserved_as_highest_success_state(container):
+    from datetime import date
+
+    container.reply_outbox.upsert("reply", {
+        "id": "reply", "status": "SENT", "whatsapp_message_id": "wamid.read",
+    })
+    container.sentlog.append({
+        "date": date.today().isoformat(), "mobile": "9199", "image": "delivery",
+        "whatsapp_message_id": "wamid.read", "status": "DELIVERED",
+    })
+    container.renewals.append({
+        "mobile": "9199", "reminder_type": "three_days", "expiry_date": date.today().isoformat(),
+        "sent_at": "now", "whatsapp_message_id": "wamid.read", "status": "DELIVERED",
+    })
+    container.message_statuses.record("wamid.read", "read")
+    container.message_statuses.reconcile(
+        container.reply_outbox, container.sentlog, container.renewals, consume=True,
+    )
+
+    assert container.reply_outbox.find("reply")["status"] == "READ"
+    assert container.sentlog.all()[0]["status"] == "READ"
+    assert container.renewals.all()[0]["status"] == "READ"
+    assert container.sentlog.was_sent(date.today(), "9199")
+    assert container.renewals.already_sent("9199", "three_days", date.today())
+    assert container.message_statuses._csv.all() == []
+
+    # A later failure callback cannot downgrade positive read evidence.
+    container.message_statuses.record("wamid.read", "failed")
+    container.message_statuses.reconcile(
+        container.reply_outbox, container.sentlog, container.renewals, consume=True,
+    )
+    assert container.reply_outbox.find("reply")["status"] == "READ"
+    assert container.sentlog.all()[0]["status"] == "READ"
+    assert container.renewals.all()[0]["status"] == "READ"
+    assert container.message_statuses._csv.all() == []
+
+
 def test_prepared_reply_is_reserved_before_provider_send(container):
     calls = prepare(container)
     QueuedReplies(container.reply_outbox, container).send_text("9199", "instructions")
