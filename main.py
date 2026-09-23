@@ -145,6 +145,7 @@ def health() -> Response:
             }
         )
         body["webhook_metrics"]["delivery"] = _webhook_metrics.health()
+        body["meta_metrics"] = _webhook_metrics.meta_health()
     return _json(body, 200 if ok else 503)
 
 
@@ -679,6 +680,7 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
     if not isinstance(payload, dict):
         return _json({"status": "ignored"})
     payload["_webhook_received_monotonic"] = time.monotonic()
+    payload["_webhook_received_epoch"] = time.time()
 
     if _best_effort_enabled():
         actor = _get_webhook_actor(c)
@@ -816,6 +818,10 @@ def _process_messages(c, payload: dict, restore_on_error: bool = True) -> bool:
     for message, ctx in _iter_messages(payload):
         message_id = message.get("id", "")
         mobile = message.get("from", "")
+        _webhook_metrics.meta_event(
+            message.get("timestamp"), payload.get("_webhook_received_epoch"),
+            f"message:{message_id}",
+        )
         snapshot = {}
         # Isolate each message: a failure must not abort the batch.
         try:
@@ -885,8 +891,14 @@ def _process_messages(c, payload: dict, restore_on_error: bool = True) -> bool:
         message_id = str(status.get("id", ""))
         if not message_id:
             continue
-        c.message_statuses.record(message_id, status.get("status"))
-        if status.get("status") in {"delivered", "read"}:
+        _webhook_metrics.meta_event(
+            status.get("timestamp"), payload.get("_webhook_received_epoch"),
+            f"status:{message_id}:{status.get('status', '')}",
+        )
+        status_value = status.get("status")
+        if status_value in {"failed", "delivered", "read"}:
+            c.message_statuses.record(message_id, status_value)
+        if status_value in {"delivered", "read"}:
             try:
                 delivered_at = float(status.get("timestamp"))
             except (TypeError, ValueError):

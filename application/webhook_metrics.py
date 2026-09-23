@@ -32,7 +32,44 @@ class WebhookMetrics:
         self._completed_message_ids = {}
         self._delivery_count = 0
         self._last_delivery = None
+        self._last_event_lag_ms = 0.0
+        self._maximum_event_lag_ms = 0.0
+        self._delayed_events = 0
+        self._duplicate_events = 0
+        self._out_of_order_statuses = 0
+        self._seen_meta_events = {}
         self._last_report = time.monotonic()
+
+    def meta_event(self, event_epoch, received_epoch=None, event_key=None):
+        """Measure provider timestamp lag at Render ingress, not after queueing."""
+        if not self._enabled:
+            return
+        try:
+            event_epoch = float(event_epoch)
+        except (TypeError, ValueError):
+            event_epoch = None
+        received_epoch = time.time() if received_epoch is None else float(received_epoch)
+        threshold_ms = max(
+            0.0, float(os.environ.get("WEBHOOK_META_DELAY_THRESHOLD_SECONDS", "30")) * 1000,
+        )
+        with self._lock:
+            if event_key:
+                marker = hashlib.sha256(str(event_key).encode()).digest()
+                if marker in self._seen_meta_events:
+                    self._duplicate_events += 1
+                else:
+                    self._seen_meta_events[marker] = time.monotonic()
+                    if len(self._seen_meta_events) > 120000:
+                        self._seen_meta_events = dict(
+                            list(self._seen_meta_events.items())[-120000:]
+                        )
+            if event_epoch is None:
+                return
+            lag_ms = max(0.0, (received_epoch - event_epoch) * 1000)
+            self._last_event_lag_ms = lag_ms
+            self._maximum_event_lag_ms = max(self._maximum_event_lag_ms, lag_ms)
+            if lag_ms > threshold_ms:
+                self._delayed_events += 1
 
     def invocation(self, payload):
         received = float(payload.get("_webhook_received_monotonic") or time.monotonic())
@@ -71,6 +108,7 @@ class WebhookMetrics:
                 "delivered_replies": 0,
                 "sending_complete": False,
                 "last_delivery_epoch": None,
+                "sent_at": None,
             })
             state["replies"].add(reply_id)
             self._reply_to_invocation[reply_id] = invocation_id
@@ -90,11 +128,14 @@ class WebhookMetrics:
             if status == "SENT" and message_id:
                 state["successful_replies"] += 1
                 state["message_ids"].add(message_id)
+                if state["sent_at"] is None:
+                    state["sent_at"] = now
                 early = self._early_deliveries.pop(message_id, None)
                 if early is None:
                     state["delivery_ids"].add(message_id)
                     self._message_to_invocation[message_id] = invocation_id
                 else:
+                    self._out_of_order_statuses += 1
                     state["delivered_replies"] += 1
                     state["last_delivery_epoch"] = early[1]
             if state["replies"]:
@@ -195,6 +236,26 @@ class WebhookMetrics:
                 "last_completed_invocation": (
                     None if self._last_delivery is None else dict(self._last_delivery)
                 ),
+            }
+
+    def meta_health(self) -> dict:
+        """Return provider-delay/retry signals without exposing event identifiers."""
+        now = time.monotonic()
+        with self._lock:
+            self._prune_locked(now)
+            pending_started = [
+                state.get("sent_at") for state in self._pending.values()
+                if state.get("sent_at") is not None and state["delivery_ids"]
+            ]
+            return {
+                "last_event_lag_ms": round(self._last_event_lag_ms, 3),
+                "maximum_event_lag_ms": round(self._maximum_event_lag_ms, 3),
+                "delayed_events": self._delayed_events,
+                "duplicate_events": self._duplicate_events,
+                "out_of_order_statuses": self._out_of_order_statuses,
+                "oldest_pending_delivery_seconds": round(
+                    max(0.0, now - min(pending_started)), 3,
+                ) if pending_started else 0.0,
             }
 
     def _sample(self, invocation_id, phase, **values):
