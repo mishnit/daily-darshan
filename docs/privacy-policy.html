@@ -1,108 +1,140 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="How VIP Seva handles personal information for Daily Darshan subscriptions, WhatsApp messages, payments, and referrals.">
-  <title>Privacy Policy | VIP Seva</title>
-  <style>
-    :root { color-scheme: light; }
-    body { margin: 0; background: #faf6ef; color: #2b2b2b; font: 16px/1.65 system-ui, sans-serif; }
-    main { box-sizing: border-box; max-width: 800px; margin: auto; padding: 32px 20px 64px; }
-    header { border-bottom: 1px solid #dfd5c6; padding-bottom: 16px; }
-    h1, h2 { color: #34291f; line-height: 1.25; }
-    h1 { margin-bottom: 4px; font-size: 2rem; }
-    h2 { margin-top: 32px; font-size: 1.25rem; }
-    p, li { max-width: 72ch; }
-    a { color: #176b49; }
-    a:focus-visible { outline: 3px solid #176b49; outline-offset: 3px; }
-    .date { margin-top: 0; color: #594e42; }
-    footer { margin-top: 40px; border-top: 1px solid #dfd5c6; padding-top: 16px; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - VIP Seva</title>
+    <style>
+        :root {
+            --primary-color: #1877f2;
+            --text-color: #333333;
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --border-color: #e0e0e0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 850px;
+            margin: 40px auto;
+            background: var(--card-bg);
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--border-color);
+        }
+
+        h1 {
+            color: #111;
+            font-size: 2em;
+            margin-bottom: 10px;
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 10px;
+        }
+
+        h2 {
+            color: #222;
+            font-size: 1.3em;
+            margin-top: 30px;
+            margin-bottom: 10px;
+        }
+
+        p, li {
+            font-size: 1em;
+            color: #555;
+        }
+
+        ul, ol {
+            padding-left: 20px;
+        }
+
+        .meta-notice {
+            background-color: #e7f3ff;
+            border-left: 4px solid var(--primary-color);
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .last-updated {
+            font-style: italic;
+            color: #777;
+            font-size: 0.9em;
+            margin-bottom: 25px;
+        }
+
+        .contact-box {
+            background-color: #f1f3f5;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 30px;
+            font-size: 0.85em;
+            color: #888;
+        }
+    </style>
 </head>
 <body>
-  <main>
-    <header>
-      <p><a href="/">VIP Seva</a> / Privacy Policy</p>
-      <h1>Privacy Policy</h1>
-      <p class="date">Last updated: 23 September 2026</p>
-    </header>
 
-    <p>VIP Seva provides Daily Darshan subscriptions, WhatsApp updates, personalized pages,
-      payment review, and optional sharing rewards. This policy explains what information
-      these features use and what happens when you interact with them.</p>
+<div class="container">
+    <h1>Privacy Policy</h1>
+    <div class="last-updated">Last Updated: 1/1/2026</div>
 
-    <h2>Information we handle</h2>
+    <p>At <strong>VIP Seva</strong> ("we," "us," or "our"), accessible from <a href="https://vipseva.com">https://vipseva.com</a>, protecting the privacy of our users is our top priority. This Privacy Policy outlines how we handle user privacy, data protection, and Meta business integration requirements.</p>
+
+    <h2>1. Information Handling</h2>
+    <p>We do not store any personal information on our servers or databases. Any operational data required during session interactions is processed purely for service execution and is not permanently retained.</p>
+
+    <h2>2. Cookies and Tracking Technologies</h2>
+    <p>We value your privacy and maintain a strict non-tracking policy. <strong>We do not use any pixel tags (including Meta Pixel), web beacons, cookies, or any other tracking technologies</strong> to track or collect information about your browsing activity.</p>
+
+    <h2>3. Meta Platform Notice</h2>
+    <div class="meta-notice">
+        <p><strong>Meta Business & Developer Compliance:</strong> If you interact with VIP Seva through Meta (Facebook) integrations, your interaction complies with Meta’s Platform Terms and Developer Policies. We do not sell, share, or trade user data with any third parties except Meta.</p>
+    </div>
+
+    <h2>4. Data Deletion and Protection Rights</h2>
+    <p>We adhere to strict data protection practices regarding user privacy and data lifecycle:</p>
     <ul>
-      <li><strong>Subscription information:</strong> WhatsApp phone number, display name,
-        chosen plan, subscription dates and status, consent choice, and subscription ID.</li>
-      <li><strong>Messages and delivery:</strong> incoming WhatsApp message identifiers and
-        content needed to respond, outgoing message identifiers, delivery status, and
-        operational error or audit records.</li>
-      <li><strong>Payments:</strong> payment reference, plan and amount, submitted UTR,
-        verification decision and timestamps. If payment-gateway mode is enabled, we also
-        handle gateway checkout and payment identifiers. The gateway handles card or bank
-        payment details on its own service; VIP Seva does not ask you to send card details
-        through WhatsApp.</li>
-      <li><strong>Sharing and referrals:</strong> the referrer's phone number embedded in
-        a referral link, a visitor's phone number when they contact us through that link,
-        and daily Karma point records when a page's share action reports completion.</li>
-      <li><strong>Website use:</strong> our hosting providers may process ordinary request
-        information, such as IP address and browser details, to deliver and secure the site.
-        We do not currently add our own advertising or analytics cookies to these pages.</li>
+        <li><strong>No Personal Information Stored:</strong> We do not store any personal information.</li>
+        <li><strong>Automatic Deletion After 3 Months of Inactivity:</strong> We automatically remove users' data after 3 months of inactivity.</li>
     </ul>
 
-    <h2>How we use this information</h2>
-    <p>We use it to create and manage subscriptions, respond to WhatsApp requests, send the
-      Daily Darshan and subscription updates a person agreed to receive, review or confirm
-      payments, show personalized pages, prevent duplicate messages or payment credit,
-      calculate sharing rewards, and investigate delivery or payment problems.</p>
+    <p><strong>Manual Data Deletion Request:</strong></p>
+    <p>In addition to our automated data removal after 3 months of inactivity, users have the right to request immediate deletion of any temporary data at any time:</p>
+    <ul>
+        <li><strong>Email Request:</strong> Contact us directly at <a href="mailto:support@vipseva.com">support@vipseva.com</a> with the subject line <em>"Data Deletion Request"</em>.</li>
+        <li><strong>Facebook App Settings:</strong> If you linked through Facebook, you can revoke access and trigger data removal by navigating to Facebook <strong>Settings & Privacy > Settings > Apps and Websites</strong>, locating <strong>VIP Seva</strong>, and selecting <strong>Remove</strong>.</li>
+    </ul>
 
-    <h2>WhatsApp choices</h2>
-    <p>We request consent before enabling Daily Darshan messages. Reply <strong>STOP</strong>
-      in WhatsApp to stop future subscription messages; you can choose to resume later.
-      Stopping messages does not automatically cancel a paid plan or erase payment records.
-      You can ask about your subscription by messaging the VIP Seva WhatsApp number.</p>
+    <h2>5. Security</h2>
+    <p>We employ standard technical measures to safeguard our platform and ensure no unauthorized retention or handling of user information occurs.</p>
 
-    <h2>Sharing and personalized links</h2>
-    <p>A personalized page link should be treated as private even though the page is publicly
-      accessible to someone who knows the link. Sharing the page may reveal the name, expiry,
-      and Karma points shown on it. The Darshan share text includes a referral URL containing
-      the subscriber's phone number; anyone receiving or forwarding that text can see it.
-      Only use the share feature if you are comfortable disclosing that number.</p>
+    <h2>6. Contact Us</h2>
+    <p>If you have any questions regarding this Privacy Policy or data protection, please contact us at:</p>
+    <div class="contact-box">
+        <p><strong>VIP Seva</strong></p>
+        <p>Email: <a href="mailto:support@vipseva.com">support@vipseva.com</a></p>
+        <p>Website: <a href="https://vipseva.com">https://vipseva.com</a></p>
+        <p>Business Address: VIP Seva HQ, Electronic City, Bengaluru 560100</p>
+    </div>
+</div>
 
-    <h2>Where information goes</h2>
-    <p>We use Meta's WhatsApp Business Platform to receive and send messages, GitHub to
-      store repository data and serve public pages and images, and Render to run the webhook
-      service. If gateway payments are enabled, Razorpay processes the hosted checkout and
-      sends payment status to our service. These providers process information under their
-      own terms and policies.</p>
-    <p>Some operational records are currently held in a <strong>public GitHub repository</strong>.
-      These may contain subscriber and referral phone numbers, names, subscription details,
-      payment references and UTRs, and delivery identifiers. Public copies or repository history
-      may remain accessible after the current records change. Personalized pages can be opened
-      by anyone with their link and may show a name, subscription expiry, and Karma points.</p>
+<footer>
+    &copy; 2026 VIP Seva. All rights reserved.
+</footer>
 
-    <h2>Retention</h2>
-    <p>Operational logs and the daily delivery ledger are configured for a 30-day cleanup window;
-      images are configured to retain the newest seven days; subscriber pages remain while
-      active and for a seven-day grace period after expiry. Subscription, consent, payment,
-      referral, and Karma records are not currently covered by an automatic fixed deletion
-      period. Records may also remain in Git history, backups, forks, or provider systems after
-      they disappear from the current repository files.</p>
-
-    <h2>Questions and requests</h2>
-    <p>You may ask us to explain, correct, or delete information we control, or raise a
-      privacy concern, subject to information we must retain for payment or legal reasons.
-      <strong>Privacy contact and operator details must be confirmed before this draft is
-      published.</strong> Until then, the VIP Seva WhatsApp service number is
-      <a href="https://wa.me/916361699109">+91 63616 99109</a>.</p>
-
-    <h2>Changes to this policy</h2>
-    <p>We may update this policy as the service or its data storage changes. The date at the
-      top shows when this page was last revised.</p>
-
-    <footer><a href="/">Return to VIP Seva</a></footer>
-  </main>
 </body>
 </html>
