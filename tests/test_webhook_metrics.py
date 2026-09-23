@@ -105,7 +105,7 @@ def test_meta_metrics_measure_lag_delay_duplicates_and_pending_delivery(monkeypa
 
     health = metrics.meta_health()
     assert health["last_event_lag_ms"] == 42000
-    assert health["maximum_event_lag_ms"] == 42000
+    assert "maximum_event_lag_ms" not in health
     assert health["delayed_events"] == 1
     assert health["duplicate_events"] == 1
     assert health["out_of_order_statuses"] == 0

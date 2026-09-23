@@ -6,6 +6,7 @@ import json
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
@@ -548,6 +549,8 @@ def test_health_ok_when_container_healthy(app_client):
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+    assert list(r.json())[:2] == ["status", "timestamp"]
+    assert datetime.fromisoformat(r.json()["timestamp"].replace("Z", "+00:00")).tzinfo
 
 
 def test_health_exposes_webhook_metrics_only_when_enabled(app_client, monkeypatch):
@@ -632,6 +635,7 @@ def test_health_unhealthy_when_container_failed(monkeypatch):
     r = client.get("/health")
     assert r.status_code == 503
     assert r.json()["status"] == "unhealthy"
+    assert list(r.json())[:2] == ["status", "timestamp"]
     assert "boom" in r.json()["reason"]
 
 

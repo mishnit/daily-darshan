@@ -451,6 +451,8 @@ WhatsApp secrets as environment variables on the host.
 > the process. In best-effort mode valid webhook payloads receive HTTP 200 even when dropped;
 > failures are logged instead of requesting Meta redelivery. Invalid signatures
 > return **403**; malformed JSON is acknowledged and ignored without executing actions.
+> Every health response places a current UTC ISO-8601 `timestamp` immediately after `status`,
+> allowing an observation to be correlated with Render logs and Meta callback timestamps.
 > When `WEBHOOK_METRICS_ENABLED=true`, the response also contains non-sensitive
 > `webhook_metrics.queue`, `webhook_metrics.snapshot`, and `webhook_metrics.delivery`
 > diagnostics: queue depth and counters, snapshot result/age/duration, time until the next
@@ -480,7 +482,6 @@ WhatsApp secrets as environment variables on the host.
 > ```json
 > "meta_metrics": {
 >   "last_event_lag_ms": 850,
->   "maximum_event_lag_ms": 42000,
 >   "delayed_events": 2,
 >   "duplicate_events": 1,
 >   "out_of_order_statuses": 0,

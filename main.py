@@ -98,7 +98,11 @@ def health() -> Response:
     """
     c = _get_container()
     if c is None:
-        return _json({"status": "unhealthy", "reason": _container_error or "init failed"}, 503)
+        return _json({
+            "status": "unhealthy",
+            "timestamp": _health_timestamp(),
+            "reason": _container_error or "init failed",
+        }, 503)
     checks: dict = {}
     ok = True
     # Core store readability.
@@ -131,7 +135,11 @@ def health() -> Response:
         ok = False
     if production and best_effort and not all((signed, whatsapp, verified)):
         ok = False
-    body = {"status": "ok" if ok else "degraded", "checks": checks}
+    body = {
+        "status": "ok" if ok else "degraded",
+        "timestamp": _health_timestamp(),
+        "checks": checks,
+    }
     metrics_enabled = os.environ.get("WEBHOOK_METRICS_ENABLED", "true").strip().lower() in {
         "1", "true", "yes", "on",
     }
@@ -147,6 +155,11 @@ def health() -> Response:
         body["webhook_metrics"]["delivery"] = _webhook_metrics.health()
         body["meta_metrics"] = _webhook_metrics.meta_health()
     return _json(body, 200 if ok else 503)
+
+
+def _health_timestamp() -> str:
+    """Current UTC time for correlating health samples with Render/Meta logs."""
+    return datetime.now(ZoneInfo("UTC")).isoformat().replace("+00:00", "Z")
 
 
 def _json(payload: dict, status: int = 200) -> Response:
