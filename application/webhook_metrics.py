@@ -33,7 +33,6 @@ class WebhookMetrics:
         self._delivery_count = 0
         self._last_delivery = None
         self._last_event_lag_ms = 0.0
-        self._maximum_event_lag_ms = 0.0
         self._delayed_events = 0
         self._duplicate_events = 0
         self._out_of_order_statuses = 0
@@ -67,7 +66,6 @@ class WebhookMetrics:
                 return
             lag_ms = max(0.0, (received_epoch - event_epoch) * 1000)
             self._last_event_lag_ms = lag_ms
-            self._maximum_event_lag_ms = max(self._maximum_event_lag_ms, lag_ms)
             if lag_ms > threshold_ms:
                 self._delayed_events += 1
 
@@ -249,7 +247,6 @@ class WebhookMetrics:
             ]
             return {
                 "last_event_lag_ms": round(self._last_event_lag_ms, 3),
-                "maximum_event_lag_ms": round(self._maximum_event_lag_ms, 3),
                 "delayed_events": self._delayed_events,
                 "duplicate_events": self._duplicate_events,
                 "out_of_order_statuses": self._out_of_order_statuses,
