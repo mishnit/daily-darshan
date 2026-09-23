@@ -39,6 +39,7 @@ class BestEffortWebhookActor:
         self.processed = 0
         self.failed = 0
         self.last_batch_ms = 0.0
+        self.estimated_queue_wait_ms = 0.0
         self.oldest_queue_ms = 0.0
         self.last_snapshot_ms = 0.0
         self.last_snapshot_at = None
@@ -84,6 +85,7 @@ class BestEffortWebhookActor:
                 "failed": self.failed,
                 "dropped": self.dropped,
                 "last_batch_ms": round(self.last_batch_ms, 3),
+                "estimated_queue_wait_ms": round(self.estimated_queue_wait_ms, 3),
                 "oldest_processed_event_ms": round(self.oldest_queue_ms, 3),
             },
             "snapshot": {
@@ -153,6 +155,7 @@ class BestEffortWebhookActor:
             if batch:
                 started = time.monotonic()
                 oldest = min(queued_at for _priority, _sequence, queued_at, _payload in batch)
+                self.estimated_queue_wait_ms = max(0.0, (started - oldest) * 1000)
                 try:
                     normal = []
                     for is_critical, _sequence, _queued_at, payload in batch:

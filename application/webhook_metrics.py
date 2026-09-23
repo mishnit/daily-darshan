@@ -1,6 +1,7 @@
 """Low-overhead webhook latency aggregation and sampled correlation logs."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
 import logging
 import os
@@ -26,17 +27,26 @@ class WebhookMetrics:
         self._responses = []
         self._pending = {}
         self._reply_to_invocation = {}
+        self._message_to_invocation = {}
+        self._early_deliveries = {}
+        self._completed_message_ids = {}
+        self._delivery_count = 0
+        self._last_delivery = None
         self._last_report = time.monotonic()
 
-    @staticmethod
-    def invocation(payload):
+    def invocation(self, payload):
         received = float(payload.get("_webhook_received_monotonic") or time.monotonic())
         for entry in payload.get("entry", []):
             for change in entry.get("changes", []):
                 messages = change.get("value", {}).get("messages", [])
                 if messages:
-                    return str(messages[0].get("id") or "unknown"), received
-        return None, received
+                    message = messages[0]
+                    try:
+                        event_epoch = float(message.get("timestamp"))
+                    except (TypeError, ValueError):
+                        event_epoch = None
+                    return str(message.get("id") or "unknown"), received, event_epoch
+        return None, received, None
 
     def processing(self, invocation_id, milliseconds):
         if not self._enabled or not invocation_id:
@@ -46,15 +56,26 @@ class WebhookMetrics:
             self._sample(invocation_id, "processing", processing_ms=milliseconds)
             self._report_if_due()
 
-    def reply(self, reply_id, invocation_id, received):
+    def reply(self, reply_id, invocation_id, received, event_epoch=None):
         if not self._enabled or not invocation_id:
             return
         with self._lock:
-            state = self._pending.setdefault(invocation_id, {"received": received, "replies": set()})
+            self._prune_locked(time.monotonic())
+            state = self._pending.setdefault(invocation_id, {
+                "received": received,
+                "event_epoch": event_epoch,
+                "replies": set(),
+                "delivery_ids": set(),
+                "message_ids": set(),
+                "successful_replies": 0,
+                "delivered_replies": 0,
+                "sending_complete": False,
+                "last_delivery_epoch": None,
+            })
             state["replies"].add(reply_id)
             self._reply_to_invocation[reply_id] = invocation_id
 
-    def response(self, reply_id, status=""):
+    def response(self, reply_id, status="", message_id=""):
         if not self._enabled:
             return
         now = time.monotonic()
@@ -66,13 +87,115 @@ class WebhookMetrics:
             if not state:
                 return
             state["replies"].discard(reply_id)
+            if status == "SENT" and message_id:
+                state["successful_replies"] += 1
+                state["message_ids"].add(message_id)
+                early = self._early_deliveries.pop(message_id, None)
+                if early is None:
+                    state["delivery_ids"].add(message_id)
+                    self._message_to_invocation[message_id] = invocation_id
+                else:
+                    state["delivered_replies"] += 1
+                    state["last_delivery_epoch"] = early[1]
             if state["replies"]:
                 return
             milliseconds = (now - state["received"]) * 1000
-            self._pending.pop(invocation_id, None)
             self._responses.append(milliseconds)
             self._sample(invocation_id, "response", response_ms=milliseconds, status=status)
+            state["sending_complete"] = True
+            if state["successful_replies"] == 0:
+                self._pending.pop(invocation_id, None)
+            else:
+                self._complete_delivery(invocation_id, state, now)
             self._report_if_due()
+
+    def delivered(self, message_id, event_epoch=None):
+        """Record receipt of Meta's delivered/read callback for an outbound reply."""
+        if not self._enabled or not message_id:
+            return
+        now = time.monotonic()
+        with self._lock:
+            self._prune_locked(now)
+            completed_at = self._completed_message_ids.get(message_id)
+            if completed_at is not None and now - completed_at < 300:
+                return
+            invocation_id = self._message_to_invocation.pop(message_id, None)
+            if invocation_id is None:
+                # A callback can overtake the sender future. Keep a small,
+                # short-lived correlation inbox; unrelated delivery callbacks
+                # are bounded so metrics cannot consume unbounded memory.
+                self._early_deliveries[message_id] = (now, event_epoch)
+                cutoff = now - 300
+                self._early_deliveries = {
+                    key: value for key, value in list(self._early_deliveries.items())[-5000:]
+                    if value[0] >= cutoff
+                }
+                return
+            state = self._pending.get(invocation_id)
+            if state is None or message_id not in state["delivery_ids"]:
+                return
+            state["delivery_ids"].discard(message_id)
+            state["delivered_replies"] += 1
+            state["last_delivery_epoch"] = event_epoch
+            self._complete_delivery(invocation_id, state, now)
+
+    def _complete_delivery(self, invocation_id, state, now):
+        if not state["sending_complete"]:
+            return
+        if state["delivered_replies"] < state["successful_replies"]:
+            return
+        webhook_ms = (now - state["received"]) * 1000
+        meta_ms = None
+        if state["event_epoch"] is not None and state["last_delivery_epoch"] is not None:
+            meta_ms = max(0.0, (state["last_delivery_epoch"] - state["event_epoch"]) * 1000)
+        self._delivery_count += 1
+        self._last_delivery = {
+            "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "reply_count": state["successful_replies"],
+            "webhook_to_delivery_ms": round(webhook_ms, 3),
+            "meta_event_e2e_ms": None if meta_ms is None else round(meta_ms, 3),
+        }
+        self._sample(invocation_id, "delivered", delivery_ms=webhook_ms)
+        for message_id in state["message_ids"]:
+            self._completed_message_ids[message_id] = now
+        cutoff = now - 300
+        self._completed_message_ids = {
+            key: value for key, value in list(self._completed_message_ids.items())[-5000:]
+            if value >= cutoff
+        }
+        self._pending.pop(invocation_id, None)
+
+    def _prune_locked(self, now):
+        expired = {
+            invocation_id for invocation_id, state in self._pending.items()
+            if now - state["received"] > 3600
+        }
+        if expired:
+            self._pending = {
+                key: value for key, value in self._pending.items() if key not in expired
+            }
+            self._reply_to_invocation = {
+                key: value for key, value in self._reply_to_invocation.items()
+                if value not in expired
+            }
+            self._message_to_invocation = {
+                key: value for key, value in self._message_to_invocation.items()
+                if value not in expired
+            }
+
+    def health(self) -> dict:
+        """Return aggregate latency state without message or customer identifiers."""
+        with self._lock:
+            self._prune_locked(time.monotonic())
+            return {
+                "completed_invocations": self._delivery_count,
+                "pending_invocations": sum(
+                    1 for state in self._pending.values() if state["successful_replies"]
+                ),
+                "last_completed_invocation": (
+                    None if self._last_delivery is None else dict(self._last_delivery)
+                ),
+            }
 
     def _sample(self, invocation_id, phase, **values):
         rate = min(1.0, max(0.0, float(os.environ.get("WEBHOOK_METRICS_SAMPLE_RATE", "0.01"))))

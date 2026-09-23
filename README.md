@@ -452,9 +452,17 @@ WhatsApp secrets as environment variables on the host.
 > failures are logged instead of requesting Meta redelivery. Invalid signatures
 > return **403**; malformed JSON is acknowledged and ignored without executing actions.
 > When `WEBHOOK_METRICS_ENABLED=true`, the response also contains non-sensitive
-> `webhook_metrics.queue` and `webhook_metrics.snapshot` diagnostics: queue depth and counters,
-> snapshot result/age/duration, and time until the next snapshot. It never exposes subscriber
-> data, message bodies, UTRs, or CSV rows.
+> `webhook_metrics.queue`, `webhook_metrics.snapshot`, and `webhook_metrics.delivery`
+> diagnostics: queue depth and counters, snapshot result/age/duration, time until the next
+> snapshot, and the most recently completed user-invocation delivery latency. The delivery
+> metric completes only after every successfully submitted reply for that invocation receives
+> a Meta `delivered` or `read` callback. `webhook_to_delivery_ms` starts at webhook ingress;
+> `meta_event_e2e_ms` uses Meta's inbound and delivery timestamps when both are available.
+> Neither metric can prove when a person opened the message. Health data never exposes
+> subscriber data, message bodies, UTRs, WhatsApp message IDs, or CSV rows.
+> `estimated_queue_wait_ms` is measured directly from the oldest event's enqueue time to the
+> start of its processing batch; despite the compatibility-oriented name, it is not calculated
+> by subtracting two rounded health metrics.
 >
 > **Best-effort acknowledgement.** HTTP 200 is returned before conversation processing,
 > reply sending or Git persistence. One actor owns state mutation, so Render does not use CSV

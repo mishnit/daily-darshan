@@ -553,13 +553,17 @@ def test_health_ok_when_container_healthy(app_client):
 def test_health_exposes_webhook_metrics_only_when_enabled(app_client, monkeypatch):
     main, client = app_client
     main._webhook_actor = SimpleNamespace(metrics=lambda: {
-        "queue": {"worker_started": True, "depth": 3},
+        "queue": {"worker_started": True, "depth": 3, "estimated_queue_wait_ms": 4.5},
         "snapshot": {"last_snapshot_succeeded": True},
+    })
+    monkeypatch.setattr(main._webhook_metrics, "health", lambda: {
+        "completed_invocations": 1,
     })
     monkeypatch.setenv("WEBHOOK_METRICS_ENABLED", "true")
     assert client.get("/health").json()["webhook_metrics"] == {
-        "queue": {"worker_started": True, "depth": 3},
+        "queue": {"worker_started": True, "depth": 3, "estimated_queue_wait_ms": 4.5},
         "snapshot": {"last_snapshot_succeeded": True},
+        "delivery": {"completed_invocations": 1},
     }
 
     monkeypatch.setenv("WEBHOOK_METRICS_ENABLED", "false")

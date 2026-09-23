@@ -144,6 +144,7 @@ def health() -> Response:
                 "snapshot": {"last_snapshot_at": None, "next_snapshot_in_seconds": None},
             }
         )
+        body["webhook_metrics"]["delivery"] = _webhook_metrics.health()
     return _json(body, 200 if ok else 503)
 
 
@@ -258,17 +259,18 @@ def _process_best_effort_batch(c, payloads, *, critical: bool = False):
         _maybe_refresh_remote_payments(c)
     client = c.whatsapp
     existing = {row["id"] for row in c.reply_outbox.all()}
-    current_metric = {"id": None, "received": 0.0}
+    current_metric = {"id": None, "received": 0.0, "event_epoch": None}
     c.whatsapp = QueuedReplies(
         c.reply_outbox, c,
         on_enqueue=lambda reply_id: _webhook_metrics.reply(
             reply_id, current_metric["id"], current_metric["received"],
+            current_metric["event_epoch"],
         ),
     )
     try:
         for payload in payloads:
-            invocation_id, received = _webhook_metrics.invocation(payload)
-            current_metric.update(id=invocation_id, received=received)
+            invocation_id, received, event_epoch = _webhook_metrics.invocation(payload)
+            current_metric.update(id=invocation_id, received=received, event_epoch=event_epoch)
             processing_started = time.monotonic()
             if _process_messages(c, payload, restore_on_error=False):
                 log.error("Best-effort message processing had isolated failures")
@@ -354,7 +356,10 @@ def _submit_best_effort_replies(c, client, snapshots):
             try:
                 outcomes, _failed = task.result()
                 for outcome in outcomes:
-                    _webhook_metrics.response(outcome["id"], outcome.get("status", ""))
+                    _webhook_metrics.response(
+                        outcome["id"], outcome.get("status", ""),
+                        outcome.get("whatsapp_message_id", ""),
+                    )
                 _get_webhook_actor(c).enqueue_control(outcomes)
                 log.debug("WhatsApp transport completed send_ms=%.1f", (time.monotonic() - submitted_at) * 1000)
             except Exception:
@@ -881,6 +886,12 @@ def _process_messages(c, payload: dict, restore_on_error: bool = True) -> bool:
         if not message_id:
             continue
         c.message_statuses.record(message_id, status.get("status"))
+        if status.get("status") in {"delivered", "read"}:
+            try:
+                delivered_at = float(status.get("timestamp"))
+            except (TypeError, ValueError):
+                delivered_at = None
+            _webhook_metrics.delivered(message_id, delivered_at)
     c.message_statuses.reconcile(
         c.sentlog, c.renewals, c.welcomes, c.reply_outbox,
         consume=not restore_on_error,

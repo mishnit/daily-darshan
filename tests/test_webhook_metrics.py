@@ -12,9 +12,9 @@ def test_metrics_correlate_processing_and_response_without_status_callbacks(monk
         "_webhook_received_monotonic": time.monotonic() - 0.05,
         "entry": [{"changes": [{"value": {"messages": [{"id": "wamid.inbound"}]}}]}],
     }
-    invocation, received = metrics.invocation(payload)
+    invocation, received, event_epoch = metrics.invocation(payload)
     metrics.processing(invocation, 2.5)
-    metrics.reply("reply-1", invocation, received)
+    metrics.reply("reply-1", invocation, received, event_epoch)
     metrics._last_report -= 2
 
     with caplog.at_level(logging.INFO, logger="test.webhook.metrics"):
@@ -50,3 +50,44 @@ def test_metrics_can_be_disabled_without_retaining_correlation(monkeypatch):
     assert metrics._processing == []
     assert metrics._responses == []
     assert metrics._pending == {}
+
+
+def test_metrics_measure_user_event_to_meta_delivery(monkeypatch):
+    monkeypatch.setenv("WEBHOOK_METRICS_SAMPLE_RATE", "0")
+    metrics = WebhookMetrics()
+    received = time.monotonic() - 0.05
+    metrics.reply("reply", "inbound", received, event_epoch=1000)
+    metrics.response("reply", "SENT", "wamid.outbound")
+    assert metrics.health()["pending_invocations"] == 1
+
+    metrics.delivered("wamid.outbound", event_epoch=1002)
+    health = metrics.health()
+    assert health["completed_invocations"] == 1
+    assert health["pending_invocations"] == 0
+    assert health["last_completed_invocation"]["reply_count"] == 1
+    assert health["last_completed_invocation"]["webhook_to_delivery_ms"] >= 50
+    assert health["last_completed_invocation"]["meta_event_e2e_ms"] == 2000
+
+
+def test_metrics_wait_for_every_reply_to_be_delivered(monkeypatch):
+    monkeypatch.setenv("WEBHOOK_METRICS_SAMPLE_RATE", "0")
+    metrics = WebhookMetrics()
+    received = time.monotonic()
+    metrics.reply("one", "inbound", received)
+    metrics.reply("two", "inbound", received)
+    metrics.response("one", "SENT", "wamid.one")
+    metrics.response("two", "SENT", "wamid.two")
+    metrics.delivered("wamid.one")
+    assert metrics.health()["completed_invocations"] == 0
+    metrics.delivered("wamid.two")
+    assert metrics.health()["completed_invocations"] == 1
+
+
+def test_metrics_correlate_delivery_callback_that_overtakes_sender(monkeypatch):
+    monkeypatch.setenv("WEBHOOK_METRICS_SAMPLE_RATE", "0")
+    metrics = WebhookMetrics()
+    received = time.monotonic()
+    metrics.reply("reply", "inbound", received, event_epoch=1000)
+    metrics.delivered("wamid.fast", event_epoch=1001)
+    metrics.response("reply", "SENT", "wamid.fast")
+    assert metrics.health()["last_completed_invocation"]["meta_event_e2e_ms"] == 1000
