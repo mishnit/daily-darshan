@@ -1,6 +1,7 @@
 {
   "admin": {
     "require_image_approval": true,
+    "image_auto_approval_minutes": 30,
     "image_preview_base": "https://raw.githubusercontent.com/mishnit/daily-darshan/main"
   },
   "plans": {

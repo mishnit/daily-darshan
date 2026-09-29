@@ -172,6 +172,19 @@ class RepoSync:
         """Advance one baseline only after its semantic merge succeeded."""
         self._baseline[rel] = content
 
+    def snapshot_transaction(self):
+        """Capture reconciliation bookkeeping before an atomic webhook action."""
+        return set(self._dirty), dict(self._baseline), self._snapshot_ready
+
+    def restore_transaction(self, snapshot) -> None:
+        """Restore reconciliation bookkeeping and discard an abandoned Git write."""
+        dirty, baseline, snapshot_ready = snapshot
+        self._dirty = set(dirty)
+        self._baseline = dict(baseline)
+        self._snapshot_ready = bool(snapshot_ready)
+        if hasattr(self._github, "discard_pending"):
+            self._github.discard_pending()
+
     def abort(self):
         """Caller restored its snapshot; discard the abandoned transaction."""
         self._dirty.clear()

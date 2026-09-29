@@ -192,7 +192,7 @@ def _maybe_refresh_remote_payments(c) -> None:
         _last_payment_refresh = now
 
 
-def _refresh_shared_csvs(c, *, strict: bool) -> None:
+def _refresh_shared_csvs(c, *, strict: bool, only: set[str] | None = None) -> None:
     """Merge every CSV concurrently written by Render and GitHub Actions."""
     if not c.repo_sync.enabled:
         return
@@ -200,60 +200,176 @@ def _refresh_shared_csvs(c, *, strict: bool) -> None:
 
     paths = c.config["paths"]
     specifications = [
-        (paths["subscribers_csv"], c.subscribers._csv,
+        ("subscribers", paths["subscribers_csv"], c.subscribers._csv,
          dict(key_fields=("mobile",), union_fields=("applied_payment_refs",))),
-        (paths["sentlog_csv"], c.sentlog._csv,
+        ("sentlog", paths["sentlog_csv"], c.sentlog._csv,
          dict(key_fields=("date", "mobile"), status_field="status")),
-        (paths["renewals_csv"], c.renewals._csv,
+        ("renewals", paths["renewals_csv"], c.renewals._csv,
          dict(key_fields=("mobile", "reminder_type", "expiry_date"), status_field="status")),
-        (paths.get("welcomes_csv", "csv/welcomes.csv"), c.welcomes,
+        ("welcomes", paths.get("welcomes_csv", "csv/welcomes.csv"), c.welcomes,
          dict(key_fields=("reference_id",), status_field="status")),
-        (paths.get("image_reviews_csv", "csv/image_reviews.csv"), c.image_reviews,
+        ("image_reviews", paths.get("image_reviews_csv", "csv/image_reviews.csv"), c.image_reviews,
          dict(key_fields=("id",), status_field="status",
               status_ranks={"PENDING": 0, "SUPERSEDED": 1, "APPROVED": 2})),
-        (paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv"), c.pipeline_requests,
+        ("pipeline_requests", paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv"), c.pipeline_requests,
          dict(key_fields=("id",))),
-        (paths.get("karma_events_csv", "csv/karma_events.csv"), c.karma_events,
+        ("karma_events", paths.get("karma_events_csv", "csv/karma_events.csv"), c.karma_events,
          dict(key_fields=("id",))),
     ]
-    for path, repository, policy in specifications:
+    for name, path, repository, policy in specifications:
+        if only is not None and name not in only:
+            continue
         baseline, remote = c.repo_sync.read_latest(path)
         conflicts = merge_keyed(repository, baseline, remote, strict=strict, **policy)
         c.repo_sync.accept_remote(path, remote)
         if conflicts:
             log.error("Semantic CSV merge used remote conflict values path=%s conflicts=%s", path, conflicts)
 
-    log_path = paths["logs_csv"]
-    baseline, remote = c.repo_sync.read_latest(log_path)
-    merge_append_only(c.logs._csv, baseline, remote)
-    c.repo_sync.accept_remote(log_path, remote)
+    if only is None or "logs" in only:
+        log_path = paths["logs_csv"]
+        baseline, remote = c.repo_sync.read_latest(log_path)
+        merge_append_only(c.logs._csv, baseline, remote)
+        c.repo_sync.accept_remote(log_path, remote)
 
-    approved = {}
-    for row in c.image_reviews.all():
-        if row.get("status") == "APPROVED":
-            approved.setdefault(row.get("date", ""), []).append(row.get("id", ""))
-    duplicates = {day: ids for day, ids in approved.items() if day and len(ids) > 1}
-    if duplicates:
-        from application.semantic_csv_merge import SemanticMergeConflict
-        raise SemanticMergeConflict(f"Multiple approved images after merge: {duplicates}")
+    if only is None or "image_reviews" in only:
+        approved = {}
+        for row in c.image_reviews.all():
+            if row.get("status") == "APPROVED":
+                approved.setdefault(row.get("date", ""), []).append(row.get("id", ""))
+        duplicates = {day: ids for day, ids in approved.items() if day and len(ids) > 1}
+        if duplicates:
+            from application.semantic_csv_merge import SemanticMergeConflict
+            raise SemanticMergeConflict(f"Multiple approved images after merge: {duplicates}")
 
 
 def _is_critical_webhook(payload: dict) -> bool:
-    """Financial/admin decisions and rejected-payment reviews commit immediately."""
+    """Durable financial changes and admin decisions commit immediately.
+
+    Browsing the admin menu, payment list, and image previews is deliberately
+    not critical: those interactions do not change business state and can use
+    the normal in-memory snapshot cadence.
+    """
     for message, _ctx in _iter_messages(payload):
         kind, value = _extract_input(message)
         value = (value or "").strip()
-        if kind == "text" and value.upper() == "ADMIN":
+        if (kind == "text" and value.upper() == "ADMIN"
+                and _is_authorized_admin(message.get("from", ""))):
             return True
         if kind == "button" and (
             value == "CTA_PAYMENT_REVIEW"
-            or value.startswith(("ADM_", "UTR_CONFIRM_", "UTR_EDIT_"))
+            or value.startswith(("UTR_CONFIRM_", "UTR_EDIT_"))
+            or (value.startswith(("ADM_APPROVE_", "ADM_REJECT_"))
+                and _is_authorized_admin(message.get("from", "")))
         ):
             return True
     return False
 
 
-def _process_best_effort_batch(c, payloads, *, critical: bool = False):
+def _is_authorized_admin(mobile: str) -> bool:
+    normalized = str(mobile or "").strip().lstrip("+")
+    configured = {
+        value.strip().lstrip("+")
+        for value in os.environ.get("WHATSAPP_ADMIN_NUMBERS", "").split(",")
+        if value.strip()
+    }
+    return normalized in configured
+
+
+def _opens_admin_review(payloads: list[dict]) -> bool:
+    """Whether a batch opens the administrator dashboard from a fresh view."""
+    return any(
+        kind == "text" and (value or "").strip().upper() == "ADMIN"
+        and _is_authorized_admin(message.get("from", ""))
+        for payload in payloads
+        for message, _ctx in _iter_messages(payload)
+        for kind, value in [_extract_input(message)]
+    )
+
+
+def _has_terminal_admin_command(payloads: list[dict]) -> bool:
+    """Whether a batch contains an authorized approve/reject decision."""
+    return any(
+        kind == "button"
+        and (value or "").strip().startswith(("ADM_APPROVE_", "ADM_REJECT_"))
+        and _is_authorized_admin(message.get("from", ""))
+        for payload in payloads
+        for message, _ctx in _iter_messages(payload)
+        for kind, value in [_extract_input(message)]
+    )
+
+
+def _has_intermediate_admin_command(payloads: list[dict]) -> bool:
+    """Admin navigation/preview steps must remain local and network-free."""
+    return any(
+        kind == "button" and (value or "").strip().startswith("ADM_")
+        and not (value or "").strip().startswith(("ADM_APPROVE_", "ADM_REJECT_"))
+        and _is_authorized_admin(message.get("from", ""))
+        for payload in payloads
+        for message, _ctx in _iter_messages(payload)
+        for kind, value in [_extract_input(message)]
+    )
+
+
+def _admin_decision_scope(c, payloads: list[dict]):
+    """CSV repositories and paths a terminal admin action can mutate.
+
+    This deliberately excludes delivery history, renewals, referrals and
+    unrelated customer data. The final commit still runs the full semantic
+    merge, which remains the global conflict barrier.
+    """
+    paths = c.config["paths"]
+    repositories = {
+        c.processed._csv, c.conversations, c.reply_outbox,
+        c.message_statuses._csv, c.logs._csv,
+    }
+    configured = {
+        paths.get("processed_csv", "csv/processed.csv"),
+        paths.get("conversations_csv", "csv/conversations.csv"),
+        paths.get("reply_outbox_csv", "csv/reply_outbox.csv"),
+        paths.get("message_statuses_csv", "csv/message_statuses.csv"),
+        paths["logs_csv"],
+    }
+    for payload in payloads:
+        for message, _ctx in _iter_messages(payload):
+            kind, value = _extract_input(message)
+            value = (value or "").strip()
+            if kind != "button" or not value.startswith(("ADM_APPROVE_", "ADM_REJECT_")):
+                continue
+            state = c.conversations.find(message.get("from", "")) or {}
+            if state.get("admin_kind") == "payment":
+                repositories.add(c.payments._csv)
+                configured.add(paths["payments_csv"])
+                if value.startswith("ADM_APPROVE_"):
+                    repositories.update({c.subscribers._csv, c.welcomes, c.pipeline_requests})
+                    configured.update({
+                        paths["subscribers_csv"],
+                        paths.get("welcomes_csv", "csv/welcomes.csv"),
+                        paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv"),
+                    })
+            elif state.get("admin_kind") == "image" and value.startswith("ADM_APPROVE_"):
+                repositories.update({c.image_reviews, c.pipeline_requests})
+                configured.update({
+                    paths.get("image_reviews_csv", "csv/image_reviews.csv"),
+                    paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv"),
+                })
+    return repositories, configured
+
+
+def _admin_decision_kind(c, payloads: list[dict]) -> str:
+    """The persisted object selected by the current authorized admin token."""
+    for payload in payloads:
+        for message, _ctx in _iter_messages(payload):
+            kind, value = _extract_input(message)
+            if (kind == "button" and (value or "").strip().startswith(
+                    ("ADM_APPROVE_", "ADM_REJECT_"))):
+                state = c.conversations.find(message.get("from", "")) or {}
+                if state.get("admin_kind") in {"payment", "image"}:
+                    return state["admin_kind"]
+    return ""
+
+
+def _process_best_effort_batch(c, payloads, *, critical: bool = False,
+                               admin_start: bool = False, admin_decision: bool = False):
     """Single-writer state transition plus bounded parallel reply transport."""
     global _best_effort_initialized
     from application.reply_outbox import (
@@ -265,10 +381,29 @@ def _process_best_effort_batch(c, payloads, *, critical: bool = False):
         from repositories.csv_repository import CSVRepository
         CSVRepository.reload_all_memory()
         _best_effort_initialized = True
-    # Refresh the remotely mutable payment ledger at the latest Git head for
-    # every actor batch. Critical commands reject a same-field conflict.
-    if critical:
+    # An administrator opening the dashboard gets a fresh, semantically merged
+    # view but no Git write. Only decisions/financial changes enter the strict
+    # durability lane and commit before their reply is sent.
+    if admin_start:
         _refresh_remote_payments(c, strict=True)
+        _refresh_shared_csvs(c, strict=True, only={"image_reviews"})
+    elif admin_decision:
+        decision_kind = _admin_decision_kind(c, payloads)
+        if decision_kind == "payment":
+            _refresh_remote_payments(c, strict=True)
+            _refresh_shared_csvs(
+                c, strict=True, only={"subscribers", "welcomes", "pipeline_requests"},
+            )
+        elif decision_kind == "image":
+            _refresh_shared_csvs(c, strict=True, only={"image_reviews"})
+    elif critical:
+        # Preserve the established low-latency customer financial path. Its
+        # immediate commit still performs the full semantic merge below.
+        _refresh_remote_payments(c, strict=True)
+    elif _has_intermediate_admin_command(payloads):
+        # ADMIN already established the fresh review snapshot. Keep list,
+        # pagination and preview taps entirely in memory for low latency.
+        pass
     else:
         _maybe_refresh_remote_payments(c)
     client = c.whatsapp
@@ -282,15 +417,19 @@ def _process_best_effort_batch(c, payloads, *, critical: bool = False):
         ),
     )
     try:
+        processing_failed = False
         for payload in payloads:
             invocation_id, received, event_epoch = _webhook_metrics.invocation(payload)
             current_metric.update(id=invocation_id, received=received, event_epoch=event_epoch)
             processing_started = time.monotonic()
             if _process_messages(c, payload, restore_on_error=False):
                 log.error("Best-effort message processing had isolated failures")
+                processing_failed = True
             _webhook_metrics.processing(
                 invocation_id, (time.monotonic() - processing_started) * 1000,
             )
+        if (admin_start or admin_decision) and processing_failed:
+            raise RuntimeError("Synchronized webhook state transition failed")
         reply_ids = {row["id"] for row in c.reply_outbox.all()} - existing
         prepared, _ = prepare_replies(
             c.reply_outbox, c, reply_ids=reply_ids, limit=max(1, len(reply_ids))
@@ -414,26 +553,70 @@ def _flush_critical_snapshot(c, message="Persist critical financial or admin web
 
 
 def _process_critical_webhook(c, payloads):
+    global _best_effort_initialized
+    admin_start = _opens_admin_review(payloads)
+    admin_decision = _has_terminal_admin_command(payloads)
+    if admin_start:
+        # Refreshing the read-only dashboard is safe to retain after a reply
+        # failure; do not copy every CSV merely to undo a useful fresh view.
+        try:
+            _process_best_effort_batch(c, payloads, admin_start=True)
+        except Exception:
+            _notify_critical_failure(c, payloads)
+            raise
+        return
+    if not admin_decision:
+        # UTR confirmation/edit and customer review requests retain their
+        # existing processing, refresh and response-latency characteristics.
+        try:
+            _process_best_effort_batch(c, payloads, critical=True)
+        except Exception:
+            _notify_critical_failure(c, payloads)
+            raise
+        return
+    initialized_snapshot = _best_effort_initialized
+    from repositories.csv_repository import CSVRepository
+    repositories, paths = _admin_decision_scope(c, payloads)
+    disk_snapshot = _snapshot_webhook_state(c, paths)
+    memory_snapshot = CSVRepository.snapshot_memory(repositories)
+    repo_snapshot = (
+        c.repo_sync.snapshot_transaction()
+        if hasattr(c.repo_sync, "snapshot_transaction") else None
+    )
     try:
-        _process_best_effort_batch(c, payloads, critical=True)
+        _process_best_effort_batch(
+            c, payloads, critical=admin_decision,
+            admin_decision=admin_decision,
+        )
     except Exception:
-        log.exception("Critical admin/UTR command was not durably committed")
-        mobiles = {
-            str(message.get("from", ""))
-            for payload in payloads
-            for message, _ctx in _iter_messages(payload)
-            if message.get("from")
-        }
-        for mobile in mobiles:
-            try:
-                c.whatsapp.send_text(
-                    mobile,
-                    "This action could not be saved safely because repository state changed. "
-                    "Please retry the command.",
-                )
-            except Exception:
-                log.exception("Could not send critical-command failure response to %s", mobile)
+        _best_effort_initialized = initialized_snapshot
+        _restore_webhook_state(disk_snapshot)
+        CSVRepository.restore_memory(memory_snapshot)
+        if repo_snapshot is not None:
+            c.repo_sync.restore_transaction(repo_snapshot)
+        elif hasattr(c.repo_sync, "abort"):
+            c.repo_sync.abort()
+        _notify_critical_failure(c, payloads)
         raise
+
+
+def _notify_critical_failure(c, payloads):
+    log.exception("Critical admin/UTR command was not durably committed")
+    mobiles = {
+        str(message.get("from", ""))
+        for payload in payloads
+        for message, _ctx in _iter_messages(payload)
+        if message.get("from")
+    }
+    for mobile in mobiles:
+        try:
+            c.whatsapp.send_text(
+                mobile,
+                "This action could not be saved safely because repository state changed. "
+                "Please retry the command.",
+            )
+        except Exception:
+            log.exception("Could not send critical-command failure response to %s", mobile)
 
 
 def _get_webhook_actor(c):
@@ -699,6 +882,11 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks) -
         actor = _get_webhook_actor(c)
         critical = _is_critical_webhook(payload)
         accepted = actor.enqueue(payload, critical=True) if critical else actor.enqueue(payload)
+        admin_boundary = _opens_admin_review([payload]) or _has_terminal_admin_command([payload])
+        if admin_boundary and not accepted:
+            # Never acknowledge-and-drop an authorized admin boundary command.
+            # Meta must redeliver it after queue pressure subsides.
+            return _json({"status": "retry"}, 503)
         return _json({"status": "queued" if accepted else "dropped"})
 
     # Acknowledge only after synchronous durable processing.
@@ -961,9 +1149,9 @@ def _webhook_paths(c) -> list[str]:
     ]
 
 
-def _snapshot_webhook_state(c) -> dict[str, tuple[str, bytes | None]]:
+def _snapshot_webhook_state(c, paths: set[str] | None = None) -> dict[str, tuple[str, bytes | None]]:
     snapshot = {}
-    for configured in _webhook_paths(c):
+    for configured in (paths if paths is not None else _webhook_paths(c)):
         full = configured if os.path.isabs(configured) else os.path.join(c.root, configured)
         try:
             with open(full, "rb") as source:

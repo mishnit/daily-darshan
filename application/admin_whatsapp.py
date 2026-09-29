@@ -142,7 +142,8 @@ def handle_admin(c, mobile, value):
             if other["date"] == row["date"] and other["status"] in {"PENDING", "APPROVED"}:
                 other["status"] = "SUPERSEDED"
                 c.image_reviews.upsert(other["id"], other)
-        row.update(status="APPROVED", approved_by=mobile, approved_at=datetime.now(INDIA_TZ).isoformat())
+        row.update(status="APPROVED", approved_by=mobile,
+                   approved_at=datetime.now(INDIA_TZ).isoformat(), approval_mode="MANUAL")
         c.image_reviews.upsert(row["id"], row)
         queue_request(c, f"image-{row['generation']}", "Image approved; regenerate, deploy then deliver")
         result = f"Approved {row['source']} for {row['date']}. Page regeneration, deployment and delivery are queued."

@@ -154,7 +154,7 @@ can dispatch Daily Image. Admin approval advances the gated publication chain:
 
 | Workflow | Cron (UTC) | Local time | Action |
 |----------|-----------|------------|--------|
-| **Daily Image** (`image.yml`) | Manual / external dispatch | On demand | Store source candidates, alert admin and wait for visual source approval without holding a runner |
+| **Daily Image** (`image.yml`) | Manual / external dispatch | On demand | Store source candidates, alert admin, and auto-approve the highest-resolution candidate after 30 minutes if no manual decision exists |
 | **Pending Payment UTR Alert** (`payment-utr-alert.yml`) | Manual only | On demand | Count confirmed UTRs awaiting review and today's missing UTRs; invite admin to reply ADMIN |
 | **Regenerate Daily Pages** (`pages.yml`) | Publication-request push / manual | After approval | Validate the selected date's approved bytes, render pages and approval stamp |
 | **Deploy Daily Darshan Pages** (`deploy-pages.yml`) | Event-driven | After approved rendering | Publish only an artifact matching its rendered approval stamp |
@@ -172,7 +172,9 @@ The image, Pages-deployment and delivery workflows support `workflow_dispatch`:
 Choose the recovery entry point deliberately:
 
 - **Daily Image** on `main` stores candidates and asks the admin to preview/approve a source.
-  Approval triggers regeneration, deployment and delivery. A single source still requires approval.
+  Approval triggers regeneration, deployment and delivery. A single source still enters review;
+  after `admin.image_auto_approval_minutes` (30 by default), the highest-resolution pending image
+  is selected automatically and the admin receives an `image_auto_approved` alert.
   Its `force_recollect` manual input defaults to `false`. Set it to `true` only when deliberately
   replacing an approved image: it supersedes the old approval for every date included by
   `backfill_days`, creates fresh candidates using the current branding, and waits for a new approval.

@@ -105,6 +105,23 @@ class CSVRepository:
         for repository in instances:
             repository.reload_memory()
 
+    @classmethod
+    def snapshot_memory(cls, repositories):
+        """Capture selected single-writer caches for transaction rollback."""
+        selected = {repository for repository in repositories if repository is not None}
+        return [
+            (repository, [dict(row) for row in repository._memory_rows], repository._dirty)
+            for repository in selected if repository._memory_mode
+        ]
+
+    @classmethod
+    def restore_memory(cls, snapshot) -> None:
+        """Restore cache rows and dirty flags captured by snapshot_memory."""
+        for repository, rows, dirty in snapshot:
+            repository._memory_rows = [dict(row) for row in rows]
+            repository._memory_index = repository._build_memory_index()
+            repository._dirty = dirty
+
     def flush_memory(self) -> int:
         if not self._memory_mode or not self._dirty:
             return 0

@@ -79,6 +79,38 @@ def test_best_effort_overload_is_acknowledged_and_dropped(app_client, monkeypatc
     assert response.json() == {"status": "dropped"}
 
 
+def test_critical_admin_decision_requests_redelivery_when_queue_is_full(app_client, monkeypatch):
+    main, client = app_client
+    monkeypatch.setenv("WEBHOOK_BEST_EFFORT_QUEUE", "true")
+    monkeypatch.setenv("WHATSAPP_ADMIN_NUMBERS", "9199")
+    monkeypatch.setattr(
+        main, "_get_webhook_actor", lambda _container: SimpleNamespace(enqueue=lambda *_a, **_k: False),
+    )
+
+    response = client.post(
+        "/webhook", json=_tap_payload("9199", "ADM_APPROVE_token", "critical-full"),
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "retry"}
+
+
+def test_customer_financial_overload_keeps_existing_best_effort_acknowledgement(
+        app_client, monkeypatch):
+    main, client = app_client
+    monkeypatch.setenv("WEBHOOK_BEST_EFFORT_QUEUE", "true")
+    monkeypatch.setattr(
+        main, "_get_webhook_actor", lambda _container: SimpleNamespace(enqueue=lambda *_a, **_k: False),
+    )
+
+    response = client.post(
+        "/webhook", json=_tap_payload("9199", "UTR_CONFIRM_token", "customer-full"),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "dropped"}
+
+
 def test_unique_older_event_is_recorded_but_does_not_rewind_or_reply(app_client):
     main, _ = app_client
     c = main.container
@@ -170,7 +202,7 @@ def test_karma_share_rejects_unknown_subscription(app_client):
     assert response.status_code == 404
 
 
-def test_best_effort_routes_admin_and_utr_confirmation_to_critical_lane(app_client, monkeypatch):
+def test_best_effort_routes_only_admin_decisions_and_financial_changes_to_critical_lane(app_client, monkeypatch):
     main, client = app_client
     calls = []
 
@@ -180,9 +212,20 @@ def test_best_effort_routes_admin_and_utr_confirmation_to_critical_lane(app_clie
             return True
 
     monkeypatch.setenv("WEBHOOK_BEST_EFFORT_QUEUE", "true")
+    monkeypatch.setenv("WHATSAPP_ADMIN_NUMBERS", "9199")
     monkeypatch.setattr(main, "_get_webhook_actor", lambda _container: Actor())
+    admin_payload = {"entry": [{"changes": [{"value": {"messages": [{
+        "id": "admin-start", "from": "9199", "type": "text",
+        "text": {"body": "ADMIN"},
+    }]}}]}]}
+    assert client.post("/webhook", json=admin_payload).status_code == 200
     for value in (
         "ADM_IMAGES",
+        "ADM_PAYMENTS_0",
+        "ADM_PAY_reference",
+        "ADM_IMG_candidate",
+        "ADM_APPROVE_token",
+        "ADM_REJECT_token",
         "UTR_CONFIRM_token",
         "UTR_EDIT_token",
         "CTA_PAYMENT_REVIEW",
@@ -191,7 +234,7 @@ def test_best_effort_routes_admin_and_utr_confirmation_to_critical_lane(app_clie
         assert response.status_code == 200
     response = client.post("/webhook", json=_tap_payload("9199", "CTA_MENU", "normal"))
     assert response.status_code == 200
-    assert calls == [True, True, True, True, False]
+    assert calls == [True, False, False, False, False, True, True, True, True, True, False]
 
 
 def test_rejected_payment_review_commits_before_acknowledgement_reply(app_client, monkeypatch):
@@ -230,24 +273,197 @@ def test_rejected_payment_review_commits_before_acknowledgement_reply(app_client
     )
 
 
-def test_critical_lane_commits_before_sending_admin_response(app_client, monkeypatch):
+def test_admin_menu_refreshes_without_an_immediate_snapshot_commit(app_client, monkeypatch):
     main, _ = app_client
     c = main.container
     events = []
     monkeypatch.setenv("WHATSAPP_ADMIN_NUMBERS", "9199")
-    monkeypatch.setattr(main, "_refresh_remote_payments", lambda *_args, **_kwargs: events.append("refresh"))
+    monkeypatch.setattr(
+        main, "_refresh_remote_payments",
+        lambda *_args, **kwargs: events.append(("payments", kwargs.get("strict"))),
+    )
+    monkeypatch.setattr(
+        main, "_refresh_shared_csvs",
+        lambda *_args, **kwargs: events.append(("shared", kwargs.get("strict"), kwargs.get("only"))),
+    )
     monkeypatch.setattr(main, "_flush_critical_snapshot", lambda _container: events.append("commit"))
-    original = c.whatsapp.send_text
+    original = c.whatsapp.send_buttons
 
-    def send_text(*args, **kwargs):
+    def send_buttons(*args, **kwargs):
         events.append("send")
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(c.whatsapp, "send_text", send_text)
+    monkeypatch.setattr(c.whatsapp, "send_buttons", send_buttons)
+    payload = {"entry": [{"changes": [{"value": {"messages": [{
+        "id": "admin-menu", "from": "9199", "type": "text",
+        "text": {"body": "ADMIN"},
+    }]}}]}]}
     main._process_best_effort_batch(
-        c, [_tap_payload("9199", "ADM_IMAGES", "critical-admin")], critical=True,
+        c, [payload], critical=False, admin_start=True,
     )
-    assert events[:3] == ["refresh", "commit", "send"]
+    assert events[:3] == [
+        ("payments", True),
+        ("shared", True, {"image_reviews"}),
+        "send",
+    ]
+    assert "commit" not in events
+
+
+def test_admin_start_does_not_allocate_a_rollback_snapshot(app_client, monkeypatch):
+    main, _ = app_client
+    c = main.container
+    from repositories.csv_repository import CSVRepository
+    monkeypatch.setenv("WHATSAPP_ADMIN_NUMBERS", "9199")
+    monkeypatch.setattr(
+        CSVRepository, "snapshot_memory",
+        classmethod(lambda *_args: (_ for _ in ()).throw(AssertionError("unexpected snapshot"))),
+    )
+    payload = {"entry": [{"changes": [{"value": {"messages": [{
+        "id": "admin-start-lightweight", "from": "9199", "type": "text",
+        "text": {"body": "ADMIN"},
+    }]}}]}]}
+
+    main._process_critical_webhook(c, [payload])
+
+    assert c.processed.was_processed("admin-start-lightweight")
+
+
+def test_intermediate_admin_navigation_performs_no_request_triggered_repo_refresh(
+        app_client, monkeypatch):
+    main, _ = app_client
+    c = main.container
+    events = []
+    monkeypatch.setenv("WHATSAPP_ADMIN_NUMBERS", "9199")
+    monkeypatch.setattr(main, "_refresh_remote_payments", lambda *_a, **_k: events.append("payments"))
+    monkeypatch.setattr(main, "_refresh_shared_csvs", lambda *_a, **_k: events.append("shared"))
+    monkeypatch.setattr(main, "_maybe_refresh_remote_payments", lambda *_a, **_k: events.append("maybe"))
+
+    main._process_best_effort_batch(
+        c, [_tap_payload("9199", "ADM_IMAGES", "admin-images")], critical=False,
+    )
+
+    assert events == []
+
+
+def test_terminal_payment_decision_refreshes_only_relevant_state_before_reply(
+        app_client, monkeypatch):
+    main, _ = app_client
+    c = main.container
+    events = []
+    monkeypatch.setenv("WHATSAPP_ADMIN_NUMBERS", "9199")
+    monkeypatch.setattr(main, "_admin_decision_kind", lambda *_a: "payment")
+    monkeypatch.setattr(main, "_refresh_remote_payments", lambda *_a, **_k: events.append("payments"))
+    monkeypatch.setattr(
+        main, "_refresh_shared_csvs",
+        lambda *_a, **kwargs: events.append(("shared", kwargs.get("only"))),
+    )
+    monkeypatch.setattr(main, "_flush_critical_snapshot", lambda _c: events.append("commit"))
+    monkeypatch.setattr(main, "_submit_best_effort_replies", lambda *_a: events.append("reply"))
+
+    main._process_best_effort_batch(
+        c, [_tap_payload("9199", "ADM_APPROVE_expired", "admin-approve")],
+        critical=True, admin_decision=True,
+    )
+
+    assert events == [
+        "payments",
+        ("shared", {"subscribers", "welcomes", "pipeline_requests"}),
+        "commit",
+        "reply",
+    ]
+
+
+def test_terminal_image_decision_refreshes_only_image_reviews(app_client, monkeypatch):
+    main, _ = app_client
+    c = main.container
+    events = []
+    monkeypatch.setattr(main, "_admin_decision_kind", lambda *_a: "image")
+    monkeypatch.setattr(main, "_refresh_remote_payments", lambda *_a, **_k: events.append("payments"))
+    monkeypatch.setattr(
+        main, "_refresh_shared_csvs",
+        lambda *_a, **kwargs: events.append(("shared", kwargs.get("only"))),
+    )
+    monkeypatch.setattr(main, "_flush_critical_snapshot", lambda _c: events.append("commit"))
+    monkeypatch.setattr(main, "_submit_best_effort_replies", lambda *_a: events.append("reply"))
+
+    main._process_best_effort_batch(
+        c, [_tap_payload("9199", "ADM_APPROVE_expired", "image-approve")],
+        critical=True, admin_decision=True,
+    )
+
+    assert events == [("shared", {"image_reviews"}), "commit", "reply"]
+
+
+def test_failed_critical_transaction_restores_memory_and_flushed_disk(app_client, monkeypatch):
+    main, _ = app_client
+    c = main.container
+    from repositories.csv_repository import CSVRepository
+    monkeypatch.setenv("WHATSAPP_ADMIN_NUMBERS", "9199")
+    c.subscriber_service.upsert_pending("9199", "monthly", "Before")
+    c.conversations.upsert("9199", {"mobile": "9199", "version": "0", "admin_kind": "payment"})
+    CSVRepository.flush_all_memory()
+    before_row = c.subscribers.find("9199").to_row()
+    subscriber_path = c.config["paths"]["subscribers_csv"]
+    before_disk = open(subscriber_path, "rb").read()
+
+    def mutate_flush_and_fail(*_args, **_kwargs):
+        changed = c.subscribers.find("9199")
+        changed.name = "Partially applied"
+        c.subscribers.update(changed)
+        CSVRepository.flush_all_memory()
+        raise RuntimeError("commit failed")
+
+    monkeypatch.setattr(main, "_process_best_effort_batch", mutate_flush_and_fail)
+    with pytest.raises(RuntimeError, match="commit failed"):
+        main._process_critical_webhook(
+            c, [_tap_payload("9199", "ADM_APPROVE_token", "critical-rollback")],
+        )
+
+    assert c.subscribers.find("9199").to_row() == before_row
+    assert open(subscriber_path, "rb").read() == before_disk
+
+
+def test_payment_decision_snapshots_only_repositories_it_can_mutate(app_client, monkeypatch):
+    main, _ = app_client
+    c = main.container
+    from repositories.csv_repository import CSVRepository
+    monkeypatch.setenv("WHATSAPP_ADMIN_NUMBERS", "9199")
+    c.conversations.upsert("9199", {"mobile": "9199", "version": "0", "admin_kind": "payment"})
+    captured = set()
+    original = CSVRepository.snapshot_memory.__func__
+
+    def capture(cls, repositories):
+        captured.update(repositories)
+        return original(cls, repositories)
+
+    monkeypatch.setattr(CSVRepository, "snapshot_memory", classmethod(capture))
+    monkeypatch.setattr(main, "_process_best_effort_batch", lambda *_a, **_k: None)
+
+    main._process_critical_webhook(
+        c, [_tap_payload("9199", "ADM_APPROVE_token", "targeted-payment-snapshot")],
+    )
+
+    assert {c.payments._csv, c.subscribers._csv, c.welcomes, c.pipeline_requests} <= captured
+    assert c.sentlog._csv not in captured
+    assert c.renewals._csv not in captured
+    assert c.image_reviews not in captured
+    assert c.karma_events not in captured
+
+
+def test_customer_financial_command_keeps_payment_only_pre_refresh(app_client, monkeypatch):
+    main, _ = app_client
+    c = main.container
+    events = []
+    monkeypatch.setattr(main, "_refresh_remote_payments", lambda *_a, **_k: events.append("payments"))
+    monkeypatch.setattr(main, "_refresh_shared_csvs", lambda *_a, **_k: events.append("shared"))
+    monkeypatch.setattr(main, "_flush_critical_snapshot", lambda _c: events.append("commit"))
+    monkeypatch.setattr(main, "_submit_best_effort_replies", lambda *_a: events.append("reply"))
+
+    main._process_critical_webhook(
+        c, [_tap_payload("9199", "UTR_CONFIRM_expired", "customer-critical")],
+    )
+
+    assert events == ["payments", "commit", "reply"]
 
 
 def test_critical_lane_reports_merge_or_commit_failure_to_sender(app_client, monkeypatch):
