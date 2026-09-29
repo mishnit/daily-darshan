@@ -1,5 +1,5 @@
 """A persisted admin decision gates image publication and all customer sends."""
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import hashlib
 from pathlib import Path
 from uuid import uuid4, uuid5, NAMESPACE_URL
@@ -62,6 +62,7 @@ def collect_for_review(c, git, on_date, *, force_recollect: bool = False):
         return 0
     candidates = c.image_service.collect_daily_images(on_date)
     generation = uuid4().hex
+    queued_at = datetime.now(INDIA_TZ).isoformat()
     files = []
     for row in c.image_reviews.all():
         if row["date"] == on_date.isoformat() and row["status"] in {"PENDING", "APPROVED"}:
@@ -72,15 +73,99 @@ def collect_for_review(c, git, on_date, *, force_recollect: bool = False):
         data = _canonical_jpeg(image.data, on_date, image.source, append_footer=image.append_footer)
         git.write_file(path, data, f"Store review candidate {on_date} {image.source}")
         files.append(path)
+        width, height = _dimensions(data)
         key = uuid4().hex
         c.image_reviews.upsert(key, {"id": key, "date": on_date.isoformat(),
             "generation": generation, "source": image.source, "path": path,
-            "sha256": hashlib.sha256(data).hexdigest(), "status": "PENDING",
-            "approved_by": "", "approved_at": ""})
+            "sha256": hashlib.sha256(data).hexdigest(), "width": str(width),
+            "height": str(height), "status": "PENDING", "queued_at": queued_at,
+            "approved_by": "", "approved_at": "", "approval_mode": ""})
     files.append(c.config["paths"].get("image_reviews_csv", "csv/image_reviews.csv"))
     git.commit(files, f"Queue image selection {on_date}")
     print(f"[image] {len(candidates)} previews stored; awaiting admin selection")
     return 0
+
+
+def _dimensions(data: bytes) -> tuple[int, int]:
+    try:
+        import io
+        from PIL import Image as PILImage
+        with PILImage.open(io.BytesIO(data)) as image:
+            return image.size
+    except Exception:
+        return (0, 0)
+
+
+def _review_deadline(c, rows: list[dict]) -> datetime | None:
+    queued = []
+    for row in rows:
+        value = row.get("queued_at", "")
+        if not value:
+            continue
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        queued.append(parsed if parsed.tzinfo else parsed.replace(tzinfo=INDIA_TZ))
+    if not queued:
+        return None
+    minutes = max(0, int(c.config.get("admin", {}).get("image_auto_approval_minutes", 30)))
+    return min(queued) + timedelta(minutes=minutes)
+
+
+def auto_approval_wait_seconds(c, on_date, *, now: datetime | None = None) -> int:
+    """Seconds until the current pending generation may be auto-approved."""
+    if not required(c.config) or approved(c, on_date):
+        return 0
+    rows = [row for row in c.image_reviews.all()
+            if row.get("date") == on_date.isoformat() and row.get("status") == "PENDING"]
+    deadline = _review_deadline(c, rows)
+    if deadline is None:
+        return 0
+    now = now or datetime.now(INDIA_TZ)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=INDIA_TZ)
+    return max(0, int((deadline - now).total_seconds() + 0.999))
+
+
+def auto_approve_due(c, on_date, *, now: datetime | None = None):
+    """Approve the highest-resolution pending image after the admin deadline."""
+    if not required(c.config) or approved(c, on_date):
+        return None
+    rows = [row for row in c.image_reviews.all()
+            if row.get("date") == on_date.isoformat() and row.get("status") == "PENDING"]
+    if not rows:
+        return None
+    deadline = _review_deadline(c, rows)
+    now = now or datetime.now(INDIA_TZ)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=INDIA_TZ)
+    # Legacy rows have no durable start time and must not be unexpectedly
+    # approved. A new image collection will supersede them with timed rows.
+    if deadline is None or now < deadline:
+        return None
+
+    def rank(row):
+        try:
+            width, height = int(row.get("width", 0)), int(row.get("height", 0))
+        except (TypeError, ValueError):
+            width, height = 0, 0
+        return (width * height, min(width, height), max(width, height))
+
+    selected = max(rows, key=rank)
+    for row in rows:
+        row["status"] = "SUPERSEDED"
+        c.image_reviews.upsert(row["id"], row)
+    selected.update(
+        status="APPROVED", approved_by="system:image_auto_approved",
+        approved_at=now.isoformat(), approval_mode="AUTO_TIMEOUT",
+    )
+    c.image_reviews.upsert(selected["id"], selected)
+    queue_request(
+        c, f"image-{selected['generation']}",
+        "Image auto-approved after admin review timeout; regenerate, deploy then deliver",
+    )
+    return selected
 
 
 def materialize(c, git, on_date):
@@ -156,17 +241,44 @@ if __name__ == "__main__":
     from domain.clock import today_ist
     parser = argparse.ArgumentParser()
     parser.add_argument("--published", action="store_true")
+    parser.add_argument("--wait-seconds", action="store_true",
+                        help="Report the remaining manual-review window")
+    parser.add_argument("--auto-approve-due", action="store_true",
+                        help="Auto-approve the best candidate when its deadline has elapsed")
     parser.add_argument("--date", help="Approval/render date in YYYY-MM-DD; defaults to today in IST")
     args = parser.parse_args()
     try:
         approval_date = date.fromisoformat(args.date) if args.date else today_ist()
     except ValueError:
         parser.error("--date must be YYYY-MM-DD")
-    if args.published:
+    output = {}
+    if args.wait_seconds or args.auto_approve_due:
+        from config import Container
+        container = Container()
+        if args.wait_seconds:
+            output["wait_seconds"] = str(auto_approval_wait_seconds(container, approval_date))
+            ok = approval_ready(".", approval_date)
+        else:
+            selected = auto_approve_due(container, approval_date)
+            if selected:
+                from adapters.github import LocalGitRepository
+                paths = container.config["paths"]
+                LocalGitRepository(root=container.root).commit([
+                    paths.get("image_reviews_csv", "csv/image_reviews.csv"),
+                    paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv"),
+                ], f"Auto-approve daily image {approval_date.isoformat()}")
+            output["auto_approved"] = str(bool(selected)).lower()
+            output["source"] = selected["source"] if selected else ""
+            ok = approval_ready(".", approval_date)
+    elif args.published:
         ok = deployment_ready(".", approval_date)
     else:
         ok = approval_ready(".", approval_date)
     print(f"ready={str(ok).lower()}")
+    for key, value in output.items():
+        print(f"{key}={value}")
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
             fh.write(f"ready={str(ok).lower()}\n")
+            for key, value in output.items():
+                fh.write(f"{key}={value}\n")

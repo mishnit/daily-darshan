@@ -77,7 +77,8 @@ class Container:
              "admin_kind", "admin_reference", "admin_fingerprint", "admin_token"], "mobile",
         )
         self.image_reviews = CSVRepository(p(paths.get("image_reviews_csv", "csv/image_reviews.csv")),
-            ["id", "date", "generation", "source", "path", "sha256", "status", "approved_by", "approved_at"], "id")
+            ["id", "date", "generation", "source", "path", "sha256", "width", "height",
+             "status", "queued_at", "approved_by", "approved_at", "approval_mode"], "id")
         self.pipeline_requests = CSVRepository(p(paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv")),
             ["id", "reason", "created_at"], "id")
         self.welcomes = CSVRepository(

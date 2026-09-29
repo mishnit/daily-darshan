@@ -1,6 +1,7 @@
 """Send an approved ops template inviting admins into the review conversation."""
 import argparse
 import csv
+import json
 import os
 from pathlib import Path
 
@@ -18,7 +19,7 @@ def payment_counts(rows, today):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("kind", choices=["payments", "images"])
+    parser.add_argument("kind", choices=["payments", "images", "image_auto_approved"])
     args = parser.parse_args(argv)
     if args.kind == "payments":
         with Path("csv/payments.csv").open(newline="") as fh:
@@ -27,8 +28,21 @@ def main(argv=None):
             print("No payments need attention")
             return 0
         status = f"{review} confirmed UTR(s) to review; {missing} awaiting UTR. Reply ADMIN to review"
-    else:
+    elif args.kind == "images":
         status = "Images awaiting source selection. Reply ADMIN to preview and approve today's image"
+    else:
+        with Path("csv/image_reviews.csv").open(newline="") as fh:
+            rows = [row for row in csv.DictReader(fh)
+                    if row.get("date") == today_ist().isoformat()
+                    and row.get("status") == "APPROVED"
+                    and row.get("approval_mode") == "AUTO_TIMEOUT"]
+        if not rows:
+            print("No image was auto-approved")
+            return 0
+        config = json.loads(Path("config.json").read_text(encoding="utf-8"))
+        minutes = int(config.get("admin", {}).get("image_auto_approval_minutes", 30))
+        status = (f"image_auto_approved: {rows[0]['source']} selected after the "
+                  f"{minutes}-minute review window")
     numbers = admin_numbers()
     if not numbers:
         raise RuntimeError("WHATSAPP_ADMIN_NUMBERS must identify a separate authorized admin WhatsApp account")

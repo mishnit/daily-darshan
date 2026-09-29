@@ -123,17 +123,95 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
-  approval:
+  approval-wait:
     needs: image
     runs-on: ubuntu-latest
-    outputs:
-      ready: ${{ steps.gate.outputs.ready }}
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - id: timer
+        run: python3 -m application.image_approval --wait-seconds
+      - name: Keep the manual review window open
+        if: steps.timer.outputs.ready != 'true' && steps.timer.outputs.wait_seconds != '0'
+        env:
+          WAIT_SECONDS: ${{ steps.timer.outputs.wait_seconds }}
+        run: sleep "$WAIT_SECONDS"
+
+  approval:
+    needs: [image, approval-wait]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: daily-darshan-repository-writes
+      cancel-in-progress: false
+    outputs:
+      ready: ${{ steps.gate.outputs.ready }}
+      auto_approved: ${{ steps.gate.outputs.auto_approved }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install runtime dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Configure git author
+        run: |
+          git config user.name "Daily Darshan Automation"
+          git config user.email "geekymishnit@gmail.com"
+
+      - name: Import GPG signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          test -n "$GPG_PRIVATE_KEY" || { echo "GPG_PRIVATE_KEY secret is required" >&2; exit 1; }
+          test -n "$GPG_PASSPHRASE" || { echo "GPG_PASSPHRASE secret is required" >&2; exit 1; }
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          fingerprint="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+          test -n "$fingerprint" || { echo "No imported GPG secret key found" >&2; exit 1; }
+          preset_passphrase="$(command -v gpg-preset-passphrase || true)"
+          if [ -z "$preset_passphrase" ] && [ -x /usr/lib/gnupg2/gpg-preset-passphrase ]; then
+            preset_passphrase=/usr/lib/gnupg2/gpg-preset-passphrase
+          fi
+          test -n "$preset_passphrase" || { echo "gpg-preset-passphrase is unavailable" >&2; exit 1; }
+          while IFS= read -r keygrip; do
+            printf '%s' "$GPG_PASSPHRASE" | "$preset_passphrase" --preset "$keygrip"
+          done < <(gpg --batch --with-colons --with-keygrip --list-secret-keys "$fingerprint" | awk -F: '$1 == "grp" { print $10 }')
+          printf 'GitHub Actions signing check' | gpg --batch --yes --local-user "$fingerprint" --detach-sign --output "$RUNNER_TEMP/signing-check.sig"
+          git config --global user.signingkey "$fingerprint"
+          git config --global commit.gpgsign true
+          echo "GIT_COMMIT_GPG_SIGN=true" >> "$GITHUB_ENV"
+
+      - name: Refresh the decision state
+        run: |
+          git fetch origin main
+          git rebase origin/main
+
       - id: gate
-        run: python3 -m application.image_approval
+        run: python -m application.image_approval --auto-approve-due
+
+      - name: Notify admin that the deadline selected an image
+        if: steps.gate.outputs.auto_approved == 'true'
+        continue-on-error: true
+        env:
+          WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+          WHATSAPP_ADMIN_NUMBERS: ${{ vars.WHATSAPP_ADMIN_NUMBERS }}
+        run: python -m application.admin_alert image_auto_approved
 
   pages:
     needs: [image, approval]

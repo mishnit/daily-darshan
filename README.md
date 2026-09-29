@@ -31,13 +31,24 @@ operational webhook errors. `WEBHOOK_LOGGING_ENABLED=false` disables the complet
 sampled invocation logs; both settings are read at process startup.
 
 The actor has two ordered lanes. Ordinary customer events remain memory-backed until the
-15-minute snapshot. Authorized `ADMIN`/`ADM_*`, `UTR_CONFIRM_*`/`UTR_EDIT_*`, and rejected-payment
-`CTA_PAYMENT_REVIEW` events use
-a critical durability lane: the latest remote payment ledger is merged by `reference_id`, the command
-is applied and committed immediately, and only then is its WhatsApp response sent. A
-same-field payment conflict blocks the critical command; ordinary refreshes treat the
-committed remote payment value as authoritative. Both lanes share one state writer, so an
-immediate critical commit and a scheduled snapshot cannot overlap.
+15-minute snapshot. Sending `ADMIN` first strictly refreshes only the payment ledger and image
+review candidates needed by the dashboard, but it does not create a rollback copy or Git commit.
+Admin menu navigation and previews (`ADM_PAYMENTS_*`, `ADM_PAY_*`, `ADM_IMAGES`,
+`ADM_IMG_*`) use only the in-memory view established by `ADMIN`: they perform no request-triggered
+Git read or write. Actual `ADM_APPROVE_*`/`ADM_REJECT_*` decisions, `UTR_CONFIRM_*`/`UTR_EDIT_*`,
+and rejected-payment `CTA_PAYMENT_REVIEW` use a critical durability lane: the latest remote
+decision-relevant state is merged before an admin decision, the command is applied and
+committed immediately, and only then is its WhatsApp response sent. Payment decisions refresh
+payments plus subscriber/welcome/pipeline state; image decisions refresh only image reviews.
+Failed admin transitions or commits restore only the CSV repositories that action can mutate,
+and tell the administrator to retry. If the
+queue is full, ordinary and customer financial traffic retain the existing best-effort HTTP 200
+policy, while an authorized `ADMIN` or approve/reject boundary returns 503 so Meta redelivers it.
+Customer UTR and payment-review commands retain their payment-only pre-refresh and established
+latency profile; their immediate commit still performs the full semantic merge. A same-field
+payment conflict blocks the critical command; ordinary refreshes treat the committed remote
+payment value as authoritative. Both lanes share one state writer, so an immediate critical
+commit and a scheduled snapshot cannot overlap.
 
 Before either kind of commit, shared business CSVs are three-way merged by their domain
 keys: subscriber mobile; delivery date/mobile; renewal mobile/type/expiry; welcome payment
@@ -226,6 +237,7 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `daily_shloka_menu` | Timezone and release time for the normal daily menu shloka. From 06:00 IST it shows the `fallback` shloka until exactly one source is approved for the current date. |
 | `daily_image_rotation` | Weekday-to-source mapping. Store all valid candidates and ask the admin to preview and approve one source. |
 | `admin.require_image_approval` | Enabled in production. Blocks pages, deployment and customer messages until today's image is approved. |
+| `admin.image_auto_approval_minutes` | Manual image-review deadline. If no administrator approves a candidate in this many minutes, Daily Image approves the highest-resolution pending candidate and continues publication and delivery. |
 | `admin.image_preview_base` | HTTPS repository content base used for WhatsApp image previews before Pages deployment. Must be publicly reachable by Meta. |
 | `temple_sources` | Named temple page URLs and `enabled` flags used by the weekday rotation. |
 | `image_sources` / `image_source_config` | Legacy generic source fallback used only when no enabled named temple sources are configured. |
@@ -964,22 +976,24 @@ template is attempted per subscriber per date.
 
 | Workflow | Schedule (UTC) | Local time | Does |
 |----------|----------------|------------|------|
-| `image.yml` | Manual / external scheduler | On demand | Store valid source candidates, then invite admin to reply ADMIN for visual selection. No automatic highest-resolution selection. |
+| `image.yml` | Manual / external scheduler | On demand | Store valid source candidates and invite admin review. After the configured 30-minute deadline, select the highest-resolution pending candidate if no manual approval exists. |
 | `payment-utr-alert.yml` | Manual only | On demand | Alert admin about confirmed UTRs awaiting review and today's checkouts missing a UTR. Uses `daily_darshan_ops_alert`. |
 | `pages.yml` | Push to `csv/pipeline_requests.csv` on main; manual | After admin approval | Default: validate today's approval. Manual `day: yesterday` validates yesterday's approved image for a historical/template refresh and records that date's approval stamp. |
 | `deploy-pages.yml` | Successful Daily Image or Regenerate Daily Pages; manual | After rendering | Deploy only if approval, canonical bytes and the rendered artifact's stamped date agree. Collection-only completion skips deployment. |
 | `delivery.yml` | Successful deployment; every 30 minutes; manual | After publication | Require today's approval and live public stamp, then run welcome, renewal and delivery with the shared daily contact limit. Scheduled recovery safely retries confirmed failures; ambiguous sends remain held for callback reconciliation. |
 
 With `admin.require_image_approval=true`, a normal/current-day publication cannot bypass today's
-admin decision. The deliberate manual `day: yesterday` option is restricted to historical page
-refreshes and cannot unblock today's delivery. Jobs exit/skip while waiting; no runner sleeps
-waiting for the admin. The admin's committed decision creates a durable publication request,
-triggering page regeneration automatically. A failed workflow can be rerun after correcting its
-cause. Successful current-day page regeneration triggers deployment, then delivery. The existing
-once-per-day ledger still prevents repeat customer messages.
+admin decision or the configured timeout decision. The deliberate manual `day: yesterday` option
+is restricted to historical page refreshes and cannot unblock today's delivery. Daily Image keeps
+a lightweight wait job open for only the remaining review window; it does not hold the shared
+repository-write concurrency group while waiting. A manual or automatic approval creates a durable
+publication request, triggering page regeneration automatically. A failed workflow can be rerun
+after correcting its cause. Successful current-day page regeneration triggers deployment, then
+delivery. The existing once-per-day ledger still prevents repeat customer messages.
 
-The former automatic largest-image selection and previous-date page fallback remain available
-only when image approval is explicitly disabled in configuration. Production enables approval.
+When approval is required, automatic selection is permitted only after the configured review
+deadline. It never replaces an existing manual approval. Previous-date page fallback remains
+available only when image approval is explicitly disabled in configuration.
 
 ### End-to-end production journey
 
@@ -999,7 +1013,9 @@ only when image approval is explicitly disabled in configuration. Production ena
    without a confirmation timestamp use the approval date; no historical date is invented.
 5. **Daily Image** collects candidates. Admin receives an ops alert, replies **ADMIN**, selects
    **Select daily image**, previews a source, and taps **Approve image** (or **Other sources**).
-   Even a single available source requires approval. An older day's preview cannot be approved.
+   Even a single available source enters review. If there is no approval within 30 minutes, the
+   highest-resolution pending candidate is approved automatically and the admin receives an
+   `image_auto_approved` alert. An older day's preview cannot be approved.
 6. The approval commit updates `csv/pipeline_requests.csv`, triggering **Regenerate Daily Pages**.
    It validates approved image bytes and renders pages from fresh main, retrying bounded Git
    collisions. **Deploy Daily Darshan Pages** publishes the matching artifact.

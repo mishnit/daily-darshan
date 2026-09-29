@@ -41,6 +41,8 @@ def test_event_candidate_joins_temple_review_without_auto_approval(container, tm
     rows = container.image_reviews.all()
     assert {r['source'] for r in rows} == {'temple', 'Maa Shailaputri'}
     assert all(r['status'] == 'PENDING' for r in rows)
+    assert all(r['queued_at'] for r in rows)
+    assert {(r['width'], r['height']) for r in rows} == {('640', '800'), ('640', '941')}
     assert approved(container, DAY) is None
     assert len(writes) == 2
     event_row = next(r for r in rows if r['source'] == 'Maa Shailaputri')
