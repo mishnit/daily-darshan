@@ -202,7 +202,8 @@ def test_karma_share_rejects_unknown_subscription(app_client):
     assert response.status_code == 404
 
 
-def test_best_effort_routes_only_admin_decisions_and_financial_changes_to_critical_lane(app_client, monkeypatch):
+def test_best_effort_routes_admin_and_utr_confirmation_to_critical_lane(app_client, monkeypatch):
+    """Admin boundaries and financial mutations use critical routing; navigation does not."""
     main, client = app_client
     calls = []
 
@@ -235,8 +236,6 @@ def test_best_effort_routes_only_admin_decisions_and_financial_changes_to_critic
     response = client.post("/webhook", json=_tap_payload("9199", "CTA_MENU", "normal"))
     assert response.status_code == 200
     assert calls == [True, False, False, False, False, True, True, True, True, True, False]
-
-
 def test_rejected_payment_review_commits_before_acknowledgement_reply(app_client, monkeypatch):
     main, _ = app_client
     c = main.container
@@ -273,7 +272,8 @@ def test_rejected_payment_review_commits_before_acknowledgement_reply(app_client
     )
 
 
-def test_admin_menu_refreshes_without_an_immediate_snapshot_commit(app_client, monkeypatch):
+def test_critical_lane_commits_before_sending_admin_response(app_client, monkeypatch):
+    """The ADMIN boundary refreshes first; its read-only response no longer commits."""
     main, _ = app_client
     c = main.container
     events = []
@@ -307,8 +307,6 @@ def test_admin_menu_refreshes_without_an_immediate_snapshot_commit(app_client, m
         "send",
     ]
     assert "commit" not in events
-
-
 def test_admin_start_does_not_allocate_a_rollback_snapshot(app_client, monkeypatch):
     main, _ = app_client
     c = main.container
