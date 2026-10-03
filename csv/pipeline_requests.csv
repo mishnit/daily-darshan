@@ -1,4 +1,5 @@
 id,reason,created_at
+image-1609e7cb3810401a894b3bed28756292,"Image auto-approved after admin review timeout; regenerate, deploy then deliver",2026-10-03T12:46:30.053894+05:30
 image-1925aeb5a1d6441c8344520ca9abaa8e,"Image approved; regenerate, deploy then deliver",2026-09-20T12:08:30.026483+05:30
 image-38bee76594d74623903e2ab605828410,"Image approved; regenerate, deploy then deliver",2026-09-21T21:27:26.925249+05:30
 image-42b56ae208e449af9d52811f5018ec32,"Image approved; regenerate, deploy then deliver",2026-09-22T10:31:17.479634+05:30
