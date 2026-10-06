@@ -1,10 +1,6 @@
 name: Daily Darshan Recovery
 
 on:
-  schedule:
-    # Every 15 minutes from 12:30 PM through 6:45 PM IST.
-    - cron: "*/15 7-12 * * *"
-    - cron: "0,15 13 * * *"
   workflow_dispatch: {}
 
 permissions:
