@@ -135,13 +135,13 @@
   },
   "image_sources": ["temple", "rss", "website"],
   "daily_image_rotation": {
-    "monday": ["mahakal"],
-    "tuesday": ["salangpur"],
-    "wednesday": ["iskcon_bangalore", "iskcon_hyderabad"],
-    "thursday": ["swaminarayan", "iskcon_hyderabad"],
-    "friday": ["iskcon_vrindavan", "iskcon_mumbai", "iskcon_hyderabad"],
-    "saturday": ["iskcon_mumbai", "iskcon_vrindavan", "iskcon_hyderabad"],
-    "sunday": ["mayapur", "iskcon_hyderabad", "iskcon_bangalore"]
+    "monday": ["mahakal", "iskcon_hyderabad"],
+    "tuesday": ["salangpur", "iskcon_vrindavan"],
+    "wednesday": ["iskcon_bangalore", "iskcon_mumbai"],
+    "thursday": ["iskcon_hyderabad", "mayapur"],
+    "friday": ["iskcon_vrindavan", "mahakal"],
+    "saturday": ["iskcon_mumbai", "salangpur"],
+    "sunday": ["mayapur", "iskcon_bangalore"]
   },
   "temple_sources": {
     "mahakal": {"page_url": "https://www.shrimahakaleshwar.mp.gov.in/live-darshan", "enabled": true},
