@@ -143,6 +143,9 @@
     "saturday": ["iskcon_mumbai", "salangpur"],
     "sunday": ["mayapur", "iskcon_bangalore"]
   },
+  "image_selection": {
+    "mode": "first_valid"
+  },
   "temple_sources": {
     "mahakal": {"page_url": "https://www.shrimahakaleshwar.mp.gov.in/live-darshan", "enabled": true},
     "salangpur": {"page_url": "https://salangpurhanumanji.org/dev-darshan/dev-darshan-detail/dev-darshan.php", "enabled": true},

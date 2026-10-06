@@ -23,7 +23,7 @@ class AllSourcesFailed(Exception):
 
 
 class ImageCollector:
-    """Choose the largest valid remote image from the configured source chain."""
+    """Collect valid images using either all-source or ordered-fallback policy."""
 
     def __init__(
         self,
@@ -32,12 +32,16 @@ class ImageCollector:
         logs: LogRepositoryPort | None = None,
         rotation: dict[str, list[str]] | None = None,
         event_sources: dict[str, list[ImageSourcePort]] | None = None,
+        selection_mode: str = "all_valid",
     ):
         self._sources = sources
         self._validator = validator
         self._logs = logs
         self._rotation = rotation or {}
         self._event_sources = event_sources or {}
+        if selection_mode not in {"all_valid", "first_valid"}:
+            raise ValueError("image selection mode must be 'all_valid' or 'first_valid'")
+        self._selection_mode = selection_mode
 
     def source_names_for(self, on_date: date) -> list[str]:
         """Configured Monday–Sunday chain, with old list behaviour preserved."""
@@ -46,8 +50,15 @@ class ImageCollector:
     def _sources_for(self, on_date: date) -> list[ImageSourcePort]:
         extra = self._event_sources.get(on_date.isoformat(), [])
         if isinstance(self._sources, dict):
-            return [self._sources[name] for name in self.source_names_for(on_date) if name in self._sources] + extra
-        return list(self._sources) + extra
+            regular = [
+                self._sources[name] for name in self.source_names_for(on_date)
+                if name in self._sources
+            ]
+        else:
+            regular = list(self._sources)
+        # In ordered fallback mode an event-specific image is the primary
+        # source for its date. Failure still falls through to the weekday chain.
+        return extra + regular if self._selection_mode == "first_valid" else regular + extra
 
     def collect_candidates(self, on_date: date | None = None) -> list[Image]:
         on_date = on_date or today_ist()
@@ -63,6 +74,8 @@ class ImageCollector:
                 continue
             if self._validator.validate(candidate):
                 candidates.append(candidate)
+                if self._selection_mode == "first_valid":
+                    break
                 continue
             self._log("IMAGE_FETCH_FAILED", details=f"{source.name}:invalid")
         if not candidates:

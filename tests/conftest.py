@@ -87,8 +87,10 @@ class FakeSource(ImageSourcePort):
         self.name = name
         self._image = image
         self._raises = raises
+        self.calls = 0
 
     def fetch(self, on_date):
+        self.calls += 1
         if self._raises:
             raise RuntimeError("source down")
         return self._image

@@ -98,6 +98,53 @@ def test_collector_returns_all_valid_source_candidates():
     assert collector.collect_candidates(date.today()) == [first, second]
 
 
+def test_first_valid_mode_stops_after_primary_source_succeeds():
+    first = Image(image_date=date.today(), data=b"one", source="first")
+    second = Image(image_date=date.today(), data=b"two", source="second")
+    primary = FakeSource("first", first)
+    fallback = FakeSource("second", second)
+    collector = ImageCollector(
+        [primary, fallback], AllValidValidator(), selection_mode="first_valid",
+    )
+
+    assert collector.collect_candidates(date.today()) == [first]
+    assert primary.calls == 1
+    assert fallback.calls == 0
+
+
+def test_first_valid_mode_falls_through_invalid_and_stops_at_next_valid_source():
+    valid = Image(image_date=date.today(), data=b"valid", source="secondary")
+    primary = FakeSource("primary", None)
+    secondary = FakeSource("secondary", valid)
+    unused = FakeSource("unused", Image(date.today(), b"unused", "unused"))
+    collector = ImageCollector(
+        [primary, secondary, unused], AllValidValidator(), selection_mode="first_valid",
+    )
+
+    assert collector.collect_candidates(date.today()) == [valid]
+    assert primary.calls == 1
+    assert secondary.calls == 1
+    assert unused.calls == 0
+
+
+def test_first_valid_mode_falls_through_source_exception():
+    valid = Image(image_date=date.today(), data=b"valid", source="fallback")
+    failing = FakeSource("primary", raises=True)
+    fallback = FakeSource("fallback", valid)
+    collector = ImageCollector(
+        [failing, fallback], AllValidValidator(), selection_mode="first_valid",
+    )
+
+    assert collector.collect_candidates(date.today()) == [valid]
+    assert failing.calls == 1
+    assert fallback.calls == 1
+
+
+def test_unknown_image_selection_mode_is_rejected():
+    with pytest.raises(ValueError, match="image selection mode"):
+        ImageCollector([], AllValidValidator(), selection_mode="unknown")
+
+
 @pytest.mark.skipif(not _PIL, reason="Pillow not installed")
 def test_collector_selects_largest_valid_remote_image():
     small = Image(image_date=date.today(), data=_png_bytes(1080, 1080), source="primary")

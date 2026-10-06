@@ -160,6 +160,7 @@ class Container:
             self._build_sources(), self.image_validator, self.logs,
             rotation=self.config.get("daily_image_rotation"),
             event_sources=self._build_event_sources(),
+            selection_mode=self.config.get("image_selection", {}).get("mode", "all_valid"),
         )
         self.image_service = ImageService(
             self.image_collector, self.image_validator, paths["images_dir"]

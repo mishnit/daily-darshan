@@ -235,7 +235,8 @@ safe to commit. Load order: `DAILY_DARSHAN_CONFIG` env var → `config.json` (de
 | `events` | Date-based festival content: shlokas in subscriber pages and the initial WhatsApp menu message, plus optional custom images for admin review. An enabled event shloka takes priority over a normal source shloka. |
 | `daily_shlokas` | Source-key-to-shloka mapping rendered on normal daily pages and in the next user-initiated WhatsApp menu after today's image source is approved. `default` is used when the selected source is unknown. |
 | `daily_shloka_menu` | Timezone and release time for the normal daily menu shloka. From 06:00 IST it shows the `fallback` shloka until exactly one source is approved for the current date. |
-| `daily_image_rotation` | Weekday-to-source mapping. Store all valid candidates and ask the admin to preview and approve one source. |
+| `daily_image_rotation` | Ordered weekday-to-source fallback chain. With production's `first_valid` mode, later sources are attempted only when every earlier source is unavailable or invalid. |
+| `image_selection.mode` | `first_valid` tries the event image first, then weekday sources in configured order, and stops after the first valid HD image. `all_valid` retains multi-source collection. |
 | `admin.require_image_approval` | Enabled in production. Blocks pages, deployment and customer messages until today's image is approved. |
 | `admin.image_auto_approval_minutes` | Manual image-review deadline. If no administrator approves a candidate in this many minutes, Daily Image approves the highest-resolution pending candidate and continues publication and delivery. |
 | `admin.image_preview_base` | HTTPS repository content base used for WhatsApp image previews before Pages deployment. Must be publicly reachable by Meta. |
@@ -317,8 +318,11 @@ pages or delivery can use a replacement.
   UTR review or `payment_gateway` for automatic Razorpay confirmation. Restart Render after
   changing this setting; existing payment rows retain their original provider.
 - **Add a new plan** — add a `plans` entry; it becomes selectable in the webhook automatically.
-- **Change the weekday rotation** — edit `daily_image_rotation.<weekday>`. When a weekday
-  lists multiple sources, the job stores every valid candidate for admin selection.
+- **Change the weekday rotation** — edit `daily_image_rotation.<weekday>`. In `first_valid`
+  mode, source order is priority order: the job stores the first valid HD image and tries the
+  next source only when the preceding source is unavailable or fails validation. Event images
+  take priority on their configured dates. Use `image_selection.mode: all_valid` only when an
+  administrator should choose among every valid source candidate.
 - **Enable, disable or repoint a temple** — edit `temple_sources.<source>`.
 - **Change reminder cadence** — edit `renewal.reminder_days` (`3`, `2`, and `1` are mapped
   to reminder types today; see [Extending](#extending-the-system) to add more).
