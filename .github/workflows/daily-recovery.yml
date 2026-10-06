@@ -1,0 +1,119 @@
+name: Daily Darshan Recovery
+
+on:
+  schedule:
+    # Every 15 minutes from 12:30 PM through 6:45 PM IST.
+    - cron: "*/15 7-12 * * *"
+    - cron: "0,15 13 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: daily-darshan-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install runtime dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - id: state
+        name: Select the first incomplete pipeline stage
+        run: python -m application.daily_recovery
+
+      - name: Record recovery decision
+        env:
+          ACTION: ${{ steps.state.outputs.action }}
+          REASON: ${{ steps.state.outputs.reason }}
+        run: echo "Recovery action=${ACTION}; reason=${REASON}"
+
+      - name: Recollect only when today has no image candidate
+        if: steps.state.outputs.action == 'image'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh workflow run image.yml --repo "${{ github.repository }}" --ref main
+          -f backfill_days=1 -f force_recollect=false
+
+      - name: Configure git author for timeout approval
+        if: steps.state.outputs.action == 'auto_approve'
+        run: |
+          git config user.name "Daily Darshan Automation"
+          git config user.email "geekymishnit@gmail.com"
+
+      - name: Import GPG signing key for timeout approval
+        if: steps.state.outputs.action == 'auto_approve'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          test -n "$GPG_PRIVATE_KEY" || { echo "GPG_PRIVATE_KEY secret is required" >&2; exit 1; }
+          test -n "$GPG_PASSPHRASE" || { echo "GPG_PASSPHRASE secret is required" >&2; exit 1; }
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          fingerprint="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+          test -n "$fingerprint" || { echo "No imported GPG secret key found" >&2; exit 1; }
+          preset_passphrase="$(command -v gpg-preset-passphrase || true)"
+          if [ -z "$preset_passphrase" ] && [ -x /usr/lib/gnupg2/gpg-preset-passphrase ]; then
+            preset_passphrase=/usr/lib/gnupg2/gpg-preset-passphrase
+          fi
+          test -n "$preset_passphrase" || { echo "gpg-preset-passphrase is unavailable" >&2; exit 1; }
+          while IFS= read -r keygrip; do
+            printf '%s' "$GPG_PASSPHRASE" | "$preset_passphrase" --preset "$keygrip"
+          done < <(gpg --batch --with-colons --with-keygrip --list-secret-keys "$fingerprint" | awk -F: '$1 == "grp" { print $10 }')
+          printf 'GitHub Actions signing check' | gpg --batch --yes --local-user "$fingerprint" --detach-sign --output "$RUNNER_TEMP/signing-check.sig"
+          git config --global user.signingkey "$fingerprint"
+          git config --global commit.gpgsign true
+          echo "GIT_COMMIT_GPG_SIGN=true" >> "$GITHUB_ENV"
+
+      - id: auto_approval
+        name: Auto-approve an overdue pending candidate
+        if: steps.state.outputs.action == 'auto_approve'
+        run: |
+          git fetch origin main
+          git rebase origin/main
+          python -m application.image_approval --auto-approve-due
+
+      - name: Notify admin about timeout approval
+        if: steps.auto_approval.outputs.auto_approved == 'true'
+        continue-on-error: true
+        env:
+          WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+          WHATSAPP_ADMIN_NUMBERS: ${{ vars.WHATSAPP_ADMIN_NUMBERS }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python -m application.admin_alert image_auto_approved
+
+      - name: Regenerate approved pages
+        if: steps.state.outputs.action == 'pages'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh workflow run pages.yml --repo "${{ github.repository }}" --ref main
+          -f day=today -f image_source=canonical
+
+      - name: Retry idempotent delivery
+        if: steps.state.outputs.action == 'delivery'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run delivery.yml --repo "${{ github.repository }}" --ref main

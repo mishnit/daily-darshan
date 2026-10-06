@@ -82,8 +82,9 @@ def test_verify_unknown_reference_returns_error(container, capsys):
 
 
 def test_verify_activate_renews_existing_active_subscriber(container):
-    from datetime import timedelta
+    from datetime import datetime, timedelta
     from domain.subscriber import Subscriber
+    from domain.clock import INDIA_TZ
     # Existing ACTIVE subscriber expiring 2026-09-30.
     container.subscribers.append(Subscriber(
         mobile="919999999999", plan="monthly", status=SubscriberStatus.ACTIVE,
@@ -91,6 +92,10 @@ def test_verify_activate_renews_existing_active_subscriber(container):
         subscription_id="tok-x", name="Ravi",
     ))
     p = container.payment_service.create_payment("919999999999", "monthly", date(2026, 8, 19))
+    # Keep this scenario independent of the wall-clock date: confirmation
+    # happened while the existing entitlement was still active.
+    p.utr_confirmed_at = datetime(2026, 9, 20, 12, 0, tzinfo=INDIA_TZ)
+    container.payments.update(p)
     args = SimpleNamespace(reference_id=p.reference_id, activate=True, renew=False, commit=False)
     rc = admin.cmd_verify(container, args)
     assert rc == 0

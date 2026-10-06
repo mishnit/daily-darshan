@@ -158,7 +158,8 @@ can dispatch Daily Image. Admin approval advances the gated publication chain:
 | **Pending Payment UTR Alert** (`payment-utr-alert.yml`) | Manual only | On demand | Count confirmed UTRs awaiting review and today's missing UTRs; invite admin to reply ADMIN |
 | **Regenerate Daily Pages** (`pages.yml`) | Publication-request push / manual | After approval | Validate the selected date's approved bytes, render pages and approval stamp |
 | **Deploy Daily Darshan Pages** (`deploy-pages.yml`) | Event-driven | After approved rendering | Publish only an artifact matching its rendered approval stamp |
-| **Daily Delivery** (`delivery.yml`) | After successful Pages deployment, every 30 minutes, or manual | After publication | Renewal reminder or today's published page link, at most one successful contact per subscriber/date. The cadence recovers confirmed failures; it never blindly resends ambiguous Meta outcomes. |
+| **Daily Delivery** (`delivery.yml`) | After successful Pages deployment, manual, or recovery dispatch | After publication | Renewal reminder or today's published page link, at most one successful contact per subscriber/date. Recovery retries confirmed failures; it never blindly resends ambiguous Meta outcomes. |
+| **Daily Darshan Recovery** (`daily-recovery.yml`) | Every 15 minutes from 12:30 PM through 6:45 PM IST; manual | Recovery window | Resume only the first incomplete stage without superseding a valid image or retrying an ambiguous WhatsApp send. |
 
 ### E. Test without waiting for the cron (manual run)
 

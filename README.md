@@ -980,7 +980,8 @@ template is attempted per subscriber per date.
 | `payment-utr-alert.yml` | Manual only | On demand | Alert admin about confirmed UTRs awaiting review and today's checkouts missing a UTR. Uses `daily_darshan_ops_alert`. |
 | `pages.yml` | Push to `csv/pipeline_requests.csv` on main; manual | After admin approval | Default: validate today's approval. Manual `day: yesterday` validates yesterday's approved image for a historical/template refresh and records that date's approval stamp. |
 | `deploy-pages.yml` | Successful Daily Image or Regenerate Daily Pages; manual | After rendering | Deploy only if approval, canonical bytes and the rendered artifact's stamped date agree. Collection-only completion skips deployment. |
-| `delivery.yml` | Successful deployment; every 30 minutes; manual | After publication | Require today's approval and live public stamp, then run welcome, renewal and delivery with the shared daily contact limit. Scheduled recovery safely retries confirmed failures; ambiguous sends remain held for callback reconciliation. |
+| `delivery.yml` | Successful deployment; manual; dispatched by recovery | After publication | Require today's approval and live public stamp, then run welcome, renewal and delivery with the shared daily contact limit. Recovery safely retries confirmed failures; ambiguous sends remain held for callback reconciliation. |
+| `daily-recovery.yml` | Every 15 minutes, 12:30–18:45 IST; manual | Recovery window | Detect the first incomplete stage: recollect only when no candidate exists, auto-approve an overdue pending candidate, regenerate approved pages, or retry idempotent delivery. |
 
 With `admin.require_image_approval=true`, a normal/current-day publication cannot bypass today's
 admin decision or the configured timeout decision. The deliberate manual `day: yesterday` option
