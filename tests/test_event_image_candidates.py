@@ -79,6 +79,41 @@ def test_event_candidate_joins_temple_review_without_auto_approval(container, tm
     assert writes[-1][1] == stored[event_row['path']]
 
 
+def test_first_valid_mode_prioritizes_event_then_falls_back_to_weekday_source(tmp_path):
+    missing_event = EventImageSource(
+        str(tmp_path), PATH, 'Maa Shailaputri',
+    )
+    temple_image = Image(DAY, jpeg((900, 1200)), 'temple')
+    temple = SimpleNamespace(name='temple', fetch=lambda day: temple_image)
+    collector = ImageCollector(
+        {'temple': temple}, ImageValidator(min_width=600, min_height=600),
+        rotation={'sunday': ['temple']}, event_sources={DAY.isoformat(): [missing_event]},
+        selection_mode='first_valid',
+    )
+
+    assert collector.collect_candidates(DAY) == [temple_image]
+
+
+def test_first_valid_mode_stops_after_valid_event_image(tmp_path):
+    path = tmp_path / PATH
+    path.parent.mkdir(parents=True)
+    path.write_bytes(jpeg((900, 1200)))
+    calls = []
+    temple = SimpleNamespace(
+        name='temple',
+        fetch=lambda day: calls.append(day) or Image(day, jpeg(), 'temple'),
+    )
+    collector = ImageCollector(
+        {'temple': temple}, ImageValidator(min_width=600, min_height=600),
+        rotation={'sunday': ['temple']},
+        event_sources={DAY.isoformat(): [EventImageSource(str(tmp_path), PATH, 'event')]},
+        selection_mode='first_valid',
+    )
+
+    assert [image.source for image in collector.collect_candidates(DAY)] == ['event']
+    assert calls == []
+
+
 @pytest.mark.parametrize('data', [None, b'broken', jpeg((599, 800))])
 def test_unusable_custom_image_does_not_block_temple_candidate(tmp_path, data):
     path = tmp_path / PATH
