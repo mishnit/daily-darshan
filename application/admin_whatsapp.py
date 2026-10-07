@@ -20,6 +20,14 @@ def fingerprint(row):
     return hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode()).hexdigest()
 
 
+def todays_images(c, today):
+    rows = [row for row in c.image_reviews.all() if row["date"] == today.isoformat()]
+    return (
+        [row for row in rows if row["status"] == "PENDING"],
+        [row for row in rows if row["status"] == "APPROVED"],
+    )
+
+
 def handle_admin(c, mobile, value):
     from main import _require_send
     def text(message):
@@ -29,8 +37,19 @@ def handle_admin(c, mobile, value):
         return
     today = today_ist()
     if value.upper() == "ADMIN":
+        pending_images, approved_images = todays_images(c, today)
+        if pending_images:
+            image_status = (
+                f"{len(pending_images)} image candidate"
+                f"{'s' if len(pending_images) != 1 else ''} await approval."
+            )
+        elif approved_images:
+            image_status = f"Today's image is already approved ({approved_images[0]['source']})."
+        else:
+            image_status = "No image candidate is pending yet; recovery checks again every 15 minutes."
         _require_send(c.whatsapp.send_buttons(mobile,
-            "Admin review: verify payments against your bank records before approving. Choose a task.",
+            "Admin review: verify payments against your bank records before approving. "
+            f"{image_status} Choose a task.",
             [("ADM_PAYMENTS_0", "Review payments"), ("ADM_IMAGES", "Select daily image")]), "admin menu")
         return
     if value.startswith("ADM_PAYMENTS_"):
@@ -51,9 +70,18 @@ def handle_admin(c, mobile, value):
         _require_send(c.whatsapp.send_list(mobile, "Select a confirmed payment to inspect its UTR.", "Review payments", rows), "admin payments")
         return
     if value == "ADM_IMAGES":
-        rows = [r for r in c.image_reviews.all() if r["date"] == today.isoformat() and r["status"] == "PENDING"]
+        rows, approved_rows = todays_images(c, today)
         if not rows:
-            text("No image selection is pending for today. Run Daily Image to collect candidates if needed.")
+            if approved_rows:
+                text(
+                    f"{approved_rows[0]['source']} is already approved for today. "
+                    "No further image approval is needed."
+                )
+            else:
+                text(
+                    "No image selection is pending for today. Recovery checks every 15 minutes; "
+                    "select Daily Image again after the next recovery run."
+                )
             return
         _require_send(c.whatsapp.send_list(mobile, "Choose a source to preview today's image before approving it.",
             "Preview sources", [(f"ADM_IMG_{r['id']}", r["source"][:24], r["date"]) for r in rows[:10]]), "admin images")
@@ -131,6 +159,15 @@ def handle_admin(c, mobile, value):
             result = f"Rejected {p.reference_id}. No entitlement was added."
     elif state.get("admin_kind") == "image":
         row = c.image_reviews.find(state["admin_reference"])
+        if (row and row["date"] == today.isoformat()
+                and row["status"] == "APPROVED"):
+            state.update(admin_token="", admin_kind="", admin_reference="", admin_fingerprint="")
+            c.conversations.upsert(mobile, state)
+            text(
+                f"{row['source']} is already approved for {row['date']}"
+                f" by {row.get('approved_by') or 'another process'}. No further action is needed."
+            )
+            return
         if (not row or row["date"] != today.isoformat() or row["status"] != "PENDING"
                 or fingerprint(row) != state["admin_fingerprint"]):
             text("Image selection changed or expired. Send ADMIN to refresh.")

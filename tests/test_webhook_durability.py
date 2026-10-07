@@ -14,6 +14,7 @@ import pytest
 from adapters.repo_sync import RepoSync
 from adapters.github import BranchAdvancedError
 from application.ports.storage import GitHubRepositoryPort
+from domain.clock import today_ist
 from repositories.state_lock import StateLockTimeout, state_lock
 
 
@@ -337,10 +338,45 @@ def test_intermediate_admin_navigation_performs_no_request_triggered_repo_refres
     monkeypatch.setattr(main, "_maybe_refresh_remote_payments", lambda *_a, **_k: events.append("maybe"))
 
     main._process_best_effort_batch(
-        c, [_tap_payload("9199", "ADM_IMAGES", "admin-images")], critical=False,
+        c, [_tap_payload("9199", "ADM_PAYMENTS_0", "admin-payments")], critical=False,
     )
 
     assert events == []
+
+
+def test_image_review_list_refreshes_candidates_created_by_recovery(
+        app_client, monkeypatch):
+    main, _ = app_client
+    c = main.container
+    events = []
+    monkeypatch.setenv("WHATSAPP_ADMIN_NUMBERS", "9199")
+
+    def refresh(_container, *, strict, only):
+        events.append(("refresh", strict, only))
+        c.image_reviews.upsert("recovery-candidate", {
+            "id": "recovery-candidate",
+            "date": today_ist().isoformat(),
+            "generation": "recovery",
+            "source": "mahakal",
+            "path": "docs/images/recovery.jpg",
+            "sha256": "abc",
+            "status": "PENDING",
+            "approved_by": "",
+            "approved_at": "",
+        })
+
+    monkeypatch.setattr(main, "_refresh_shared_csvs", refresh)
+    monkeypatch.setattr(main, "_flush_critical_snapshot", lambda *_a, **_k: events.append("commit"))
+    monkeypatch.setattr(main, "_submit_best_effort_replies", lambda *_a: events.append("reply"))
+
+    main._process_best_effort_batch(
+        c, [_tap_payload("9199", "ADM_IMAGES", "admin-images-after-recovery")],
+        critical=False,
+    )
+
+    assert events == [("refresh", True, {"image_reviews"}), "reply"]
+    queued = c.reply_outbox.all()[-1]
+    assert "recovery-candidate" in queued["arguments"]
 
 
 def test_terminal_payment_decision_refreshes_only_relevant_state_before_reply(

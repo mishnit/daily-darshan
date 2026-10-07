@@ -207,6 +207,31 @@ def seed_images(c):
             "status": "PENDING", "approved_by": "", "approved_at": ""})
 
 
+def test_admin_menu_reports_pending_image_count(review):
+    c = review
+    seed_images(c)
+
+    main._handle_message(c, ADMIN, "text", "ADMIN")
+
+    assert "2 image candidates await approval" in c.whatsapp.sent[-1]["body"]
+
+
+def test_admin_image_list_reports_existing_approval_instead_of_blocking(review):
+    c = review
+    seed_images(c)
+    approved = c.image_reviews.find("source_a")
+    approved.update(status="APPROVED", approved_by="system:image_auto_approved")
+    c.image_reviews.upsert(approved["id"], approved)
+    pending = c.image_reviews.find("source_b")
+    pending["status"] = "SUPERSEDED"
+    c.image_reviews.upsert(pending["id"], pending)
+
+    main._handle_message(c, ADMIN, "button", "ADM_IMAGES")
+
+    assert "already approved for today" in c.whatsapp.sent[-1]["message"]
+    assert "No further image approval is needed" in c.whatsapp.sent[-1]["message"]
+
+
 def test_visual_preview_approval_gates_pipeline(review):
     c = review
     seed_images(c)
@@ -231,6 +256,27 @@ def test_image_preview_cannot_be_approved_after_refresh(review):
     row["status"] = "SUPERSEDED"
     c.image_reviews.upsert(row["id"], row)
     main._handle_message(c, ADMIN, "button", approve)
+    assert not c.pipeline_requests.all()
+
+
+def test_image_auto_approved_during_preview_reports_success_without_duplicate(review):
+    c = review
+    seed_images(c)
+    main._handle_message(c, ADMIN, "button", "ADM_IMG_source_a")
+    approve = c.whatsapp.sent[-1]["buttons"][0]
+    row = c.image_reviews.find("source_a")
+    row.update(
+        status="APPROVED",
+        approved_by="system:image_auto_approved",
+        approved_at="2026-10-07T12:15:34+05:30",
+    )
+    c.image_reviews.upsert(row["id"], row)
+
+    main._handle_message(c, ADMIN, "button", approve)
+
+    assert "already approved" in c.whatsapp.sent[-1]["message"]
+    assert "No further action is needed" in c.whatsapp.sent[-1]["message"]
+    assert c.conversations.find(ADMIN)["admin_token"] == ""
     assert not c.pipeline_requests.all()
 
 

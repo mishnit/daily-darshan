@@ -51,6 +51,45 @@ def test_delivery_status_progresses_monotonically(monkeypatch, tmp_path):
     assert repo.find("one")["status"] == "DELIVERED"
 
 
+def test_image_review_can_supersede_an_unchanged_approved_baseline(monkeypatch, tmp_path):
+    fields = ["id", "date", "status"]
+    repo = repository(monkeypatch, tmp_path, fields)
+    base = [
+        {"id": "old", "date": "2026-10-07", "status": "APPROVED"},
+        {"id": "new", "date": "2026-10-07", "status": "PENDING"},
+    ]
+    repo.replace_memory_rows([
+        {"id": "old", "date": "2026-10-07", "status": "SUPERSEDED"},
+        {"id": "new", "date": "2026-10-07", "status": "APPROVED"},
+    ], dirty=True)
+
+    merge_keyed(
+        repo, encoded(fields, base), encoded(fields, base),
+        key_fields=("id",), status_field="status", monotonic_status=False,
+        strict=True,
+    )
+
+    assert repo.find("old")["status"] == "SUPERSEDED"
+    assert repo.find("new")["status"] == "APPROVED"
+
+
+def test_image_review_rejects_two_different_concurrent_decisions(monkeypatch, tmp_path):
+    fields = ["id", "date", "status"]
+    repo = repository(monkeypatch, tmp_path, fields)
+    base = [{"id": "candidate", "date": "2026-10-07", "status": "PENDING"}]
+    repo.replace_memory_rows([
+        {"id": "candidate", "date": "2026-10-07", "status": "APPROVED"},
+    ], dirty=True)
+    remote = [{"id": "candidate", "date": "2026-10-07", "status": "SUPERSEDED"}]
+
+    with pytest.raises(SemanticMergeConflict, match="status"):
+        merge_keyed(
+            repo, encoded(fields, base), encoded(fields, remote),
+            key_fields=("id",), status_field="status", monotonic_status=False,
+            strict=True,
+        )
+
+
 def test_strict_merge_blocks_same_mutable_field_conflict(monkeypatch, tmp_path):
     fields = ["id", "name"]
     repo = repository(monkeypatch, tmp_path, fields)

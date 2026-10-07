@@ -25,7 +25,8 @@ def decode(content: bytes | None) -> list[dict]:
 
 
 def merge_keyed(repository, baseline, remote, *, key_fields, strict=False,
-                status_field=None, status_ranks=None, union_fields=()):
+                status_field=None, status_ranks=None, monotonic_status=True,
+                union_fields=()):
     """Merge independent keys and changed fields against their common baseline."""
     key = lambda row: tuple(row.get(field, "") for field in key_fields)
     base = {key(row): row for row in decode(baseline)}
@@ -58,7 +59,7 @@ def merge_keyed(repository, baseline, remote, *, key_fields, strict=False,
             local_value = ours.get(field, "")
             remote_value = theirs.get(field, "")
             old_value = old.get(field, "")
-            if field == status_field:
+            if field == status_field and monotonic_status:
                 ranks = status_ranks or DELIVERY_RANK
                 row[field] = max(
                     (local_value, remote_value),

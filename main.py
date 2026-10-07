@@ -210,7 +210,7 @@ def _refresh_shared_csvs(c, *, strict: bool, only: set[str] | None = None) -> No
          dict(key_fields=("reference_id",), status_field="status")),
         ("image_reviews", paths.get("image_reviews_csv", "csv/image_reviews.csv"), c.image_reviews,
          dict(key_fields=("id",), status_field="status",
-              status_ranks={"PENDING": 0, "SUPERSEDED": 1, "APPROVED": 2})),
+              monotonic_status=False)),
         ("pipeline_requests", paths.get("pipeline_requests_csv", "csv/pipeline_requests.csv"), c.pipeline_requests,
          dict(key_fields=("id",))),
         ("karma_events", paths.get("karma_events_csv", "csv/karma_events.csv"), c.karma_events,
@@ -310,6 +310,17 @@ def _has_intermediate_admin_command(payloads: list[dict]) -> bool:
     )
 
 
+def _opens_image_review(payloads: list[dict]) -> bool:
+    """Whether admin navigation must reload candidates created by recovery."""
+    return any(
+        kind == "button" and (value or "").strip() == "ADM_IMAGES"
+        and _is_authorized_admin(message.get("from", ""))
+        for payload in payloads
+        for message, _ctx in _iter_messages(payload)
+        for kind, value in [_extract_input(message)]
+    )
+
+
 def _admin_decision_scope(c, payloads: list[dict]):
     """CSV repositories and paths a terminal admin action can mutate.
 
@@ -401,9 +412,11 @@ def _process_best_effort_batch(c, payloads, *, critical: bool = False,
         # immediate commit still performs the full semantic merge below.
         _refresh_remote_payments(c, strict=True)
     elif _has_intermediate_admin_command(payloads):
-        # ADMIN already established the fresh review snapshot. Keep list,
-        # pagination and preview taps entirely in memory for low latency.
-        pass
+        # Recovery can publish a new candidate after ADMIN opened the menu.
+        # Reload only image reviews when the administrator opens that list;
+        # payment pagination and individual previews remain network-free.
+        if _opens_image_review(payloads):
+            _refresh_shared_csvs(c, strict=True, only={"image_reviews"})
     else:
         _maybe_refresh_remote_payments(c)
     client = c.whatsapp
