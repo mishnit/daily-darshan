@@ -35,6 +35,34 @@ def test_semantic_merge_retains_changes_to_different_rows(monkeypatch, tmp_path)
     assert {row["id"] for row in repo.all()} == {"base", "local", "remote"}
 
 
+def test_stale_memory_cannot_delete_a_remote_row(monkeypatch, tmp_path):
+    fields = ["id", "status"]
+    repo = repository(monkeypatch, tmp_path, fields)
+    row = {"id": "today-mobile", "status": "SENT"}
+    repo.replace_memory_rows([], dirty=True)
+
+    merge_keyed(
+        repo, encoded(fields, [row]), encoded(fields, [row]),
+        key_fields=("id",), status_field="status",
+    )
+
+    assert repo.all() == [row]
+
+
+def test_remote_retention_deletion_is_honored_when_memory_is_unchanged(monkeypatch, tmp_path):
+    fields = ["id", "status"]
+    repo = repository(monkeypatch, tmp_path, fields)
+    row = {"id": "expired", "status": "SENT"}
+    repo.replace_memory_rows([row], dirty=True)
+
+    merge_keyed(
+        repo, encoded(fields, [row]), encoded(fields, []),
+        key_fields=("id",), status_field="status",
+    )
+
+    assert repo.all() == []
+
+
 def test_delivery_status_progresses_monotonically(monkeypatch, tmp_path):
     fields = ["id", "whatsapp_message_id", "status"]
     repo = repository(monkeypatch, tmp_path, fields)

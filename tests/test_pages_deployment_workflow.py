@@ -7,7 +7,8 @@ def test_pages_deploys_once_after_image_workflow_or_manual_dispatch():
     assert 'workflows: ["Daily Image", "Regenerate Daily Pages"]' in workflow
     assert "types: [completed]" in workflow
     assert "schedule:" not in workflow
-    assert "workflow_dispatch: {}" in workflow
+    assert "workflow_dispatch:" in workflow
+    assert 'description: "Start today\'s delivery after a successful deployment"' in workflow
     assert "github.event.workflow_run.conclusion == 'success'" in workflow
     assert "github.event.workflow_run.head_branch == github.event.repository.default_branch" in workflow
     assert "group: pages" in workflow
@@ -15,6 +16,9 @@ def test_pages_deploys_once_after_image_workflow_or_manual_dispatch():
     assert "actions/upload-pages-artifact@v4" in workflow
     assert "path: docs" in workflow
     assert "actions/deploy-pages@v4" in workflow
+    assert "gh workflow run delivery.yml" in workflow
+    assert "needs: deploy" in workflow
+    assert "needs.deploy.outputs.published == 'true'" in workflow
 
 
 def test_image_and_delivery_workflows_do_not_deploy_pages_directly():
@@ -46,6 +50,22 @@ def test_daily_image_deploy_requires_its_dedicated_pages_job():
 
     assert 'github.event.workflow_run.name == "Daily Image"' not in deploy
     assert 'select(.name == "pages") | .conclusion' in deploy
+
+
+def test_token_dispatched_render_chains_explicit_deploy_and_delivery():
+    image = Path(".github/workflows/image.yml").read_text(encoding="utf-8")
+    pages = Path(".github/workflows/pages.yml").read_text(encoding="utf-8")
+    deploy = Path(".github/workflows/deploy-pages.yml").read_text(encoding="utf-8")
+
+    assert "actions: write" in image
+    assert "gh workflow run deploy-pages.yml" in image
+    assert "-f deliver=true" in image
+    assert "actions: write" in pages
+    assert "gh workflow run deploy-pages.yml" in pages
+    assert 'if [ "$RENDER_DAY" = "yesterday" ]' in pages
+    assert '-f deliver="$deliver"' in pages
+    assert "actions: write" in deploy
+    assert "gh workflow run delivery.yml" in deploy
 
 
 def test_whatsapp_templates_match_documented_meta_configuration():

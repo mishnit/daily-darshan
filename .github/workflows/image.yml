@@ -19,6 +19,7 @@ on:
         type: boolean
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
@@ -272,3 +273,15 @@ jobs:
         env:
           GITHUB_REPO: ${{ github.repository }}
         run: python scheduler.py pages
+
+  deploy:
+    needs: pages
+    if: needs.pages.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start deployment of the rendered pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh workflow run deploy-pages.yml --repo "${{ github.repository }}" --ref main
+          -f deliver=true

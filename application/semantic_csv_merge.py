@@ -39,13 +39,19 @@ def merge_keyed(repository, baseline, remote, *, key_fields, strict=False,
         if before is not None and (ours is None or theirs is None):
             if ours is None and theirs is None:
                 continue
-            survivor = theirs if ours is None else ours
-            if survivor != before:
+            if ours is None:
+                # Render memory may be older than a GitHub Actions write even
+                # after the remote bytes became our reconciliation baseline.
+                # Absence from memory is therefore never authority to delete a
+                # row which still exists remotely.
+                merged[identity] = theirs
+                continue
+            # GitHub is the durable retention authority. A row removed there
+            # is pruned only when memory has not independently changed it.
+            if ours != before:
                 conflicts.append(f"{identity}:deleted-row")
                 if strict:
-                    merged[identity] = survivor
-                elif theirs is not None:
-                    merged[identity] = theirs
+                    merged[identity] = ours
             continue
         if ours is None:
             merged[identity] = theirs
