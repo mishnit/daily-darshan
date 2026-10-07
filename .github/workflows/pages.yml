@@ -19,6 +19,7 @@ on:
         type: string
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
@@ -103,3 +104,19 @@ jobs:
           IMAGE_SOURCE: ${{ inputs.image_source || 'canonical' }}
           RENDER_DATE: ${{ needs.approval.outputs.render_date }}
         run: python scheduler.py pages --date "$RENDER_DATE" --image-source "$IMAGE_SOURCE"
+
+  deploy:
+    needs: pages
+    if: github.event_name == 'workflow_dispatch' && needs.pages.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start deployment of the rendered pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RENDER_DAY: ${{ inputs.day || 'today' }}
+        run: |
+          deliver=true
+          if [ "$RENDER_DAY" = "yesterday" ]; then
+            deliver=false
+          fi
+          gh workflow run deploy-pages.yml --repo "${{ github.repository }}" --ref main -f deliver="$deliver"

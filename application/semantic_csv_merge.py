@@ -25,7 +25,8 @@ def decode(content: bytes | None) -> list[dict]:
 
 
 def merge_keyed(repository, baseline, remote, *, key_fields, strict=False,
-                status_field=None, status_ranks=None, union_fields=()):
+                status_field=None, status_ranks=None, monotonic_status=True,
+                union_fields=()):
     """Merge independent keys and changed fields against their common baseline."""
     key = lambda row: tuple(row.get(field, "") for field in key_fields)
     base = {key(row): row for row in decode(baseline)}
@@ -38,13 +39,19 @@ def merge_keyed(repository, baseline, remote, *, key_fields, strict=False,
         if before is not None and (ours is None or theirs is None):
             if ours is None and theirs is None:
                 continue
-            survivor = theirs if ours is None else ours
-            if survivor != before:
+            if ours is None:
+                # Render memory may be older than a GitHub Actions write even
+                # after the remote bytes became our reconciliation baseline.
+                # Absence from memory is therefore never authority to delete a
+                # row which still exists remotely.
+                merged[identity] = theirs
+                continue
+            # GitHub is the durable retention authority. A row removed there
+            # is pruned only when memory has not independently changed it.
+            if ours != before:
                 conflicts.append(f"{identity}:deleted-row")
                 if strict:
-                    merged[identity] = survivor
-                elif theirs is not None:
-                    merged[identity] = theirs
+                    merged[identity] = ours
             continue
         if ours is None:
             merged[identity] = theirs
@@ -58,7 +65,7 @@ def merge_keyed(repository, baseline, remote, *, key_fields, strict=False,
             local_value = ours.get(field, "")
             remote_value = theirs.get(field, "")
             old_value = old.get(field, "")
-            if field == status_field:
+            if field == status_field and monotonic_status:
                 ranks = status_ranks or DELIVERY_RANK
                 row[field] = max(
                     (local_value, remote_value),

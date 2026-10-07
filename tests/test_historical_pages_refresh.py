@@ -49,5 +49,5 @@ def test_pages_deploy_uses_the_date_stamped_in_the_rendered_artifact():
 
     assert 'json.load(open("docs/image-approval.json"))["date"]' in workflow
     assert "application.image_approval --published --date" in workflow
-    assert "actions: read" in workflow
+    assert "actions: write" in workflow
     assert 'select(.name == "pages") | .conclusion' in workflow

@@ -26,6 +26,7 @@ def test_ci_blocks_removed_files_and_test_definitions():
 
 def test_automatic_chain_publishes_before_whatsapp_delivery():
     image = _workflow("image.yml")
+    pages = _workflow("pages.yml")
     deploy = _workflow("deploy-pages.yml")
     delivery = _workflow("delivery.yml")
 
@@ -34,6 +35,19 @@ def test_automatic_chain_publishes_before_whatsapp_delivery():
     assert "actions/deploy-pages@v4" not in image
     assert "actions/deploy-pages@v4" not in delivery
     assert deploy.count("actions/deploy-pages@v4") == 1
+    assert "gh workflow run deploy-pages.yml" in image
+    assert "gh workflow run deploy-pages.yml" in pages
+    assert "github.event_name == 'workflow_dispatch'" in pages
+    assert "gh workflow run delivery.yml" in deploy
+    assert "needs.deploy.result == 'success'" in deploy
+
+
+def test_recovery_auto_approval_starts_pages_without_waiting_for_next_recovery():
+    recovery = _workflow("daily-recovery.yml")
+
+    assert "steps.auto_approval.outputs.auto_approved == 'true'" in recovery
+    assert "gh workflow run pages.yml" in recovery
+    assert "-f day=today -f image_source=canonical" in recovery
 
 
 def test_pending_utr_alert_runs_at_9pm_ist_and_only_alerts_for_missing_utr():
@@ -69,7 +83,7 @@ def test_render_and_ordinary_main_pushes_cannot_deploy_pages():
 
     assert "\n  push:" not in deploy
     assert "\n  schedule:" not in deploy
-    assert "workflow_dispatch: {}" in deploy
+    assert "workflow_dispatch:" in deploy
 
 
 def test_failed_or_non_default_image_run_fails_publication_gate():

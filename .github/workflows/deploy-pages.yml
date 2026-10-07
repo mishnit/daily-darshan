@@ -4,10 +4,16 @@ on:
   workflow_run:
     workflows: ["Daily Image", "Regenerate Daily Pages"]
     types: [completed]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      deliver:
+        description: "Start today's delivery after a successful deployment"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
-  actions: read
+  actions: write
   contents: read
   pages: write
   id-token: write
@@ -27,6 +33,8 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      published: ${{ steps.result.outputs.published }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,3 +75,29 @@ jobs:
         if: steps.trigger.outputs.ready == 'true' && steps.rendered_date.outputs.value != '' && steps.approval.outputs.ready == 'true'
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Record whether deployment completed
+        id: result
+        if: always()
+        env:
+          DEPLOYMENT_OUTCOME: ${{ steps.deployment.outcome }}
+        run: |
+          if [ "$DEPLOYMENT_OUTCOME" = "success" ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  delivery:
+    needs: deploy
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.deliver &&
+      needs.deploy.result == 'success' &&
+      needs.deploy.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start delivery after deployment completes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run delivery.yml --repo "${{ github.repository }}" --ref main
