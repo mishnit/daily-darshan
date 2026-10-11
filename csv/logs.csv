@@ -1,4 +1,120 @@
 timestamp,event,mobile,details
+2026-09-09T09:17:07.457652,IMAGE_FETCH_SUCCESS,,iskcon_bangalore:071278a27cc4d17e557d34bd5f232369b978a2785e398360b65b0f3ab48ffd0d
+2026-09-09T09:17:07.544964,IMAGES_PRUNED,,removed=3 kept<= 7
+2026-09-09T09:55:31.783366,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""Unsupported post request. Object with ID 'messages' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API docu"
+2026-09-10T09:15:45.446620,IMAGE_FETCH_SUCCESS,,swaminarayan:26e6b9285719ccacb3eeb6e32e2e3191e92f4894c0ecf79947ac68a7712a34f6
+2026-09-10T09:15:45.666506,IMAGES_PRUNED,,removed=8 kept<= 7
+2026-09-10T09:53:11.943553,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""Unsupported post request. Object with ID 'messages' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API docu"
+2026-09-10T11:56:17.856303,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-10T11:56:17.861300,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-04
+2026-09-10T11:57:13.228660,IMAGE_FETCH_FAILED,,iskcon_mumbai:no-candidate
+2026-09-10T11:57:13.233624,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-05
+2026-09-10T11:57:16.883625,IMAGE_FETCH_SUCCESS,,mayapur:de835d6580a57cbd1a0c1d1f9441a123a89b40dd446b1ff6c5baf3f66c162e67
+2026-09-10T11:57:16.951357,IMAGES_PRUNED,,removed=2 kept<= 7
+2026-09-10T11:57:21.792864,IMAGE_FETCH_SUCCESS,,mahakal:c8ca8c6e653e52f43b2d3cbe258edf080c93ad8c9071fd066b1a32cdfa9f1246
+2026-09-10T11:57:24.962248,IMAGE_FETCH_FAILED,,salangpur:invalid
+2026-09-10T11:57:24.962483,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-08
+2026-09-10T11:57:29.023668,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
+2026-09-10T11:57:29.029223,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-09
+2026-09-10T11:57:33.693244,IMAGE_FETCH_SUCCESS,,swaminarayan:26e6b9285719ccacb3eeb6e32e2e3191e92f4894c0ecf79947ac68a7712a34f6
+2026-09-10T12:52:44.236766,IMAGE_FETCH_SUCCESS,,iskcon_vrindavan:51f09ba06efaf644a7c07d6d5aeca6bfdd9ab68c7d834a97f5628b382d74ed3f
+2026-09-10T12:52:44.344932,IMAGES_PRUNED,,removed=2 kept<= 7
+2026-09-10T12:52:50.738387,IMAGE_FETCH_FAILED,,iskcon_mumbai:no-candidate
+2026-09-10T12:52:53.617071,IMAGE_FETCH_SUCCESS,,iskcon_vrindavan:1a7dc89d60f283bfdbba43b389a415c60f7d391d4283f199919b7421bf9fa974
+2026-09-10T12:52:53.722037,IMAGES_PRUNED,,removed=2 kept<= 7
+2026-09-10T12:52:56.344361,IMAGE_FETCH_FAILED,,mayapur:no-candidate
+2026-09-10T12:52:56.351735,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-06
+2026-09-10T12:53:00.791139,IMAGE_FETCH_SUCCESS,,mahakal:c8ca8c6e653e52f43b2d3cbe258edf080c93ad8c9071fd066b1a32cdfa9f1246
+2026-09-10T12:53:05.850302,IMAGE_FETCH_FAILED,,salangpur:invalid
+2026-09-10T12:53:05.850625,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-08
+2026-09-10T12:53:08.119333,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
+2026-09-10T12:53:08.126394,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-09
+2026-09-10T12:53:13.318392,IMAGE_FETCH_SUCCESS,,swaminarayan:26e6b9285719ccacb3eeb6e32e2e3191e92f4894c0ecf79947ac68a7712a34f6
+2026-09-10T13:03:25.204763,IMAGE_FETCH_SUCCESS,,iskcon_vrindavan:51f09ba06efaf644a7c07d6d5aeca6bfdd9ab68c7d834a97f5628b382d74ed3f
+2026-09-10T13:03:31.014956,IMAGE_FETCH_FAILED,,iskcon_mumbai:no-candidate
+2026-09-10T13:03:32.227376,IMAGE_FETCH_SUCCESS,,iskcon_vrindavan:1a7dc89d60f283bfdbba43b389a415c60f7d391d4283f199919b7421bf9fa974
+2026-09-10T13:03:34.674955,IMAGE_FETCH_FAILED,,mayapur:no-candidate
+2026-09-10T13:03:34.682101,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-06
+2026-09-10T13:03:39.140292,IMAGE_FETCH_SUCCESS,,mahakal:c8ca8c6e653e52f43b2d3cbe258edf080c93ad8c9071fd066b1a32cdfa9f1246
+2026-09-10T13:03:44.895091,IMAGE_FETCH_SUCCESS,,salangpur:fbe6e34354478e6b4b8a9b76bcc5b1137e72555ffadce0af6026fb841a24ba27
+2026-09-10T13:03:45.331720,IMAGES_PRUNED,,removed=2 kept<= 7
+2026-09-10T13:03:48.527627,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
+2026-09-10T13:03:48.534706,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-09
+2026-09-10T13:03:54.119365,IMAGE_FETCH_SUCCESS,,swaminarayan:26e6b9285719ccacb3eeb6e32e2e3191e92f4894c0ecf79947ac68a7712a34f6
+2026-09-10T18:23:14.325826,IMAGE_FETCH_SUCCESS,,swaminarayan:26e6b9285719ccacb3eeb6e32e2e3191e92f4894c0ecf79947ac68a7712a34f6
+2026-09-11T05:11:26.756271,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T05:11:32.280103,IMAGE_FETCH_FAILED,,iskcon_mumbai:no-candidate
+2026-09-11T05:11:32.287194,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-11
+2026-09-11T06:30:34.236714,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T06:30:46.854366,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T06:30:46.960418,IMAGES_PRUNED,,removed=3 kept<= 7
+2026-09-11T06:32:52.041652,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""(#131030) Recipient phone number not in allowed list"",""code"":131030,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""Recipient phone number not in a"
+2026-09-11T08:32:54.864696,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""(#131030) Recipient phone number not in allowed list"",""code"":131030,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""Recipient phone number not in a"
+2026-09-11T08:38:19.365820,WHATSAPP_SEND_FAILED,9535507255,"http_400:{""error"":{""message"":""(#131030) Recipient phone number not in allowed list"",""code"":131030,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""Recipient phone number not in a"
+2026-09-11T08:41:39.615174,WHATSAPP_SEND_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (daily_darsh"
+2026-09-11T09:19:09.146035,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T09:19:21.176134,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T09:23:31.788364,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T09:23:45.698458,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T09:31:08.446249,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T09:31:22.076391,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T10:32:52.022460,WHATSAPP_SEND_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (daily_darsh"
+2026-09-11T10:55:41.151920,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T10:55:55.268528,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T11:01:06.270996,RENEWAL_REMINDER_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (daily_darsh"
+2026-09-11T11:01:09.412725,WHATSAPP_SEND_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (daily_darsh"
+2026-09-11T11:09:03.373286,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T11:09:17.361113,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T11:14:41.013834,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T11:14:52.695606,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T11:14:52.809528,IMAGES_PRUNED,,removed=3 kept<= 7
+2026-09-11T11:30:42.898022,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T11:30:56.987944,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T11:39:28.109805,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T11:39:42.471324,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T11:54:39.437940,PAGES_REGENERATED,,2026-09-11:count=1:source=iskcon_mumbai
+2026-09-11T12:03:38.627614,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T12:03:52.080653,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T12:06:14.944746,PAGES_REGENERATED,,2026-09-11:count=1:source=iskcon_mumbai
+2026-09-11T12:09:04.915380,PAGES_REGENERATED,,2026-09-11:count=1:source=iskcon_mumbai
+2026-09-11T12:10:34.508479,PAGES_REGENERATED,,2026-09-11:count=1:source=canonical
+2026-09-11T12:18:59.763411,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T12:19:10.960986,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T12:24:06.276898,PAGES_REGENERATED,,2026-09-11:count=1:source=iskcon_mumbai
+2026-09-11T12:36:06.073674,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T12:36:19.029481,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T12:41:04.549290,PAGES_REGENERATED,,2026-09-11:count=1:source=canonical
+2026-09-11T12:42:10.585305,PAGES_REGENERATED,,2026-09-11:count=1:source=iskcon_mumbai
+2026-09-11T12:52:48.133604,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T12:53:01.051470,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T12:58:00.417167,PAGES_REGENERATED,,2026-09-11:count=1:source=iskcon_mumbai
+2026-09-11T16:52:57.416243,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T16:53:11.114383,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T16:53:37.333340,RENEWAL_REMINDER_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (daily_darsh"
+2026-09-11T16:53:40.419113,WHATSAPP_SEND_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (daily_darsh"
+2026-09-11T18:29:27.418857,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T18:29:40.333766,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T18:30:25.835625,RENEWAL_REMINDER_FAILED,919535507255,"http_404:{""error"":{""message"":""(#132001) Template name does not exist in the translation"",""code"":132001,""type"":""OAuthException"",""error_data"":{""messaging_product"":""whatsapp"",""details"":""template name (daily_darsh"
+2026-09-11T18:39:01.375046,IMAGE_FETCH_FAILED,,iskcon_mumbai:no-candidate
+2026-09-11T18:39:02.981444,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T18:39:03.310433,IMAGE_FETCH_FAILED,,iskcon_hyderabad:no-candidate
+2026-09-11T18:39:03.315907,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-12
+2026-09-11T18:43:39.620791,IMAGE_FETCH_SUCCESS,,mayapur:de835d6580a57cbd1a0c1d1f9441a123a89b40dd446b1ff6c5baf3f66c162e67
+2026-09-11T18:43:39.707948,IMAGES_PRUNED,,removed=2 kept<= 7
+2026-09-11T18:43:44.994532,IMAGE_FETCH_SUCCESS,,mahakal:c8ca8c6e653e52f43b2d3cbe258edf080c93ad8c9071fd066b1a32cdfa9f1246
+2026-09-11T18:43:45.356690,IMAGES_PRUNED,,removed=2 kept<= 7
+2026-09-11T18:43:58.443825,IMAGE_FETCH_SUCCESS,,salangpur:fbe6e34354478e6b4b8a9b76bcc5b1137e72555ffadce0af6026fb841a24ba27
+2026-09-11T18:43:58.909429,IMAGES_PRUNED,,removed=2 kept<= 7
+2026-09-11T18:44:04.185544,IMAGE_FETCH_FAILED,,iskcon_bangalore:no-candidate
+2026-09-11T18:44:04.192813,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-09
+2026-09-11T18:44:22.638853,IMAGE_FETCH_FAILED,,swaminarayan:no-candidate
+2026-09-11T18:44:22.646716,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-10
+2026-09-11T18:44:27.241560,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T18:44:40.250907,IMAGE_FETCH_SUCCESS,,iskcon_hyderabad:795d84585fbef34f6590f50d95714a4141f413d2db374fc3dea88d03cef9ff36
+2026-09-11T18:44:48.878891,IMAGE_FETCH_FAILED,,iskcon_mumbai:no-candidate
+2026-09-11T18:44:49.694309,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
+2026-09-11T18:44:49.912927,IMAGE_FETCH_FAILED,,iskcon_hyderabad:no-candidate
+2026-09-11T18:44:49.919621,IMAGE_FALLBACK_AVAILABLE,,docs/images/fallback.jpg:All image sources failed for 2026-09-12
 2026-09-12T03:37:21.091685,IMAGE_FETCH_FAILED,,iskcon_mumbai:no-candidate
 2026-09-12T03:37:23.091478,IMAGE_FETCH_FAILED,,iskcon_vrindavan:no-candidate
 2026-09-12T03:37:23.232745,IMAGE_FETCH_FAILED,,iskcon_hyderabad:no-candidate
