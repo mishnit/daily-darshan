@@ -3,8 +3,10 @@ import io
 
 import pytest
 
+from adapters.repo_sync import RepoSync
 from application.semantic_csv_merge import (
     SemanticMergeConflict,
+    decode,
     merge_append_only,
     merge_keyed,
 )
@@ -61,6 +63,73 @@ def test_remote_retention_deletion_is_honored_when_memory_is_unchanged(monkeypat
     )
 
     assert repo.all() == []
+
+
+def test_batch_snapshot_cannot_delete_actions_image_candidate_after_merge_and_flush(
+        monkeypatch, tmp_path):
+    """Regression for production commit 78404b9's deleted pending candidate."""
+    fields = ["id", "date", "status", "queued_at"]
+    path = "csv/image_reviews.csv"
+    candidate = {
+        "id": "483ea394c2e94d5aac78db84ca688ee9",
+        "date": "2026-10-12",
+        "status": "PENDING",
+        "queued_at": "2026-10-12T11:00:51.812002+05:30",
+    }
+    historical = {
+        "id": "older", "date": "2026-10-11", "status": "APPROVED", "queued_at": "",
+    }
+    remote = encoded(fields, [historical, candidate])
+
+    class Remote:
+        def __init__(self):
+            self.content = remote
+            self.writes = []
+
+        def begin_snapshot(self):
+            return None
+
+        def read_file(self, _path):
+            return self.content
+
+        def write_file(self, _path, content, _message):
+            self.content = content
+            self.writes.append(content)
+
+        def commit(self, _files, _message):
+            return None
+
+    monkeypatch.setenv("WEBHOOK_SINGLE_WRITER", "true")
+    full = tmp_path / path
+    full.parent.mkdir(parents=True)
+    full.write_bytes(encoded(fields, [historical]))
+    canonical = CSVRepository(str(full), fields, "id")
+    stale_writer = CSVRepository(str(full), fields, "id")
+    remote_store = Remote()
+    sync = RepoSync(
+        remote_store, str(tmp_path), [path], True,
+        preserve_remote_csv_keys={path: ("id",)},
+    )
+    sync.accept_remote(path, remote)
+
+    # Normal semantic reconciliation sees the Actions-created candidate.
+    merge_keyed(
+        canonical, remote, remote, key_fields=("id",),
+        status_field="status", monotonic_status=False,
+    )
+    canonical.flush_memory()
+
+    # Reproduce the production hazard: a stale registered cache flushes after
+    # reconciliation and rewrites the file without today's candidate.
+    stale_writer.replace_memory_rows([historical], dirty=True)
+    stale_writer.flush_memory()
+    assert candidate["id"].encode() not in full.read_bytes()
+
+    sync.push("Batch webhook snapshot")
+
+    persisted = decode(remote_store.content)
+    assert {row["id"] for row in persisted} == {"older", candidate["id"]}
+    assert decode(full.read_bytes()) == persisted
 
 
 def test_delivery_status_progresses_monotonically(monkeypatch, tmp_path):

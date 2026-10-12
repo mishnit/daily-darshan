@@ -216,7 +216,12 @@ class Container:
             paths.get("referrals_csv", "csv/referrals.csv"),
             paths.get("karma_events_csv", "csv/karma_events.csv"),
         ]
-        return RepoSync(github, self.root, tracked, enabled)
+        return RepoSync(
+            github, self.root, tracked, enabled,
+            preserve_remote_csv_keys={
+                paths.get("image_reviews_csv", "csv/image_reviews.csv"): ("id",),
+            },
+        )
 
     def _build_validator(self) -> ImageValidator:
         v = self.config.get("image_validation", {})

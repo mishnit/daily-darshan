@@ -746,6 +746,8 @@ def test_container_reposync_enabled_with_env(tmp_path, monkeypatch):
     cfg = _min_config(tmp_path, persistence={"mode": "github_api"})
     c = Container(config=cfg, root=str(tmp_path))
     assert c.repo_sync.enabled is True
+    image_reviews = cfg["paths"].get("image_reviews_csv", "csv/image_reviews.csv")
+    assert c.repo_sync._preserve_remote_csv_keys[image_reviews] == ("id",)
 
 
 def _min_config(tmp_path, persistence=None):

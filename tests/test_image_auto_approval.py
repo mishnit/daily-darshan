@@ -66,6 +66,20 @@ def test_timeout_auto_approves_highest_resolution_and_queues_pipeline(container)
     assert request and "auto-approved" in request["reason"]
 
 
+def test_fifteen_minute_config_approves_at_deadline_without_recovery(container):
+    container.config["admin"] = {
+        "require_image_approval": True,
+        "image_auto_approval_minutes": 15,
+    }
+    _candidate(container, "due", "due", (1200, 1200), NOW - timedelta(minutes=15))
+
+    selected = auto_approve_due(container, DAY, now=NOW)
+
+    assert selected is not None
+    assert selected["id"] == "due"
+    assert selected["status"] == "APPROVED"
+
+
 def test_existing_manual_approval_is_never_replaced(container):
     container.config["admin"] = {
         "require_image_approval": True,
@@ -91,4 +105,5 @@ def test_daily_image_workflow_waits_then_runs_auto_approval_gate():
     assert 'sleep "$WAIT_SECONDS"' in workflow
     assert "python -m application.image_approval --auto-approve-due" in workflow
     assert "python -m application.admin_alert image_auto_approved" in workflow
-
+    assert "needs: [image, approval-wait]" in workflow
+    assert "daily-recovery.yml" not in workflow
