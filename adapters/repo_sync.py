@@ -21,6 +21,8 @@ directly), this is a no-op so existing behaviour and tests are unchanged.
 """
 from __future__ import annotations
 
+import csv
+import io
 import os
 
 from application.ports.storage import GitHubRepositoryPort
@@ -35,6 +37,7 @@ class RepoSync:
         root: str,
         tracked_files: list[str],
         enabled: bool,
+        preserve_remote_csv_keys: dict[str, tuple[str, ...]] | None = None,
     ):
         self._github = github
         self._root = root
@@ -44,6 +47,12 @@ class RepoSync:
         self._dirty: set[str] = set()
         self._baseline: dict[str, bytes | None] = {}
         self._snapshot_ready = False
+        # Some ledgers are append/update-only for this service.  A periodic
+        # snapshot must never interpret absence from stale process memory as
+        # authority to delete rows that still exist at the accepted remote
+        # baseline.  Keys are configured explicitly so retention-managed CSVs
+        # continue to support legitimate deletion.
+        self._preserve_remote_csv_keys = preserve_remote_csv_keys or {}
 
     def _abs(self, rel: str) -> str:
         return os.path.join(self._root, rel)
@@ -125,6 +134,7 @@ class RepoSync:
                 continue
             with open(full, "rb") as fh:
                 content = fh.read()
+            content = self._restore_preserved_remote_rows(rel, content)
             if rel in self._baseline and content == self._baseline[rel] and rel not in self._dirty:
                 continue
             try:
@@ -156,6 +166,45 @@ class RepoSync:
             with open(self._abs(rel), "rb") as source:
                 self._baseline[rel] = source.read()
         return pushed
+
+    def _restore_preserved_remote_rows(self, rel: str, content: bytes) -> bytes:
+        """Restore remotely present keyed rows omitted by stale local memory.
+
+        Semantic reconciliation normally updates the canonical in-memory
+        repository before it is flushed.  This is the final persistence
+        barrier: even if another stale cache rewrites the file between merge
+        and push, an accepted remote image-review row cannot be deleted by a
+        periodic Render snapshot.
+        """
+        key_fields = self._preserve_remote_csv_keys.get(rel)
+        baseline = self._baseline.get(rel)
+        if not key_fields or not baseline:
+            return content
+        try:
+            remote_reader = csv.DictReader(io.StringIO(baseline.decode("utf-8")), escapechar="\\")
+            local_reader = csv.DictReader(io.StringIO(content.decode("utf-8")), escapechar="\\")
+            remote_rows = list(remote_reader)
+            local_rows = list(local_reader)
+            fieldnames = local_reader.fieldnames or remote_reader.fieldnames
+            if not fieldnames or any(field not in fieldnames for field in key_fields):
+                raise RuntimeError(f"Protected CSV has no usable key columns: {rel}")
+            identity = lambda row: tuple(row.get(field, "") for field in key_fields)
+            local_keys = {identity(row) for row in local_rows}
+            missing = [row for row in remote_rows if identity(row) not in local_keys]
+        except (UnicodeDecodeError, csv.Error) as exc:
+            # Fail closed: malformed local bytes must never bypass the row
+            # preservation barrier and become an authoritative deletion.
+            raise RuntimeError(f"Cannot validate protected CSV before push: {rel}") from exc
+        if not missing:
+            return content
+        output = io.StringIO(newline="")
+        writer = csv.DictWriter(output, fieldnames=fieldnames, escapechar="\\")
+        writer.writeheader()
+        writer.writerows(local_rows + missing)
+        restored = output.getvalue().encode("utf-8")
+        with open(self._abs(rel), "wb") as target:
+            target.write(restored)
+        return restored
 
     def read_latest(self, rel: str) -> tuple[bytes | None, bytes | None]:
         """Return the previous baseline and this file at the latest head."""
