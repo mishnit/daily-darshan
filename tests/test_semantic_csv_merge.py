@@ -132,6 +132,41 @@ def test_batch_snapshot_cannot_delete_actions_image_candidate_after_merge_and_fl
     assert decode(full.read_bytes()) == persisted
 
 
+def test_batch_snapshot_cannot_revert_approved_image_to_pending(tmp_path):
+    """Regression for snapshot 9fe8307 after auto-approval 5c7d83d."""
+    fields = ["id", "date", "status", "queued_at", "approved_by", "approved_at", "approval_mode"]
+    path = "csv/image_reviews.csv"
+    pending = {"id": "8bb17b126d5c49c8bfea34e7320302d0", "date": "2026-10-13",
+               "status": "PENDING", "queued_at": "2026-10-13T11:01:02+05:30",
+               "approved_by": "", "approved_at": "", "approval_mode": ""}
+    approved = dict(pending, status="APPROVED", approved_by="system:image_auto_approved",
+                    approved_at="2026-10-13T11:16:18+05:30", approval_mode="AUTO_TIMEOUT")
+
+    class Remote:
+        content = encoded(fields, [approved])
+
+        def write_file(self, _path, content, _message):
+            self.content = content
+
+        def commit(self, _files, _message):
+            pass
+
+    remote = Remote()
+    full = tmp_path / path
+    full.parent.mkdir(parents=True)
+    full.write_bytes(encoded(fields, [pending]))
+    sync = RepoSync(remote, str(tmp_path), [path], True,
+                    preserve_remote_csv_keys={path: ("id",)},
+                    preserve_remote_csv_status_ranks={path: {
+                        "PENDING": 0, "SUPERSEDED": 1, "APPROVED": 2,
+                    }})
+    sync.accept_remote(path, remote.content)
+    sync.push("Batch webhook snapshot")
+
+    assert decode(remote.content) == [approved]
+    assert decode(full.read_bytes()) == [approved]
+
+
 def test_delivery_status_progresses_monotonically(monkeypatch, tmp_path):
     fields = ["id", "whatsapp_message_id", "status"]
     repo = repository(monkeypatch, tmp_path, fields)

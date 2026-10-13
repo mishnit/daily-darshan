@@ -221,6 +221,11 @@ class Container:
             preserve_remote_csv_keys={
                 paths.get("image_reviews_csv", "csv/image_reviews.csv"): ("id",),
             },
+            preserve_remote_csv_status_ranks={
+                paths.get("image_reviews_csv", "csv/image_reviews.csv"): {
+                    "PENDING": 0, "SUPERSEDED": 1, "APPROVED": 2,
+                },
+            },
         )
 
     def _build_validator(self) -> ImageValidator:

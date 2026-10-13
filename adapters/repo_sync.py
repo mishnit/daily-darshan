@@ -38,6 +38,7 @@ class RepoSync:
         tracked_files: list[str],
         enabled: bool,
         preserve_remote_csv_keys: dict[str, tuple[str, ...]] | None = None,
+        preserve_remote_csv_status_ranks: dict[str, dict[str, int]] | None = None,
     ):
         self._github = github
         self._root = root
@@ -53,6 +54,7 @@ class RepoSync:
         # baseline.  Keys are configured explicitly so retention-managed CSVs
         # continue to support legitimate deletion.
         self._preserve_remote_csv_keys = preserve_remote_csv_keys or {}
+        self._preserve_remote_csv_status_ranks = preserve_remote_csv_status_ranks or {}
 
     def _abs(self, rel: str) -> str:
         return os.path.join(self._root, rel)
@@ -189,13 +191,26 @@ class RepoSync:
             if not fieldnames or any(field not in fieldnames for field in key_fields):
                 raise RuntimeError(f"Protected CSV has no usable key columns: {rel}")
             identity = lambda row: tuple(row.get(field, "") for field in key_fields)
-            local_keys = {identity(row) for row in local_rows}
-            missing = [row for row in remote_rows if identity(row) not in local_keys]
+            local_by_key = {identity(row): row for row in local_rows}
+            ranks = self._preserve_remote_csv_status_ranks.get(rel, {})
+            missing = []
+            restored_status = False
+            for remote_row in remote_rows:
+                key = identity(remote_row)
+                local_row = local_by_key.get(key)
+                if local_row is None:
+                    missing.append(remote_row)
+                elif ranks.get(remote_row.get("status", ""), 0) > ranks.get(
+                    local_row.get("status", ""), 0
+                ):
+                    # Keep the status and its approval metadata together.
+                    local_row.update(remote_row)
+                    restored_status = True
         except (UnicodeDecodeError, csv.Error) as exc:
             # Fail closed: malformed local bytes must never bypass the row
             # preservation barrier and become an authoritative deletion.
             raise RuntimeError(f"Cannot validate protected CSV before push: {rel}") from exc
-        if not missing:
+        if not missing and not restored_status:
             return content
         output = io.StringIO(newline="")
         writer = csv.DictWriter(output, fieldnames=fieldnames, escapechar="\\")
