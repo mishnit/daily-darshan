@@ -48,11 +48,11 @@ class RepoSync:
         self._dirty: set[str] = set()
         self._baseline: dict[str, bytes | None] = {}
         self._snapshot_ready = False
-        # Some ledgers are append/update-only for this service.  A periodic
-        # snapshot must never interpret absence from stale process memory as
-        # authority to delete rows that still exist at the accepted remote
-        # baseline.  Keys are configured explicitly so retention-managed CSVs
-        # continue to support legitimate deletion.
+        # Some ledgers are append/update-only for this service. A periodic
+        # snapshot must not interpret absence from stale process memory as
+        # authority to delete rows at the accepted remote baseline. GitHub
+        # Actions remains the retention authority: rows already pruned from
+        # that baseline are not restored.
         self._preserve_remote_csv_keys = preserve_remote_csv_keys or {}
         self._preserve_remote_csv_status_ranks = preserve_remote_csv_status_ranks or {}
 
@@ -175,8 +175,8 @@ class RepoSync:
         Semantic reconciliation normally updates the canonical in-memory
         repository before it is flushed.  This is the final persistence
         barrier: even if another stale cache rewrites the file between merge
-        and push, an accepted remote image-review row cannot be deleted by a
-        periodic Render snapshot.
+        and push, an accepted remote review or contact-slot row cannot be
+        deleted by a periodic Render snapshot.
         """
         key_fields = self._preserve_remote_csv_keys.get(rel)
         baseline = self._baseline.get(rel)
@@ -203,7 +203,7 @@ class RepoSync:
                 elif ranks.get(remote_row.get("status", ""), 0) > ranks.get(
                     local_row.get("status", ""), 0
                 ):
-                    # Keep the status and its approval metadata together.
+                    # Keep the status and its provider/approval metadata together.
                     local_row.update(remote_row)
                     restored_status = True
         except (UnicodeDecodeError, csv.Error) as exc:

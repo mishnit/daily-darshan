@@ -220,10 +220,16 @@ class Container:
             github, self.root, tracked, enabled,
             preserve_remote_csv_keys={
                 paths.get("image_reviews_csv", "csv/image_reviews.csv"): ("id",),
+                paths["sentlog_csv"]: ("date", "mobile"),
             },
             preserve_remote_csv_status_ranks={
                 paths.get("image_reviews_csv", "csv/image_reviews.csv"): {
                     "PENDING": 0, "SUPERSEDED": 1, "APPROVED": 2,
+                },
+                paths["sentlog_csv"]: {
+                    "": 0, "QUEUED": 0, "PENDING": 0,
+                    "UNKNOWN": 1, "FAILED": 1, "SENT": 2,
+                    "DELIVERED": 3, "READ": 4, "CANCELLED": 4,
                 },
             },
         )

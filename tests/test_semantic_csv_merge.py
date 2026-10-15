@@ -167,6 +167,86 @@ def test_batch_snapshot_cannot_revert_approved_image_to_pending(tmp_path):
     assert decode(full.read_bytes()) == [approved]
 
 
+def test_batch_snapshot_cannot_delete_sent_contact_slots_after_merge_and_flush(
+        monkeypatch, tmp_path):
+    """Regression for the 14 October snapshot that enabled a second delivery."""
+    fields = ["date", "mobile", "image", "whatsapp_message_id", "status"]
+    path = "csv/sentlog.csv"
+    first = {"date": "2026-10-14", "mobile": "919108711599", "image": "https://vipseva.com/a",
+             "whatsapp_message_id": "wamid.first", "status": "SENT"}
+    second = dict(first, mobile="919535507255", image="https://vipseva.com/b",
+                  whatsapp_message_id="wamid.second")
+    remote_bytes = encoded(fields, [first, second])
+
+    class Remote:
+        content = remote_bytes
+
+        def write_file(self, _path, content, _message):
+            self.content = content
+
+        def commit(self, _files, _message):
+            pass
+
+    monkeypatch.setenv("WEBHOOK_SINGLE_WRITER", "true")
+    full = tmp_path / path
+    full.parent.mkdir(parents=True)
+    full.write_bytes(encoded(fields, []))
+    canonical = CSVRepository(str(full), fields, "mobile")
+    stale_writer = CSVRepository(str(full), fields, "mobile")
+    remote = Remote()
+    sync = RepoSync(remote, str(tmp_path), [path], True,
+                    preserve_remote_csv_keys={path: ("date", "mobile")},
+                    preserve_remote_csv_status_ranks={path: {
+                        "PENDING": 0, "FAILED": 1, "SENT": 2,
+                        "DELIVERED": 3, "READ": 4,
+                    }})
+    sync.accept_remote(path, remote_bytes)
+
+    merge_keyed(canonical, remote_bytes, remote_bytes,
+                key_fields=("date", "mobile"), status_field="status")
+    canonical.flush_memory()
+    stale_writer.replace_memory_rows([], dirty=True)
+    stale_writer.flush_memory()
+    assert first["date"].encode() not in full.read_bytes()
+
+    sync.push("Batch webhook snapshot")
+
+    assert decode(remote.content) == [first, second]
+    assert decode(full.read_bytes()) == [first, second]
+
+
+def test_batch_snapshot_cannot_downgrade_delivered_contact_slot(tmp_path):
+    fields = ["date", "mobile", "image", "whatsapp_message_id", "status"]
+    path = "csv/sentlog.csv"
+    delivered = {"date": "2026-10-14", "mobile": "919108711599", "image": "page",
+                 "whatsapp_message_id": "wamid.delivered", "status": "DELIVERED"}
+    stale = dict(delivered, whatsapp_message_id="reservation:old", status="PENDING")
+
+    class Remote:
+        content = encoded(fields, [delivered])
+
+        def write_file(self, _path, content, _message):
+            self.content = content
+
+        def commit(self, _files, _message):
+            pass
+
+    full = tmp_path / path
+    full.parent.mkdir(parents=True)
+    full.write_bytes(encoded(fields, [stale]))
+    remote = Remote()
+    sync = RepoSync(remote, str(tmp_path), [path], True,
+                    preserve_remote_csv_keys={path: ("date", "mobile")},
+                    preserve_remote_csv_status_ranks={path: {
+                        "PENDING": 0, "SENT": 2, "DELIVERED": 3,
+                    }})
+    sync.accept_remote(path, remote.content)
+    sync.push("Batch webhook snapshot")
+
+    assert decode(remote.content) == [delivered]
+    assert decode(full.read_bytes()) == [delivered]
+
+
 def test_delivery_status_progresses_monotonically(monkeypatch, tmp_path):
     fields = ["id", "whatsapp_message_id", "status"]
     repo = repository(monkeypatch, tmp_path, fields)
