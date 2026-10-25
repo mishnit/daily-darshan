@@ -1,9 +1,7 @@
 name: Daily Delivery Deadline Alert
 
 on:
-  schedule:
-    # 13:00 IST; GitHub may start scheduled jobs a few minutes late.
-    - cron: "30 7 * * *"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
