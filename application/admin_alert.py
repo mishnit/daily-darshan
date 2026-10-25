@@ -3,11 +3,12 @@ import argparse
 import csv
 import json
 import os
+from datetime import datetime, time
 from pathlib import Path
 
 from adapters.whatsapp import MetaWhatsAppClient
 from application.admin_whatsapp import admin_numbers
-from domain.clock import today_ist
+from domain.clock import INDIA_TZ, today_ist
 
 
 def payment_counts(rows, today):
@@ -17,9 +18,34 @@ def payment_counts(rows, today):
     return len(review), len(missing)
 
 
+def delivery_confirmation_counts(subscribers, sentlog_rows, on_date):
+    """Count eligible users and provider-confirmed daily contacts for a date."""
+    eligible = {sub.mobile for sub in subscribers if sub.is_deliverable(on_date)}
+    confirmed = {
+        row.get("mobile") for row in sentlog_rows
+        if row.get("date") == on_date.isoformat()
+        and row.get("status") in {"DELIVERED", "READ"}
+    }
+    return len(eligible), len(eligible & confirmed)
+
+
+def delivery_missing_status(container, now):
+    """Return an alert only when nobody has confirmed delivery after 13:00 IST."""
+    local_now = now.astimezone(INDIA_TZ)
+    if local_now.time() < time(13, 0):
+        return None
+    eligible, confirmed = delivery_confirmation_counts(
+        container.subscribers.all(), container.sentlog.all(), local_now.date(),
+    )
+    if not eligible or confirmed:
+        return None
+    return (f"No Daily Darshan delivery confirmed for {eligible} eligible subscriber(s) "
+            f"by 13:00 IST on {local_now.date().isoformat()}. Check image, pages and delivery runs.")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("kind", choices=["payments", "images", "image_auto_approved"])
+    parser.add_argument("kind", choices=["payments", "images", "image_auto_approved", "delivery_missing"])
     args = parser.parse_args(argv)
     if args.kind == "payments":
         with Path("csv/payments.csv").open(newline="") as fh:
@@ -30,7 +56,7 @@ def main(argv=None):
         status = f"{review} confirmed UTR(s) to review; {missing} awaiting UTR. Reply ADMIN to review"
     elif args.kind == "images":
         status = "Images awaiting source selection. Reply ADMIN to preview and approve today's image"
-    else:
+    elif args.kind == "image_auto_approved":
         with Path("csv/image_reviews.csv").open(newline="") as fh:
             rows = [row for row in csv.DictReader(fh)
                     if row.get("date") == today_ist().isoformat()
@@ -43,13 +69,20 @@ def main(argv=None):
         minutes = int(config.get("admin", {}).get("image_auto_approval_minutes", 30))
         status = (f"image_auto_approved: {rows[0]['source']} selected after the "
                   f"{minutes}-minute review window")
+    else:
+        from config import Container
+        status = delivery_missing_status(Container(), datetime.now(INDIA_TZ))
+        if status is None:
+            print("No missing-delivery alert is due")
+            return 0
     numbers = admin_numbers()
     if not numbers:
         raise RuntimeError("WHATSAPP_ADMIN_NUMBERS must identify a separate authorized admin WhatsApp account")
     client = MetaWhatsAppClient()
     for number in sorted(numbers):
         result = client.send_template_params(number, "daily_darshan_ops_alert",
-            ["Payment review" if args.kind == "payments" else "Daily image review", status],
+            ["Payment review" if args.kind == "payments" else
+             "Daily delivery" if args.kind == "delivery_missing" else "Daily image review", status],
             lang="en", url_button_param=os.environ["GITHUB_RUN_ID"])
         if not result.ok:
             raise RuntimeError("Admin alert was not accepted; inspect the workflow and send ADMIN manually")
