@@ -141,7 +141,7 @@
     "thursday": ["iskcon_hyderabad", "mayapur"],
     "friday": ["iskcon_vrindavan", "mahakal"],
     "saturday": ["iskcon_mumbai", "salangpur"],
-    "sunday": ["mayapur", "iskcon_bangalore"]
+    "sunday": ["mayapur", "iskcon_bangalore", "iskcon_mumbai"]
   },
   "image_selection": {
     "mode": "first_valid"
